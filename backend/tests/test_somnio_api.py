@@ -6,7 +6,8 @@ import requests
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or os.environ.get("EXPO_BACKEND_URL")
 if not BASE_URL:
     # fall back to frontend .env
-    import pathlib, re
+    import pathlib
+    import re
     env_file = pathlib.Path("/app/frontend/.env").read_text()
     m = re.search(r"EXPO_PUBLIC_BACKEND_URL=(\S+)", env_file)
     BASE_URL = m.group(1) if m else None
