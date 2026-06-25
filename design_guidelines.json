@@ -1,0 +1,106 @@
+{
+  "app_name": "Somnio Atelier",
+  "theme": "Dark",
+  "archetype": "5 (Luxury)",
+  "color_palette": {
+    "background": "#0A0A0A",
+    "surface": "#1A1A1A",
+    "surface_elevated": "#242424",
+    "primary": "#D4AF37",
+    "secondary": "#A67C52",
+    "text_primary": "#F5F5F5",
+    "text_secondary": "#A3A3A3",
+    "border": "#333333",
+    "success": "#2E4C3B",
+    "error": "#5C2B2B"
+  },
+  "typography": {
+    "heading_font": "Cormorant Garamond",
+    "body_font": "Manrope",
+    "scale": {
+      "h1": "text-4xl tracking-tight leading-none",
+      "h2": "text-3xl tracking-tight",
+      "h3": "text-xl",
+      "h4": "text-lg uppercase tracking-widest",
+      "body": "text-base leading-relaxed",
+      "caption": "text-sm tracking-wide text-[#A3A3A3]"
+    }
+  },
+  "spacing_and_layout": {
+    "global_padding": "p-6",
+    "card_spacing": "mb-4",
+    "gap_standard": "gap-4",
+    "border_radius": {
+      "buttons": "rounded-sm",
+      "cards": "rounded-none",
+      "images": "rounded-sm"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#D4AF37] flex items-center justify-center py-4 px-6 rounded-sm",
+      "primary_text": "text-[#0A0A0A] font-semibold uppercase tracking-widest text-sm",
+      "secondary": "border border-[#D4AF37] flex items-center justify-center py-4 px-6 rounded-sm",
+      "secondary_text": "text-[#D4AF37] font-semibold uppercase tracking-widest text-sm",
+      "disabled": "opacity-50"
+    },
+    "cards": {
+      "default": "bg-[#1A1A1A] border border-[#333333] p-6 rounded-none"
+    },
+    "inputs": {
+      "container": "border-b border-[#333333] py-3",
+      "text": "text-[#F5F5F5] text-base"
+    },
+    "stepper": {
+      "container": "flex flex-col border-l border-[#333333] ml-3",
+      "step_active": "relative -left-[5px] w-2.5 h-2.5 bg-[#D4AF37] rounded-full",
+      "step_inactive": "relative -left-[5px] w-2.5 h-2.5 bg-[#333333] rounded-full"
+    }
+  },
+  "screen_layouts": {
+    "login": {
+      "description": "Elegant splash background with Somnio Atelier logo. Form for role selection and login.",
+      "layout_rules": "Full screen image background with dark gradient overlay (bg-black/60). Form items stacked vertically."
+    },
+    "dashboard": {
+      "description": "Role-based entry point (Admin, Manufacturer, Associate, Client). Displays high-level stats and assigned/pending jobs.",
+      "layout_rules": "Top header with user profile & role. Section titles in uppercase serif. Flat cards for job items."
+    },
+    "job_detail": {
+      "description": "The core 26-step tracking interface. Organized in 5 collapsible accordion phases.",
+      "layout_rules": "Sticky header with Job ID and high-level progress bar. Scrollable body with phase headers and vertical stepper for steps."
+    },
+    "step_action_modal": {
+      "description": "Screen/Modal for a specific step to upload photos, add notes, and view timestamps.",
+      "layout_rules": "Dark matte surface. Clean file upload dropzone. Full width primary button to Mark as Complete."
+    }
+  },
+  "media_urls": {
+    "login_background": {
+      "url": "https://images.pexels.com/photos/6263069/pexels-photo-6263069.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Jeweler meticulously working on a necklace, perfect for login screen background.",
+      "category": "background"
+    },
+    "client_view_hero": {
+      "url": "https://images.pexels.com/photos/8281878/pexels-photo-8281878.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Close-up of luxury silver rings with blue gemstones.",
+      "category": "hero"
+    },
+    "phase_origins_sketch": {
+      "url": "https://images.unsplash.com/photo-1777126413571-8ec9bf884245?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwyfHxqZXdlbHJ5JTIwc2tldGNofGVufDB8fHx8MTc4MjM2NjE3NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Gold jewelry set with design sketch.",
+      "category": "asset"
+    }
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native Expo app. Please ensure you configure routing via Expo Router.",
+    "Nativewind is expected for styling; map the provided tailwind classes appropriately.",
+    "Implement Role-Based Access Control logic for the 4 roles: Admin, Manufacturer, Associate, Client.",
+    "The 26 steps should be grouped exactly as requested into Phase I to V.",
+    "All timestamps for completed steps must be converted and displayed in China/Shanghai timezone (CST) as requested.",
+    "Admin area should exclusively allow uploading shipping airway bills and customs documents for step 24-26.",
+    "Ensure all interactive elements have data-testid attributes.",
+    "Ensure image uploads are mocked or use device storage/camera capabilities cleanly.",
+    "Avoid generic SaaS UI; stick strictly to the dark/gold luxury aesthetic outlined."
+  ]
+}
