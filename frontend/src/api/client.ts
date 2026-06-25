@@ -142,6 +142,22 @@ export const api = {
     }),
   migratePhotos: (limit = 0) =>
     request<any>(`/admin/photos/migrate${limit ? `?limit=${limit}` : ""}`, { method: "POST" }),
+  // ---- Photo approval queue ----
+  listPendingPhotos: () => request<any>(`/photos/pending`, { method: "GET" }),
+  listRecycledPhotos: () => request<any>(`/photos/recycled`, { method: "GET" }),
+  approvePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
+    request<any>(`/photos/approve`, { method: "POST", body: JSON.stringify(body) }),
+  holdPhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
+    request<any>(`/photos/hold`, { method: "POST", body: JSON.stringify(body) }),
+  rejectPhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
+    request<any>(`/photos/reject`, { method: "POST", body: JSON.stringify(body) }),
+  reinstatePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
+    request<any>(`/photos/reinstate`, { method: "POST", body: JSON.stringify(body) }),
+  purgeExpiredPhotos: () => request<any>(`/photos/purge`, { method: "POST" }),
+  // ---- Admin settings (feature flags) ----
+  getAppSettings: () => request<any>(`/admin/settings`, { method: "GET" }),
+  updateAppSettings: (body: { associate_approval_enabled?: boolean }) =>
+    request<any>(`/admin/settings`, { method: "PUT", body: JSON.stringify(body) }),
   // ---- Manual language preference ----
   setMyLanguage: (language: string | null) =>
     request<User>("/users/me/language", {

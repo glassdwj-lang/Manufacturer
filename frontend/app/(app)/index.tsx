@@ -32,6 +32,7 @@ export default function HomeScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [approvalsCount, setApprovalsCount] = useState(0);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -51,13 +52,23 @@ export default function HomeScreen() {
     try {
       const list = await api.listOrders();
       setOrders(list);
+      if (user && (user.role === "admin" || user.role === "associate")) {
+        try {
+          const q = await api.listPendingPhotos();
+          setApprovalsCount(q.pending_count || 0);
+        } catch {
+          setApprovalsCount(0);
+        }
+      } else {
+        setApprovalsCount(0);
+      }
     } catch (e) {
       console.warn("load orders", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   const bulkDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -124,6 +135,25 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      {user.role === "associate" && (
+        <View style={styles.adminLinks}>
+          <TouchableOpacity
+            testID="approvals-button-assoc"
+            style={styles.linkBtn}
+            onPress={() => router.push("/(app)/approvals")}
+          >
+            <Ionicons name="shield-checkmark-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>MEDIA APPROVALS</Text>
+            {approvalsCount > 0 && (
+              <View style={styles.approvalsBadge}>
+                <Text style={styles.approvalsBadgeText}>{approvalsCount}</Text>
+              </View>
+            )}
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.statsRow}>
         <Stat label={t("home.stat.active")} value={String(orders.filter((o) => o.status === "in_progress").length)} />
         <Stat label={t("home.stat.completed")} value={String(orders.filter((o) => o.status === "completed").length)} />
@@ -144,8 +174,22 @@ export default function HomeScreen() {
       {user.role === "admin" && (
         <View style={styles.adminLinks}>
           <TouchableOpacity
-            testID="manage-users-button"
+            testID="approvals-button"
             style={styles.linkBtn}
+            onPress={() => router.push("/(app)/approvals")}
+          >
+            <Ionicons name="shield-checkmark-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>MEDIA APPROVALS</Text>
+            {approvalsCount > 0 && (
+              <View style={styles.approvalsBadge}>
+                <Text style={styles.approvalsBadgeText}>{approvalsCount}</Text>
+              </View>
+            )}
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="manage-users-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
             onPress={() => router.push("/(app)/users")}
           >
             <Ionicons name="people-outline" size={16} color={theme.primary} />
@@ -411,7 +455,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   ctaText: { color: "#0A0A0A", fontSize: 12, letterSpacing: 3, fontWeight: "700" },
-  adminLinks: { marginBottom: spacing.lg },
+  adminLinks: { marginBottom: spacing.lg, gap: 0 },
   linkBtn: {
     borderWidth: 1,
     borderColor: theme.border,
@@ -422,6 +466,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   linkBtnText: { color: theme.textPrimary, fontSize: 12, letterSpacing: 2, flex: 1 },
+  approvalsBadge: {
+    backgroundColor: theme.primary,
+    borderRadius: 999,
+    minWidth: 22,
+    height: 18,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  approvalsBadgeText: { color: "#0A0A0A", fontSize: 10, fontWeight: "700" },
   orderCard: {
     backgroundColor: theme.surface,
     borderWidth: 1,

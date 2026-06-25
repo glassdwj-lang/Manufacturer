@@ -70,7 +70,18 @@ class OrderCreate(BaseModel):
 
 class StepUpdate(BaseModel):
     notes: Optional[str] = ""
-    photos: Optional[List[str]] = []  # base64 strings
+    photos: Optional[List[str]] = []  # Live (approved) photos / Cloudinary URLs
+    pending_photos: Optional[List[str]] = None  # Awaiting approval queue
+
+
+class PhotoApprovalAction(BaseModel):
+    order_id: str
+    step_number: int
+    photo_url: str
+
+
+class SettingsPatch(BaseModel):
+    associate_approval_enabled: Optional[bool] = None
 
 
 class ForwardUpdate(BaseModel):

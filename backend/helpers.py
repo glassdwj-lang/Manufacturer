@@ -212,7 +212,16 @@ def strip_order_for_role(order: dict, user: dict) -> dict:
         visible_steps = []
         for s in o["steps"]:
             if s["completed"] and s.get("forwarded_to_client"):
-                visible_steps.append(s)
+                visible_steps.append(
+                    {
+                        **s,
+                        # Pending / on-hold / rejected media MUST never reach
+                        # the client view — only the approved `photos[]` does.
+                        "pending_photos": [],
+                        "on_hold_photos": [],
+                        "rejected_photos": [],
+                    }
+                )
             else:
                 visible_steps.append(
                     {
@@ -224,6 +233,9 @@ def strip_order_for_role(order: dict, user: dict) -> dict:
                         "notes_translated": s.get("notes_translated", "") if s.get("forwarded_to_client") else "",
                         "notes_target_lang": s.get("notes_target_lang", "") if s.get("forwarded_to_client") else "",
                         "photos": s["photos"] if s.get("forwarded_to_client") else [],
+                        "pending_photos": [],
+                        "on_hold_photos": [],
+                        "rejected_photos": [],
                         "associate_review_note": s.get("associate_review_note", "") if s.get("forwarded_to_client") else "",
                         "associate_review_note_translated": s.get("associate_review_note_translated", "") if s.get("forwarded_to_client") else "",
                     }

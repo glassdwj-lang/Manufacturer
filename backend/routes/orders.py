@@ -242,6 +242,34 @@ async def complete_step(
     china_iso = now_china_iso()
     utc_iso = datetime.now(timezone.utc).isoformat()
 
+    # Photo approval gating: manufacturer-uploaded photos go to a per-step
+    # `pending_photos` queue and are NOT exposed to clients until an admin or
+    # the assigned associate approves them. Admin/associate uploads bypass
+    # the queue and land directly in `photos[]`.
+    existing_step = next(
+        (s for s in (order.get("steps") or []) if s["step_number"] == step_number), {}
+    )
+    existing_live = list(existing_step.get("photos") or [])
+    existing_pending = list(existing_step.get("pending_photos") or [])
+
+    incoming_live = list(body.photos or [])
+    incoming_pending = list(body.pending_photos or [])
+
+    if user["role"] == "manufacturer":
+        # Manufacturers cannot alter live (already-approved) photos: pin them
+        # to whatever the DB currently has. Any "extra" URL the client sent in
+        # `photos` that isn't already approved is treated as a new upload and
+        # routed into the pending queue for review.
+        appended_to_pending = [u for u in incoming_live if u and u not in existing_live]
+        final_live = existing_live
+        final_pending = list(dict.fromkeys(incoming_pending + appended_to_pending))
+    else:
+        # Admin (and any future privileged role): trust the client payload.
+        final_live = incoming_live
+        final_pending = (
+            incoming_pending if body.pending_photos is not None else existing_pending
+        )
+
     update_fields = {
         "steps.$.completed": True,
         "steps.$.completed_at_china": china_iso,
@@ -249,7 +277,8 @@ async def complete_step(
         "steps.$.notes": body.notes or "",
         "steps.$.notes_translated": translated_note,
         "steps.$.notes_target_lang": target_lang if translated_note else "",
-        "steps.$.photos": body.photos or [],
+        "steps.$.photos": final_live,
+        "steps.$.pending_photos": final_pending,
         "steps.$.forwarded_to_client": auto_forward,
         "steps.$.forwarded_at": china_iso if auto_forward else None,
     }
@@ -302,6 +331,22 @@ async def update_completed_step(
         if t:
             translated_note = t
 
+    # Apply the same gating logic as /complete: manufacturer uploads land in
+    # pending_photos, admin uploads land in photos directly.
+    existing_live = list(step.get("photos") or [])
+    existing_pending = list(step.get("pending_photos") or [])
+    incoming_live = list(body.photos or [])
+    incoming_pending = list(body.pending_photos or [])
+    if user["role"] == "manufacturer":
+        appended_to_pending = [u for u in incoming_live if u and u not in existing_live]
+        final_live = existing_live
+        final_pending = list(dict.fromkeys(incoming_pending + appended_to_pending))
+    else:
+        final_live = incoming_live
+        final_pending = (
+            incoming_pending if body.pending_photos is not None else existing_pending
+        )
+
     await db.orders.update_one(
         {"id": order_id, "steps.step_number": step_number},
         {
@@ -309,7 +354,8 @@ async def update_completed_step(
                 "steps.$.notes": body.notes or "",
                 "steps.$.notes_translated": translated_note,
                 "steps.$.notes_target_lang": target_lang if translated_note else "",
-                "steps.$.photos": body.photos or [],
+                "steps.$.photos": final_live,
+                "steps.$.pending_photos": final_pending,
                 "steps.$.updated_at_china": now_china_iso(),
                 "steps.$.updated_by": user["email"],
             }
