@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Order } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
-import { Eyebrow, ProgressBar, PhaseBadge } from "@/src/components/Ui";
+import { Eyebrow, ProgressBar, PhaseBadge, CompletedBadge } from "@/src/components/Ui";
 import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
@@ -344,7 +344,11 @@ function OrderCard({
           </Text>
         </View>
         <View style={styles.orderRightCol}>
-          {currentStep && <PhaseBadge phase={currentStep.phase} />}
+          {currentStep ? (
+            <PhaseBadge phase={currentStep.phase} />
+          ) : (
+            <CompletedBadge label={t("home.card.completed_badge")} />
+          )}
           {selectMode && (
             <View
               style={styles.cardCheckbox}

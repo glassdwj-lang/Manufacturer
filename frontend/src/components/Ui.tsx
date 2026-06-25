@@ -10,20 +10,33 @@ export function PhaseBadge({ phase }: { phase: string }) {
   );
 }
 
+export function CompletedBadge({ label = "COMPLETED" }: { label?: string }) {
+  return (
+    <View style={styles.completedBadge}>
+      <Text style={styles.completedBadgeText}>{label}</Text>
+    </View>
+  );
+}
+
 export function ProgressBar({ current, total }: { current: number; total: number }) {
   // Render `total` discrete segments so the viewer can see exactly which
   // step the commission is at — matches the 26-step provenance journey.
+  // The first unfilled segment ("you-are-here") gets a slightly stronger
+  // outline so the next step stands out at a glance.
   const safeTotal = Math.max(total | 0, 1);
   const safeCurrent = Math.max(Math.min(current | 0, safeTotal), 0);
-  const segments = Array.from({ length: safeTotal }, (_, i) => i < safeCurrent);
   return (
     <View style={styles.progressOuter} testID="progress-bar">
-      {segments.map((filled, i) => (
-        <View
-          key={i}
-          style={[styles.progressSegment, filled ? styles.progressSegmentFilled : styles.progressSegmentEmpty]}
-        />
-      ))}
+      {Array.from({ length: safeTotal }, (_, i) => {
+        const filled = i < safeCurrent;
+        const isNext = !filled && i === safeCurrent;
+        const segmentStyle = filled
+          ? styles.progressSegmentFilled
+          : isNext
+          ? styles.progressSegmentNext
+          : styles.progressSegmentEmpty;
+        return <View key={i} style={[styles.progressSegment, segmentStyle]} />;
+      })}
     </View>
   );
 }
@@ -64,6 +77,20 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     fontWeight: "600",
   },
+  completedBadge: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: theme.success,
+    backgroundColor: "rgba(46, 204, 113, 0.08)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  completedBadgeText: {
+    color: theme.success,
+    fontSize: 10,
+    letterSpacing: 2,
+    fontWeight: "700",
+  },
   progressOuter: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -83,6 +110,13 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: theme.border,
+  },
+  progressSegmentNext: {
+    // "You-are-here" indicator: solid gold outline + soft tint so the next
+    // step pops without breaking the calm line of empty segments.
+    backgroundColor: "rgba(212, 175, 55, 0.16)",
+    borderWidth: 1,
+    borderColor: theme.primary,
   },
   // Retained in case external consumers reference the legacy fill style.
   progressInner: {

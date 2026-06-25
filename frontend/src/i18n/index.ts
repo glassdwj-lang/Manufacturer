@@ -169,6 +169,12 @@ const STRINGS = {
     fr: "Les 26 étapes sont terminées",
     it: "Tutti i 26 passi completati",
   },
+  "home.card.completed_badge": {
+    en: "COMPLETED",
+    zh: "已完成",
+    fr: "TERMINÉ",
+    it: "COMPLETATO",
+  },
 
   // -------- Confirm dialogs --------
   "home.confirm.bulk_title": {
