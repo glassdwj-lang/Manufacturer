@@ -17,6 +17,7 @@ import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { Eyebrow, ProgressBar, PhaseBadge } from "@/src/components/Ui";
 import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
+import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth();
@@ -90,6 +91,13 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
+  // Refresh the orders list when the manual language changes so cached
+  // step titles re-localize without having to navigate away and back.
+  useEffect(() => {
+    if (!loading) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.preferred_language]);
+
   if (!user) return null;
 
   const roleLabel = ROLE_LABELS[user.role] ?? user.role;
@@ -101,9 +109,12 @@ export default function HomeScreen() {
           <Text style={styles.brandMark}>SOMNIO.CO · ATELIER</Text>
           <Text style={styles.welcome}>{roleLabel} · {user.name}</Text>
         </View>
-        <TouchableOpacity testID="logout-button" onPress={signOut} style={styles.iconBtn}>
-          <Ionicons name="log-out-outline" size={22} color={theme.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <LanguageSwitcher />
+          <TouchableOpacity testID="logout-button" onPress={signOut} style={styles.iconBtn}>
+            <Ionicons name="log-out-outline" size={22} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.statsRow}>
@@ -141,6 +152,15 @@ export default function HomeScreen() {
           >
             <Ionicons name="trash-bin-outline" size={16} color={theme.primary} />
             <Text style={styles.linkBtnText}>ATELIER · RECYCLE BIN</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="test-translate-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/test-translate")}
+          >
+            <Ionicons name="language-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>ATELIER · TEST TRANSLATION</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           {flags.enableDebug && (
@@ -352,6 +372,7 @@ const styles = StyleSheet.create({
   header: { marginBottom: spacing.lg },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg },
   brandMark: { color: theme.primary, fontSize: 10, letterSpacing: 3 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   welcome: { color: theme.textPrimary, fontSize: 22, marginTop: 4, fontWeight: "400" },
   iconBtn: { padding: spacing.sm, borderWidth: 1, borderColor: theme.border },
   statsRow: {

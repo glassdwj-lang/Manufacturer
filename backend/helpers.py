@@ -64,6 +64,28 @@ async def _next_manufacturer_alias() -> str:
     return f"Somnio.Co Atelier {n}"
 
 
+SUPPORTED_MANUAL_LANGS = {
+    "en": "English",
+    "zh": "中文",
+    "fr": "Français",
+    "it": "Italiano",
+}
+
+
+def language_for_user(user: dict) -> tuple[str, str]:
+    """Resolve the effective language pack for a viewer.
+
+    Priority: user's manual `preferred_language` → country-derived language.
+    The returned tag is normalized so it always maps onto one of the
+    pre-translated step packs (`en`, `zh`, `fr`, `it`).
+    """
+    pref = (user.get("preferred_language") or "").strip().lower()
+    if pref in SUPPORTED_MANUAL_LANGS:
+        return pref, SUPPORTED_MANUAL_LANGS[pref]
+    country = user.get("country") or "AU"
+    return language_for_country(country)
+
+
 def user_to_public(u: dict) -> dict:
     country = u.get("country") or "AU"
     lang_tag, lang_name = language_for_country(country)
@@ -79,6 +101,7 @@ def user_to_public(u: dict) -> dict:
         "country": country,
         "language": lang_tag,
         "language_name": lang_name,
+        "preferred_language": u.get("preferred_language") or None,
     }
 
 
@@ -104,11 +127,14 @@ def strip_order_for_role(order: dict, user: dict) -> dict:
         alias = o.get("manufacturer_alias") or "Somnio.Co Atelier"
         o["manufacturer_name"] = alias
 
-    # Pick a language pack to localize titles/phase_titles/descriptions
+    # Pick a language pack to localize titles/phase_titles/descriptions.
+    # Effective language now respects the viewer's manual override too — not
+    # just the client's country. This lets associates/admins/manufacturers
+    # who have set `preferred_language` see the same localized step titles
+    # that clients in that language already see.
     pack = None
-    if user["role"] == "client":
-        country = user.get("country") or "AU"
-        lang_tag, _ = language_for_country(country)
+    lang_tag, _ = language_for_user(user)
+    if lang_tag and not lang_tag.lower().startswith("en"):
         pack = STEP_I18N.get(lang_tag)
     if pack:
         step_map = {s["n"]: s for s in pack.get("steps", [])}

@@ -393,6 +393,68 @@ async def forward_step(
     updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
     return strip_order_for_role(updated, user)
 
+@router.post("/orders/{order_id}/steps/{step_number}/translate")
+async def translate_step_note(
+    order_id: str,
+    step_number: int,
+    body: dict,
+    user=Depends(get_current_user),
+):
+    """On-demand translation of a step's note (and any associate review note)
+    into an arbitrary target language. Used by the "Translate to {language}"
+    button when a viewer's manual language pick differs from the language
+    auto-translated at completion time.
+
+    Does NOT mutate the order — returns the translation only.
+    """
+    target = (body.get("target_lang") or "").strip()
+    target_name = (body.get("target_lang_name") or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="target_lang is required")
+    if not target_name:
+        target_name = target.upper()
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if user["role"] == "associate" and order["associate_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if user["role"] == "client" and order["client_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    step = next(
+        (s for s in order["steps"] if s["step_number"] == step_number), None
+    )
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    note = (step.get("notes") or "").strip()
+    review_note = (step.get("associate_review_note") or "").strip()
+
+    note_t = ""
+    review_t = ""
+    if note and not target.lower().startswith("en"):
+        try:
+            note_t = await translate_text(note, target, target_name) or ""
+        except Exception:
+            note_t = ""
+    if review_note and not target.lower().startswith("en"):
+        try:
+            review_t = await translate_text(review_note, target, target_name) or ""
+        except Exception:
+            review_t = ""
+
+    return {
+        "target_lang": target,
+        "target_lang_name": target_name,
+        "notes_translated": note_t or note,
+        "associate_review_note_translated": review_t or review_note,
+    }
+
+
+
 
 @router.put("/orders/{order_id}/customs")
 async def update_customs(

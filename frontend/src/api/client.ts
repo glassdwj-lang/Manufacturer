@@ -131,6 +131,27 @@ export const api = {
     request<Order>(`/orders/${orderId}/steps/${stepNumber}/reopen`, {
       method: "POST",
     }),
+  // ---- Manual language preference ----
+  setMyLanguage: (language: string | null) =>
+    request<User>("/users/me/language", {
+      method: "PUT",
+      body: JSON.stringify({ language }),
+    }),
+  translateStepNote: (
+    orderId: string,
+    stepNumber: number,
+    target_lang: string,
+    target_lang_name: string
+  ) =>
+    request<{
+      target_lang: string;
+      target_lang_name: string;
+      notes_translated: string;
+      associate_review_note_translated: string;
+    }>(`/orders/${orderId}/steps/${stepNumber}/translate`, {
+      method: "POST",
+      body: JSON.stringify({ target_lang, target_lang_name }),
+    }),
   forwardStep: (orderId: string, stepNumber: number, review_note: string) =>
     request<Order>(`/orders/${orderId}/steps/${stepNumber}/forward`, {
       method: "POST",
@@ -194,6 +215,22 @@ export const api = {
     request<{ ok: boolean }>(`/admin/recycle-bin/${orderId}/purge`, {
       method: "DELETE",
     }),
+  testTranslate: (text: string, target_lang: string, target_lang_name: string) =>
+    request<{
+      ok: boolean;
+      source: string;
+      target_lang: string;
+      target_lang_name: string;
+      translation: string;
+      note?: string | null;
+    }>("/admin/test-translate", {
+      method: "POST",
+      body: JSON.stringify({ text, target_lang, target_lang_name }),
+    }),
+  listLanguages: () =>
+    request<
+      { code: string; name: string; language: string; language_name: string }[]
+    >("/admin/test-translate/languages"),
   fetchDigitalDna: async (
     orderId: string,
     opts: { includeNotes?: boolean; includePhotos?: boolean } = {}

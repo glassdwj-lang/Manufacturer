@@ -9,11 +9,82 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from _associate_importer import get_last_run, run_import_and_record
+from _translation import COUNTRY_LIST, language_for_country, translate as translate_text
 from deps import CHINA_TZ, db, require_roles
 from helpers import _next_manufacturer_alias, hash_password, now_china_iso
 from phases import build_initial_steps
+from pydantic import BaseModel
 
 router = APIRouter(tags=["admin"])
+
+
+# ---- Test translation (admin debug, exercises the Claude integration) ----
+class TestTranslateBody(BaseModel):
+    text: str
+    target_lang: str = ""           # e.g. "fr"
+    target_lang_name: str = ""      # e.g. "French"
+    country: str = ""               # optional: derive lang from country instead
+
+
+@router.post("/admin/test-translate")
+async def admin_test_translate(
+    body: TestTranslateBody, user=Depends(require_roles("admin"))
+):
+    """Run a one-off translation through the same Claude pipeline used by
+    `complete_step`. Useful for sanity-checking the integration and the
+    Universal LLM Key budget without having to ping-pong roles."""
+    target = (body.target_lang or "").strip()
+    name = (body.target_lang_name or "").strip()
+    if body.country and not target:
+        target, name = language_for_country(body.country.upper())
+    if not target:
+        target, name = "en", "English"
+    if target.lower().startswith("en"):
+        return {
+            "ok": True,
+            "source": body.text,
+            "target_lang": target,
+            "target_lang_name": name,
+            "translation": body.text,
+            "note": "Target is English — original returned unchanged.",
+        }
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    try:
+        result = await translate_text(body.text, target, name)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Translation backend error: {e}")
+    return {
+        "ok": bool(result),
+        "source": body.text,
+        "target_lang": target,
+        "target_lang_name": name,
+        "translation": result or "",
+        "note": (
+            "Empty translation — check backend logs (likely a Claude / LLM key error)."
+            if not result
+            else None
+        ),
+    }
+
+
+@router.get("/admin/test-translate/languages")
+async def admin_translate_languages(user=Depends(require_roles("admin"))):
+    """Helper for the picker — returns {code, name, language, language_name}
+    for every supported country so the test panel can offer the same dropdown
+    used elsewhere in the app."""
+    rows = []
+    for code, name in COUNTRY_LIST:
+        lang_tag, lang_name = language_for_country(code)
+        rows.append(
+            {
+                "code": code,
+                "name": name,
+                "language": lang_tag,
+                "language_name": lang_name,
+            }
+        )
+    return rows
 
 
 # ---- Associate sync ----

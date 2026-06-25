@@ -46,6 +46,11 @@ class UserPublic(BaseModel):
     country: str = "AU"
     language: str = "en"
     language_name: str = "English"
+    preferred_language: Optional[str] = None  # manual override; one of en/zh/fr/it
+
+
+class LanguagePreference(BaseModel):
+    language: Optional[str] = None  # one of en/zh/fr/it. Pass null/empty to clear.
 
 
 class TokenResponse(BaseModel):

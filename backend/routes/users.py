@@ -8,9 +8,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from _associate_importer import SOURCE_TAG
-from deps import db, require_roles
-from helpers import _next_manufacturer_alias, hash_password, user_to_public
-from models import AutoForwardToggle, UserAliasUpdate, UserCountryUpdate, UserCreate
+from deps import db, get_current_user, require_roles
+from helpers import _next_manufacturer_alias, hash_password, user_to_public, SUPPORTED_MANUAL_LANGS
+from models import AutoForwardToggle, LanguagePreference, UserAliasUpdate, UserCountryUpdate, UserCreate
 
 router = APIRouter(tags=["users"])
 
@@ -108,6 +108,30 @@ async def set_auto_forward(
         {"id": user_id}, {"$set": {"auto_forward": body.auto_forward}}
     )
     return {"ok": True, "auto_forward": body.auto_forward}
+
+
+@router.put("/users/me/language")
+async def set_my_language(
+    body: LanguagePreference, user=Depends(get_current_user)
+):
+    """Lets ANY signed-in user pick a manual display language. Pass null/empty
+    to clear the override and fall back to the country-derived language."""
+    lang = (body.language or "").strip().lower()
+    if lang and lang not in SUPPORTED_MANUAL_LANGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported language. Use one of: {sorted(SUPPORTED_MANUAL_LANGS.keys())}",
+        )
+    if lang:
+        await db.users.update_one(
+            {"id": user["id"]}, {"$set": {"preferred_language": lang}}
+        )
+    else:
+        await db.users.update_one(
+            {"id": user["id"]}, {"$unset": {"preferred_language": ""}}
+        )
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return user_to_public(updated)
 
 
 @router.delete("/users/{user_id}")
