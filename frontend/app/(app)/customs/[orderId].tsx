@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { api } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 
@@ -15,12 +16,22 @@ export default function CustomsScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
+  const { user } = useAuth();
   const [airwayBill, setAirwayBill] = useState<string | null>(null);
   const [customsDoc, setCustomsDoc] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Customs and airway-bill data is admin-only. If a non-admin somehow lands
+  // on this route (deep link, history, etc.) bounce them straight home —
+  // they should never see this screen, not even as a "Failed" stub.
+  useEffect(() => {
+    if (user && user.role !== "admin") {
+      router.replace("/(app)");
+    }
+  }, [user, router]);
 
   const load = useCallback(async () => {
     if (!orderId) return;

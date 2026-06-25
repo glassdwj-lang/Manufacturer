@@ -157,8 +157,8 @@ def test_order_detail_client_masks_unforwarded(session, tokens, demo_order_id):
             assert s["photos"] == []
             assert s["completed_at_china"] is None
             assert s["completed"] is False
-    # client should not see raw customs
-    assert "airway_bill" not in data["customs"]
+    # client should not see customs at all — the whole field is stripped
+    assert "customs" not in data, f"customs leaked to client: {data.get('customs')}"
 
 
 # ----------- Complete step / forward / auto-forward -----------

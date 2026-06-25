@@ -94,12 +94,10 @@ def strip_order_for_role(order: dict, user: dict) -> dict:
     """
     o = {k: v for k, v in order.items() if k != "_id"}
     if user["role"] != "admin":
-        o["customs"] = {
-            "has_docs": bool(
-                o.get("customs", {}).get("airway_bill")
-                or o.get("customs", {}).get("customs_document")
-            )
-        }
+        # Customs and airway-bill data is strictly admin-only. We don't even
+        # leak whether documents exist (no `has_docs` indicator) — the entire
+        # `customs` field is dropped from non-admin responses.
+        o.pop("customs", None)
 
     # Mask manufacturer real name with alias for client and associate views.
     if user["role"] in ("client", "associate"):
