@@ -34,27 +34,23 @@ def _cfg() -> dict:
 
 
 def _normalize(record: dict) -> dict | None:
-    """Map a record from the source schema into the local user schema.
-    The exact field names in the source aren't 100% known yet, so we try a few
-    common variants and keep whatever is present. Email is required."""
-    email = (
-        record.get("email")
-        or record.get("user_email")
-        or record.get("emailAddress")
-        or record.get("login")
-    )
+    """Map a record from gem-gallery-193 (Somnio.Co API) into Atelier's user schema.
+    Known field shape: {id, email, full_name, country, state_region, tz_offset_min, tz_label}."""
+    email = record.get("email") or record.get("user_email") or record.get("login")
     if not email:
         return None
     email = email.strip().lower()
-    role_raw = (record.get("role") or record.get("user_role") or "associate").lower()
+    role_raw = (record.get("role") or "associate").lower()
     role = "admin" if "admin" in role_raw else "associate"
     name = (
-        record.get("name")
-        or record.get("full_name")
+        record.get("full_name")
+        or record.get("name")
         or record.get("display_name")
         or " ".join(filter(None, [record.get("first_name"), record.get("last_name")]))
         or email.split("@")[0]
     )
+    region_parts = [record.get("state_region"), record.get("country")]
+    region = ", ".join([p for p in region_parts if p]) or record.get("region") or ""
     out = {
         "email": email,
         "name": name,
@@ -62,55 +58,46 @@ def _normalize(record: dict) -> dict | None:
         "source": SOURCE_TAG,
         "source_id": str(record.get("id") or record.get("_id") or record.get("uuid") or ""),
         "phone": record.get("phone") or record.get("mobile") or "",
-        "region": record.get("region") or record.get("country") or "",
+        "region": region,
+        "country": record.get("country") or "",
+        "state_region": record.get("state_region") or "",
+        "tz_offset_min": record.get("tz_offset_min"),
+        "tz_label": record.get("tz_label") or "",
         "source_updated_at": record.get("updated_at") or record.get("modified_at"),
     }
     return out
 
 
 async def login_source(client: httpx.AsyncClient, base_url: str, email: str, password: str) -> str:
-    r = await client.post(f"{base_url}/api/auth/login", json={"email": email, "password": password})
+    """Use the admin auth endpoint discovered on gem-gallery-193: POST /api/admin/auth."""
+    r = await client.post(
+        f"{base_url}/api/admin/auth",
+        json={"email": email.strip().lower(), "password": password},
+        headers={"User-Agent": "Somnio-Atelier-Sync/1.0"},
+    )
     if r.status_code != 200:
-        raise RuntimeError(f"Source login failed: HTTP {r.status_code} {r.text[:200]}")
+        raise RuntimeError(f"Source admin login failed: HTTP {r.status_code} {r.text[:200]}")
     body = r.json()
-    token = body.get("access_token") or body.get("token") or body.get("jwt")
+    token = body.get("access_token") or body.get("token")
     if not token:
-        raise RuntimeError(f"Source login response had no token: {list(body)}")
+        raise RuntimeError(f"Source login response had no access_token: {list(body)}")
     return token
 
 
 async def fetch_associates(client: httpx.AsyncClient, base_url: str, token: str) -> list[dict]:
-    """Try a handful of likely endpoints. First non-404 with a JSON list wins."""
-    headers = {"Authorization": f"Bearer {token}"}
-    candidates = [
-        "/api/admin/associates",
-        "/api/admin/users?role=associate",
-        "/api/associates",
-        "/api/users?role=associate",
-        "/api/admin/team",
-    ]
-    last_err = ""
-    for path in candidates:
-        try:
-            r = await client.get(f"{base_url}{path}", headers=headers)
-        except Exception as e:
-            last_err = f"{path} -> {e}"
-            continue
-        if r.status_code == 200:
-            try:
-                data = r.json()
-            except Exception:
-                continue
-            if isinstance(data, list):
-                logger.info("Source associates fetched from %s (%d rows)", path, len(data))
-                return data
-            if isinstance(data, dict):
-                for key in ("associates", "users", "items", "data", "results"):
-                    if isinstance(data.get(key), list):
-                        logger.info("Source associates fetched from %s.%s (%d rows)", path, key, len(data[key]))
-                        return data[key]
-        last_err = f"{path} -> HTTP {r.status_code} {r.text[:120]}"
-    raise RuntimeError(f"Could not locate associates endpoint. Last response: {last_err}")
+    """gem-gallery-193 exposes the associate list at /api/admin/associates."""
+    headers = {"Authorization": f"Bearer {token}", "User-Agent": "Somnio-Atelier-Sync/1.0"}
+    r = await client.get(f"{base_url}/api/admin/associates", headers=headers)
+    if r.status_code != 200:
+        raise RuntimeError(f"GET /api/admin/associates failed: HTTP {r.status_code} {r.text[:200]}")
+    data = r.json()
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("associates", "users", "items", "data", "results"):
+            if isinstance(data.get(key), list):
+                return data[key]
+    raise RuntimeError(f"Unexpected response shape: {type(data).__name__}")
 
 
 async def upsert_associates(db, records: Iterable[dict]) -> dict:
@@ -133,6 +120,10 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
                 "source_id": norm["source_id"],
                 "phone": norm["phone"],
                 "region": norm["region"],
+                "country": norm["country"],
+                "state_region": norm["state_region"],
+                "tz_offset_min": norm["tz_offset_min"],
+                "tz_label": norm["tz_label"],
                 "source_updated_at": norm["source_updated_at"],
                 "synced_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -152,6 +143,10 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
                 "source_id": norm["source_id"],
                 "phone": norm["phone"],
                 "region": norm["region"],
+                "country": norm["country"],
+                "state_region": norm["state_region"],
+                "tz_offset_min": norm["tz_offset_min"],
+                "tz_label": norm["tz_label"],
                 "source_updated_at": norm["source_updated_at"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "synced_at": datetime.now(timezone.utc).isoformat(),
