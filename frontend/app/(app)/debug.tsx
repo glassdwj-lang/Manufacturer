@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
+import { flags } from "@/src/flags";
 
 type ResultRow = { tone: "ok" | "err"; text: string };
 
@@ -17,11 +18,16 @@ export default function DebugScreen() {
   const [loading, setLoading] = useState<"base" | "extended" | null>(null);
   const [results, setResults] = useState<ResultRow[]>([]);
 
-  if (user?.role !== "admin") {
+  if (!flags.enableDebug || user?.role !== "admin") {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <Text style={{ color: theme.textSecondary }}>Atelier only.</Text>
+          <Text style={{ color: theme.textSecondary }}>
+            {flags.enableDebug ? "Atelier only." : "Debug tools are disabled in this build."}
+          </Text>
+          <TouchableOpacity onPress={() => router.replace("/(app)")} style={{ marginTop: spacing.lg }}>
+            <Text style={{ color: theme.primary, letterSpacing: 2 }}>BACK TO ATELIER</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
