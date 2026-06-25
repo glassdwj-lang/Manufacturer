@@ -280,13 +280,13 @@ export default function ApprovalsScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} hitSlop={12} testID="approvals-back">
-            <Ionicons name="chevron-back" size={24} color={theme.text} />
+            <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.empty}>
-          <Ionicons name="lock-closed-outline" size={28} color={theme.muted} />
+          <Ionicons name="lock-closed-outline" size={28} color={theme.textMuted} />
           <Text style={styles.emptyText}>
             Only admins and associates can manage the approval queue.
           </Text>
@@ -307,12 +307,12 @@ export default function ApprovalsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <Ionicons name="chevron-back" size={24} color={theme.text} />
+          <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
         {isAdmin ? (
           <TouchableOpacity onPress={handlePurge} hitSlop={12} testID="purge-btn">
-            <Ionicons name="trash-outline" size={20} color={theme.muted} />
+            <Ionicons name="trash-outline" size={20} color={theme.textMuted} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 24 }} />
@@ -364,7 +364,7 @@ export default function ApprovalsScreen() {
         </View>
       ) : visible.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="checkmark-done-outline" size={28} color={theme.muted} />
+          <Ionicons name="checkmark-done-outline" size={28} color={theme.textMuted} />
           <Text style={styles.emptyText}>
             {tab === "pending"
               ? "Nothing awaiting review."
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { color: theme.text, fontSize: 12, letterSpacing: 3, fontWeight: "700" },
+  headerTitle: { color: theme.textPrimary, fontSize: 12, letterSpacing: 3, fontWeight: "700" },
   tabs: {
     flexDirection: "row",
     paddingHorizontal: spacing.lg,
@@ -481,8 +481,8 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     borderRadius: 999,
   },
-  tabActive: { backgroundColor: theme.text, borderColor: theme.text },
-  tabText: { color: theme.muted, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+  tabActive: { backgroundColor: theme.textPrimary, borderColor: theme.textPrimary },
+  tabText: { color: theme.textMuted, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
   tabTextActive: { color: theme.bg },
   tabBadge: {
     backgroundColor: theme.border,
@@ -493,8 +493,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   tabBadgeActive: { backgroundColor: theme.bg },
-  tabBadgeText: { color: theme.muted, fontSize: 10, fontWeight: "700" },
-  tabBadgeTextActive: { color: theme.text },
+  tabBadgeText: { color: theme.textMuted, fontSize: 10, fontWeight: "700" },
+  tabBadgeTextActive: { color: theme.textPrimary },
   list: { padding: spacing.lg, gap: spacing.md },
   card: {
     flexDirection: "row",
@@ -516,9 +516,9 @@ const styles = StyleSheet.create({
   },
   cardBody: { flex: 1, gap: 2 },
   cardEyebrow: { color: theme.primary, fontSize: 9, letterSpacing: 2, fontWeight: "700" },
-  cardTitle: { color: theme.text, fontSize: 14, fontWeight: "600" },
-  cardMeta: { color: theme.muted, fontSize: 12 },
-  cardMetaMuted: { color: theme.muted, fontSize: 10, letterSpacing: 1 },
+  cardTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
+  cardMeta: { color: theme.textMuted, fontSize: 12 },
+  cardMetaMuted: { color: theme.textMuted, fontSize: 10, letterSpacing: 1 },
   actionsRow: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" },
   actionBtn: {
     paddingHorizontal: 10,
@@ -536,7 +536,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.xl,
   },
-  emptyText: { color: theme.muted, textAlign: "center", fontSize: 12, letterSpacing: 1 },
+  emptyText: { color: theme.textMuted, textAlign: "center", fontSize: 12, letterSpacing: 1 },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -547,7 +547,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   toggleLabel: { color: theme.primary, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
-  toggleHelp: { color: theme.muted, fontSize: 11, marginTop: 2 },
+  toggleHelp: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   backToHome: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.lg,
