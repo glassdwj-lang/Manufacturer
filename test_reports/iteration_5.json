@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 5 — Frontend-only verification of the PhaseBadge/checkbox overlap fix on the admin home (orders list). Logged in as admin@somnio.co via demo chip, entered SELECT mode (testID enter-select-mode), and measured bounding boxes on the first 3 order cards. The PhaseBadge and order-checkbox-<id> now sit in a vertical stack inside orderRightCol with the checkbox cleanly BELOW the badge — phase y=563,h=17 (bottom=580); checkbox y=592,w=22,h=24 → ~12px gap, y-center delta 32.5px (>>4 threshold), both elements non-zero size and in-viewport for visible cards. No overlap detected. Selected SMN-EEE5CE6D and SMN-606E665B; checkbox icon visibly flipped to filled (orderCardSelected border highlights the cards); bulk-delete bar showed 'MOVE 2 TO BIN'. Confirm dialog accepted → both orders disappeared from the active home list. Recycle Bin (ATELIER · RECYCLE BIN, testID recycle-bin-button) listed both with order_ref, jewelry_name (TEST_new piece / TEST_other), 'Deleted 25 Jun 2026, 18:47 CST by admin@somnio.co' attribution, and Restore/Purge buttons. Tapped restore-SMN-EEE5CE6D → it left the bin; restored restore-SMN-606E665B as well to keep demo data intact; both back on the home active list after returning. No deprecated expo-av/expo-barcode-scanner/expo-background-fetch usage on this screen; no red-screen errors; only one harmless RNW warning ('props.pointerEvents is deprecated').",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_5.json"
+  ],
+  "action_items": [
+    "No fixes required. The PhaseBadge/checkbox overlap bug is resolved — the orderRightCol vertical stack with gap=6 correctly places the checkbox under the PHASE tag with both fully visible and non-overlapping."
+  ],
+  "critical_code_review_comments": [
+    "frontend/app/(app)/index.tsx:318-332 OrderCard right column refactor is clean: <View style={styles.orderRightCol}> wraps PhaseBadge (first child) and the conditional checkbox (second child). No absolute positioning, no zIndex tricks, no overflow risk — pure flex column with gap=6 and alignItems='flex-end'. This is the right fix.",
+    "frontend/app/(app)/index.tsx:426-433 styles.cardCheckbox uses marginTop:6 + alignItems:'flex-end' and orderRightCol uses alignItems:'flex-end' + gap:6 — slightly redundant (marginTop and gap both add vertical spacing), so the actual gap is 12px. Cosmetically fine but consider dropping cardCheckbox.marginTop to rely solely on the parent gap for consistency.",
+    "Checkbox icon (22x24px) is below the 44x44 touch-target minimum, BUT the whole row is the TouchableOpacity (line 302), so the effective hit area is the entire order card. This is correct mobile UX — no fix needed.",
+    "No regressions detected on bulk-delete (api.bulkSoftDeleteOrders), listRecycleBin, or restoreOrder integrations. The home list refresh after delete/restore correctly reflects the new state without manual reload."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (all 7 spec steps passed: login, SELECT mode, no overlap (3/3 cards), multi-select, MOVE 2 TO BIN, recycle bin listing with attribution, restore round-trip)"},
+  "seed_data_creation": "None. The two soft-deleted orders (SMN-EEE5CE6D, SMN-606E665B) were restored at end of test so demo data is intact. Active count returned to 10.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The OrderCard right column is now a vertical flex stack (PhaseBadge → checkbox). Any future change that re-introduces absolute positioning or removes orderRightCol must be re-tested for overlap. Bulk-delete flow uses window.confirm-style dialog on web; Playwright must register a page.on('dialog', lambda d: d.accept()) handler BEFORE clicking [data-testid='bulk-delete'].",
+  "rca_of_issue": "N/A — bug already fixed by main agent; this iteration verified the fix."
+}

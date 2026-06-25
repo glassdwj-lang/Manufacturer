@@ -307,15 +307,6 @@ function OrderCard({
         selectMode && selected && styles.orderCardSelected,
       ]}
     >
-      {selectMode && (
-        <View style={styles.cardCheckbox} testID={`order-checkbox-${order.id}`}>
-          <Ionicons
-            name={selected ? "checkbox" : "square-outline"}
-            size={22}
-            color={selected ? theme.primary : theme.textMuted}
-          />
-        </View>
-      )}
       <View style={styles.orderCardTop}>
         <View style={{ flex: 1 }}>
           <Text style={styles.orderRef}>{order.order_ref}</Text>
@@ -324,7 +315,21 @@ function OrderCard({
             {order.client_name} · {order.manufacturer_name}
           </Text>
         </View>
-        {currentStep && <PhaseBadge phase={currentStep.phase} />}
+        <View style={styles.orderRightCol}>
+          {currentStep && <PhaseBadge phase={currentStep.phase} />}
+          {selectMode && (
+            <View
+              style={styles.cardCheckbox}
+              testID={`order-checkbox-${order.id}`}
+            >
+              <Ionicons
+                name={selected ? "checkbox" : "square-outline"}
+                size={22}
+                color={selected ? theme.primary : theme.textMuted}
+              />
+            </View>
+          )}
+        </View>
       </View>
       <View style={styles.progressRow}>
         <ProgressBar current={completed} total={total} />
@@ -419,10 +424,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceElevated,
   },
   cardCheckbox: {
-    position: "absolute",
-    top: spacing.sm,
-    right: spacing.sm,
-    zIndex: 2,
+    marginTop: 6,
+    alignItems: "flex-end",
+  },
+  orderRightCol: {
+    alignItems: "flex-end",
+    gap: 6,
   },
   bulkBar: {
     position: "absolute",
