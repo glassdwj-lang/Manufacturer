@@ -488,5 +488,3 @@ const styles = StyleSheet.create({
   },
   bulkDeleteText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
 });
-eight: "700" },
-});
