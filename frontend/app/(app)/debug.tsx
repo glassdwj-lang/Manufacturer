@@ -9,12 +9,14 @@ import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { flags } from "@/src/flags";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 type ResultRow = { tone: "ok" | "err"; text: string };
 type LoadingKey = "base" | "extended" | "wipe" | null;
 
 export default function DebugScreen() {
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { user } = useAuth();
   const [loading, setLoading] = useState<LoadingKey>(null);
   const [results, setResults] = useState<ResultRow[]>([]);
@@ -87,7 +89,7 @@ export default function DebugScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <TouchableOpacity testID="debug-back" onPress={() => router.back()} style={{ padding: 4 }}>
+        <TouchableOpacity testID="debug-back" onPress={safeBack} style={{ padding: 4 }}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

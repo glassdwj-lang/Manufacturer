@@ -8,9 +8,11 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, User } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 export default function CreateOrderScreen() {
   const router = useRouter();
+  const safeBack = useSafeBack();
   const [clients, setClients] = useState<User[]>([]);
   const [mfgs, setMfgs] = useState<User[]>([]);
   const [selectedClient, setSelectedClient] = useState<User | null>(null);
@@ -71,7 +73,7 @@ export default function CreateOrderScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={styles.headerBar}>
-          <TouchableOpacity testID="create-order-close" onPress={() => router.back()}>
+          <TouchableOpacity testID="create-order-close" onPress={safeBack}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerEyebrow}>NEW COMMISSION</Text>

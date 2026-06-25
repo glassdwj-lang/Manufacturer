@@ -18,10 +18,12 @@ import * as ImagePicker from "expo-image-picker";
 import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 export default function StepActionScreen() {
   const { orderId, stepNumber } = useLocalSearchParams<{ orderId: string; stepNumber: string }>();
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { user } = useAuth();
   const stepNum = parseInt(stepNumber || "0", 10);
 
@@ -131,7 +133,7 @@ export default function StepActionScreen() {
         style={{ flex: 1 }}
       >
         <View style={styles.headerBar}>
-          <TouchableOpacity onPress={() => router.back()} testID="step-close" style={styles.iconBtn}>
+          <TouchableOpacity onPress={safeBack} testID="step-close" style={styles.iconBtn}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>

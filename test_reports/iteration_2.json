@@ -1,0 +1,35 @@
+{
+  "summary": "Targeted regression test of the useSafeBack fix (mobile viewport 390x844, Chrome via Expo web). All 6 requested tests PASSED. TEST 1 (primary bug): admin → debug → hard reload → tap debug-back → landed on admin home (/(app)) showing orders list. TEST 2: deep-link to /debug → tap debug-back → landed on admin home. TEST 3: RUN BASE SEED logged 'Base seed OK · 4 entries', LOAD 8 COMMISSIONS logged 'Extended seed OK · 0 new commission(s) · 4 workshops · 4 clients' (idempotent re-run). TEST 4: WIPE DEMO DATA → YES, WIPE logged 'Wipe OK · 9 order(s), 9 user(s) deleted (your admin preserved)'. TEST 5 (regression): order detail back-button (testID='back-button') after hard-reload returned to admin home. TEST 6 (regression): users-back after hard-reload returned to admin home. The reported user bug (stuck on debug after hard reload) is fully resolved across every screen that wired in useSafeBack. One pre-existing non-blocking console warning still present: 'props.pointerEvents is deprecated. Use style.pointerEvents' (same as iteration_1, not introduced by this change).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Pressable/View (carry-over from iteration_1)", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Not introduced by this fix. Reference: see iteration_1.json."}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_2.json",
+    "/app/test_reports/iteration_1.json"
+  ],
+  "action_items": [
+    "Nothing required for the navigation fix — ship it.",
+    "(Optional, carry-over) Migrate any `pointerEvents='none'` props to `style={{ pointerEvents: 'none' }}` to clear the React Native Web deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "useSafeBack correctly guards `router.canGoBack` with `router.canGoBack && router.canGoBack()` — if Expo Router on web ever omits the method, this falls back to replace, which is the desired behavior.",
+    "Hook is consistently applied to all 7 screens listed in the request (debug.tsx, users.tsx, order/[id].tsx, customs/[orderId].tsx, step/[orderId]/[stepNumber].tsx, create-order.tsx, create-user.tsx). No screen was missed.",
+    "The fallback 'HOME = /(app)' is correct — Expo Router will resolve the route group's index. Note: a non-admin role visiting /(app)/debug still sees the early-return inside the screen which uses router.replace directly (not the hook). That is fine because the early-return path is never history-dependent."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not retested per request)", "frontend": "100% (6/6 tests passed)"},
+  "seed_data_creation": "Test 4 wiped all non-admin demo data, then test re-ran base seed to restore the 4 demo accounts + SMN-DEMO0001. Extended seed (8 commissions) was NOT re-loaded after the wipe — DB currently contains only the base seed (4 users + 1 order). Main agent may want to re-run extended seed via the debug screen before further QA.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After this run the DB is in a clean state: 4 base demo users + SMN-DEMO0001 only. To restore the 8 extra commissions, log in as admin and tap LOAD 8 COMMISSIONS on the debug screen (or POST /api/seed-extended). useSafeBack is now the canonical back-navigation primitive — any new screen with a back button should import and use it instead of calling router.back() directly.",
+  "rca_of_issue": "Original bug: TouchableOpacity onPress called router.back() unconditionally. On hard reload / deep link the browser/native history is empty, so router.back() is a no-op — user is trapped. Fix: useSafeBack checks router.canGoBack() and falls back to router.replace('/(app)'). Verified by hard-reloading /debug, /order/<id>, and /users and confirming each back button now returns to the admin home."
+}

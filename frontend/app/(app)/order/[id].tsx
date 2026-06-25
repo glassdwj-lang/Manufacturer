@@ -15,10 +15,12 @@ import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { Eyebrow, ProgressBar, StatusPill } from "@/src/components/Ui";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 export default function OrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { user } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,7 +73,7 @@ export default function OrderDetail() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {/* Sticky header */}
       <View style={styles.headerBar}>
-        <TouchableOpacity testID="back-button" onPress={() => router.back()} style={styles.iconBtn}>
+        <TouchableOpacity testID="back-button" onPress={safeBack} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

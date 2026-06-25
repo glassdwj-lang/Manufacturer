@@ -8,11 +8,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Role, User } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 const ROLE_OPTIONS: Role[] = ["manufacturer", "associate", "client", "admin"];
 
 export default function CreateUserScreen() {
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { role: initialRole } = useLocalSearchParams<{ role?: string }>();
   const [role, setRole] = useState<Role>((initialRole as Role) || "manufacturer");
   const [name, setName] = useState("");
@@ -59,7 +61,7 @@ export default function CreateUserScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={styles.header}>
-          <TouchableOpacity testID="create-user-close" onPress={() => router.back()}>
+          <TouchableOpacity testID="create-user-close" onPress={safeBack}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerEyebrow}>NEW USER</Text>

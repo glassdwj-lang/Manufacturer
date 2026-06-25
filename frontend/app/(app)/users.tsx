@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, User } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 const ROLE_FILTERS: { key: string; label: string }[] = [
   { key: "manufacturer", label: "WORKSHOPS" },
@@ -18,6 +19,7 @@ const ROLE_FILTERS: { key: string; label: string }[] = [
 
 export default function UsersScreen() {
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { user: me } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [filter, setFilter] = useState("manufacturer");
@@ -61,7 +63,7 @@ export default function UsersScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <TouchableOpacity testID="users-back" onPress={() => router.back()} style={{ padding: 4 }}>
+        <TouchableOpacity testID="users-back" onPress={safeBack} style={{ padding: 4 }}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

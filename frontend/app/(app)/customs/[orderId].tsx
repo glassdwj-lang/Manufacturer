@@ -9,10 +9,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 export default function CustomsScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
+  const safeBack = useSafeBack();
   const [airwayBill, setAirwayBill] = useState<string | null>(null);
   const [customsDoc, setCustomsDoc] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -86,7 +88,7 @@ export default function CustomsScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={styles.headerBar}>
-          <TouchableOpacity testID="customs-close" onPress={() => router.back()} style={{ padding: 4 }}>
+          <TouchableOpacity testID="customs-close" onPress={safeBack} style={{ padding: 4 }}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
