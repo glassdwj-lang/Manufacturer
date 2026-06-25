@@ -1,0 +1,171 @@
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Switch, RefreshControl,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter, useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { api, User } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
+import { theme, spacing, ROLE_LABELS } from "@/src/theme";
+
+const ROLE_FILTERS: { key: string; label: string }[] = [
+  { key: "manufacturer", label: "WORKSHOPS" },
+  { key: "associate", label: "ASSOCIATES" },
+  { key: "client", label: "CLIENTS" },
+  { key: "admin", label: "ATELIER" },
+];
+
+export default function UsersScreen() {
+  const router = useRouter();
+  const { user: me } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [filter, setFilter] = useState("manufacturer");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await api.listUsers();
+      setUsers(list);
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = users.filter((u) => u.role === filter);
+
+  const handleToggleAutoForward = async (u: User, val: boolean) => {
+    try {
+      await api.setAutoForward(u.id, val);
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, auto_forward: val } : x)));
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <View style={styles.header}>
+        <TouchableOpacity testID="users-back" onPress={() => router.back()} style={{ padding: 4 }}>
+          <Ionicons name="chevron-back" size={22} color={theme.primary} />
+        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.eyebrow}>DIRECTORY</Text>
+          <Text style={styles.title}>Manufacturers · Users</Text>
+        </View>
+        <TouchableOpacity
+          testID="add-user-button"
+          onPress={() => router.push(`/(app)/create-user?role=${filter}`)}
+          style={styles.addBtn}
+        >
+          <Ionicons name="add" size={18} color="#0A0A0A" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Filter chips (single horizontal scroller, never wraps) */}
+      <View style={styles.chipsWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+          {ROLE_FILTERS.map((f) => {
+            const isSel = filter === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                testID={`filter-chip-${f.key}`}
+                onPress={() => setFilter(f.key)}
+                style={[styles.chip, isSel && styles.chipSel]}
+              >
+                <Text style={[styles.chipText, isSel && styles.chipTextSel]}>{f.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
+      >
+        {filtered.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>No {ROLE_LABELS[filter] || filter}s yet.</Text>
+            <TouchableOpacity
+              testID="empty-add-user"
+              style={styles.addPill}
+              onPress={() => router.push(`/(app)/create-user?role=${filter}`)}
+            >
+              <Text style={styles.addPillText}>ADD {ROLE_LABELS[filter]?.toUpperCase()}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          filtered.map((u) => (
+            <View key={u.id} testID={`user-row-${u.id}`} style={styles.userRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userName}>{u.name}</Text>
+                <Text style={styles.userEmail}>{u.email}</Text>
+                <Text style={styles.userMeta}>{ROLE_LABELS[u.role] || u.role}</Text>
+              </View>
+              {u.role === "client" && me?.role === "admin" && (
+                <View style={styles.autoFwdBox}>
+                  <Text style={styles.autoFwdLabel}>AUTO FWD</Text>
+                  <Switch
+                    testID={`auto-forward-${u.id}`}
+                    value={!!u.auto_forward}
+                    onValueChange={(v) => handleToggleAutoForward(u, v)}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#0A0A0A"
+                  />
+                </View>
+              )}
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  header: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderBottomWidth: 1, borderBottomColor: theme.border, gap: spacing.sm },
+  eyebrow: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  title: { color: theme.textPrimary, fontSize: 18, marginTop: 2 },
+  addBtn: { backgroundColor: theme.primary, width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  chipsWrap: { height: 56, borderBottomWidth: 1, borderBottomColor: theme.borderSubtle },
+  chipsRow: { paddingHorizontal: spacing.lg, alignItems: "center", gap: spacing.sm },
+  chip: {
+    height: 36, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: theme.border,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  chipSel: { borderColor: theme.primary },
+  chipText: { color: theme.textSecondary, fontSize: 10, letterSpacing: 2 },
+  chipTextSel: { color: theme.primary },
+  empty: { padding: spacing.xl, alignItems: "center", borderWidth: 1, borderColor: theme.border },
+  emptyText: { color: theme.textSecondary, fontSize: 13, marginBottom: spacing.md },
+  addPill: { borderWidth: 1, borderColor: theme.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  addPillText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  userRow: {
+    flexDirection: "row", alignItems: "center",
+    padding: spacing.md, borderWidth: 1, borderColor: theme.border, marginBottom: spacing.sm,
+  },
+  userName: { color: theme.textPrimary, fontSize: 14 },
+  userEmail: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  userMeta: { color: theme.primary, fontSize: 10, letterSpacing: 2, marginTop: 4 },
+  autoFwdBox: { alignItems: "center", gap: 4, marginLeft: spacing.md },
+  autoFwdLabel: { color: theme.primary, fontSize: 9, letterSpacing: 1 },
+});

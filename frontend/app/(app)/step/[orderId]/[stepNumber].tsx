@@ -1,0 +1,347 @@
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { api, Order, Step } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
+import { theme, spacing } from "@/src/theme";
+
+export default function StepActionScreen() {
+  const { orderId, stepNumber } = useLocalSearchParams<{ orderId: string; stepNumber: string }>();
+  const router = useRouter();
+  const { user } = useAuth();
+  const stepNum = parseInt(stepNumber || "0", 10);
+
+  const [order, setOrder] = useState<Order | null>(null);
+  const [step, setStep] = useState<Step | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      const o = await api.getOrder(orderId);
+      setOrder(o);
+      const s = o.steps.find((x) => x.step_number === stepNum);
+      if (s) {
+        setStep(s);
+        setNotes(s.notes || "");
+        setPhotos(s.photos || []);
+        setReviewNote(s.associate_review_note || "");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId, stepNum]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const pickImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setError("Photo library permission denied.");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      base64: true,
+      quality: 0.6,
+    });
+    if (!res.canceled) {
+      const added = res.assets
+        .filter((a) => a.base64)
+        .map((a) => `data:image/jpeg;base64,${a.base64}`);
+      setPhotos((p) => [...p, ...added]);
+    }
+  };
+
+  const removePhoto = (idx: number) => {
+    setPhotos((p) => p.filter((_, i) => i !== idx));
+  };
+
+  const handleComplete = async () => {
+    if (!orderId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.completeStep(orderId, stepNum, notes, photos);
+      router.back();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleForward = async () => {
+    if (!orderId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.forwardStep(orderId, stepNum, reviewNote);
+      router.back();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !step || !order) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <ActivityIndicator color={theme.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const isManufacturer = user?.role === "manufacturer" || user?.role === "admin";
+  const isAssociate = user?.role === "associate" || user?.role === "admin";
+  const showCompleteFlow = isManufacturer && !step.completed;
+  const showForwardFlow = isAssociate && step.completed && !step.forwarded_to_client;
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+      >
+        <View style={styles.headerBar}>
+          <TouchableOpacity onPress={() => router.back()} testID="step-close" style={styles.iconBtn}>
+            <Ionicons name="close" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerEyebrow}>STEP {String(stepNum).padStart(2, "0")} · PHASE {step.phase}</Text>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+          <Text style={styles.title}>{step.title}</Text>
+          {step.description ? <Text style={styles.desc}>{step.description}</Text> : null}
+
+          {step.completed && step.completed_at_china && (
+            <View style={styles.timestampBox}>
+              <Text style={styles.tsEyebrow}>COMPLETED · CHINA TIME (CST)</Text>
+              <Text style={styles.tsValue}>{formatChinaTime(step.completed_at_china)}</Text>
+              <Text style={styles.tsSub}>
+                {step.forwarded_to_client ? "Forwarded to client" : "Awaiting associate forward"}
+              </Text>
+            </View>
+          )}
+
+          {showCompleteFlow ? (
+            <>
+              <Text style={styles.formLabel}>NOTES</Text>
+              <TextInput
+                testID="step-notes-input"
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Add notes about this step..."
+                placeholderTextColor={theme.textMuted}
+                multiline
+                style={[styles.input, { height: 90 }]}
+              />
+
+              <View style={styles.photosHeader}>
+                <Text style={styles.formLabel}>PHOTOS</Text>
+                <TouchableOpacity testID="add-photo-button" onPress={pickImage} style={styles.addPhotoBtn}>
+                  <Ionicons name="camera-outline" size={16} color={theme.primary} />
+                  <Text style={styles.addPhotoText}>ADD</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.photoGrid}>
+                {photos.map((p, i) => (
+                  <View key={i} style={styles.photoCell}>
+                    <Image source={{ uri: p }} style={styles.photoImg} />
+                    <TouchableOpacity
+                      testID={`remove-photo-${i}`}
+                      onPress={() => removePhoto(i)}
+                      style={styles.photoRemove}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {photos.length === 0 && (
+                  <View style={styles.photoEmpty}>
+                    <Text style={styles.photoEmptyText}>No photos added</Text>
+                  </View>
+                )}
+              </View>
+
+              {error && <Text style={styles.errorText}>{error}</Text>}
+
+              <TouchableOpacity
+                testID="complete-step-button"
+                onPress={handleComplete}
+                disabled={saving}
+                style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#0A0A0A" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>MARK STEP COMPLETE</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          {showForwardFlow ? (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.formLabel}>ASSOCIATE REVIEW NOTE</Text>
+              <TextInput
+                testID="review-note-input"
+                value={reviewNote}
+                onChangeText={setReviewNote}
+                placeholder="Add a note before forwarding to client..."
+                placeholderTextColor={theme.textMuted}
+                multiline
+                style={[styles.input, { height: 70 }]}
+              />
+              {error && <Text style={styles.errorText}>{error}</Text>}
+              <TouchableOpacity
+                testID="forward-step-button"
+                onPress={handleForward}
+                disabled={saving}
+                style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#0A0A0A" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>FORWARD TO CLIENT</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          {/* Read-only view for already-completed / forwarded */}
+          {step.completed && !showForwardFlow && !showCompleteFlow && (
+            <>
+              {!!step.notes && (
+                <>
+                  <Text style={styles.formLabel}>WORKSHOP NOTES</Text>
+                  <Text style={styles.readonlyBlock}>{step.notes}</Text>
+                </>
+              )}
+              {!!step.associate_review_note && (
+                <>
+                  <Text style={styles.formLabel}>ASSOCIATE NOTE</Text>
+                  <Text style={styles.readonlyBlock}>{step.associate_review_note}</Text>
+                </>
+              )}
+              {photos.length > 0 && (
+                <>
+                  <Text style={styles.formLabel}>PHOTOS</Text>
+                  <View style={styles.photoGrid}>
+                    {photos.map((p, i) => (
+                      <View key={i} style={styles.photoCell}>
+                        <Image source={{ uri: p }} style={styles.photoImg} />
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function formatChinaTime(iso: string) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("en-GB", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return iso;
+  }
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  headerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  iconBtn: { padding: 4, marginRight: spacing.sm },
+  headerEyebrow: { color: theme.primary, fontSize: 11, letterSpacing: 3 },
+  title: { color: theme.textPrimary, fontSize: 24, fontWeight: "300", marginTop: spacing.sm, lineHeight: 30 },
+  desc: { color: theme.textSecondary, fontSize: 13, marginTop: spacing.sm, lineHeight: 20 },
+  timestampBox: {
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    padding: spacing.md,
+  },
+  tsEyebrow: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  tsValue: { color: theme.textPrimary, fontSize: 16, marginTop: 4 },
+  tsSub: { color: theme.textSecondary, fontSize: 11, marginTop: 4 },
+  formLabel: { color: theme.primary, fontSize: 10, letterSpacing: 3, marginTop: spacing.lg, marginBottom: spacing.sm },
+  input: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: spacing.md,
+    textAlignVertical: "top",
+  },
+  photosHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.lg },
+  addPhotoBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: theme.primary, paddingHorizontal: spacing.sm, paddingVertical: 6 },
+  addPhotoText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
+  photoCell: { width: 84, height: 84, position: "relative" },
+  photoImg: { width: 84, height: 84, borderWidth: 1, borderColor: theme.border },
+  photoRemove: { position: "absolute", top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.7)", padding: 4 },
+  photoEmpty: { width: "100%", padding: spacing.md, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
+  photoEmptyText: { color: theme.textMuted, fontSize: 12, textAlign: "center" },
+  errorText: { color: theme.error, fontSize: 12, marginTop: spacing.md },
+  primaryBtn: { backgroundColor: theme.primary, paddingVertical: 16, alignItems: "center", marginTop: spacing.xl },
+  primaryBtnText: { color: "#0A0A0A", fontSize: 12, fontWeight: "700", letterSpacing: 3 },
+  divider: { height: 1, backgroundColor: theme.border, marginVertical: spacing.lg },
+  readonlyBlock: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: spacing.md,
+    lineHeight: 19,
+  },
+});
