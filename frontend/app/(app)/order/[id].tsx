@@ -21,12 +21,14 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { PhaseSection } from "@/src/components/order/PhaseSection";
 import { DigitalDnaModal } from "@/src/components/DigitalDnaModal";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { useI18n } from "@/src/i18n";
 
 export default function OrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
   const { user, languageVersion } = useAuth();
+  const { t } = useI18n();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,7 +114,7 @@ export default function OrderDetail() {
         <View style={styles.headerRight}>
           <LanguageSwitcher compact />
           <StatusPill
-            status={order.status === "completed" ? "completed" : "in progress"}
+            status={order.status === "completed" ? t("common.completed") : t("common.in_progress")}
           />
           {user?.role === "admin" && (
           <TouchableOpacity
@@ -120,23 +122,20 @@ export default function OrderDetail() {
             onPress={() => {
               const confirm = (proceed: () => void) => {
                 if (Platform.OS === "web") {
-                  // Native Alert dismisses too quickly on web; use confirm().
                   if (
                     typeof window !== "undefined" &&
-                    window.confirm(
-                      `Move ${order.order_ref} to the Recycle Bin? You can restore it from Atelier · Recycle Bin.`
-                    )
+                    window.confirm(t("order.delete.confirm_web", { ref: order.order_ref }))
                   ) {
                     proceed();
                   }
                   return;
                 }
                 Alert.alert(
-                  "Move to Recycle Bin?",
-                  `${order.order_ref} will leave the active list. Restore from Atelier · Recycle Bin.`,
+                  t("order.delete.confirm_title"),
+                  t("order.delete.confirm_body", { ref: order.order_ref }),
                   [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Move to bin", style: "destructive", onPress: proceed },
+                    { text: t("common.cancel"), style: "cancel" },
+                    { text: t("order.delete.btn"), style: "destructive", onPress: proceed },
                   ]
                 );
               };
@@ -146,8 +145,8 @@ export default function OrderDetail() {
                   router.replace("/(app)");
                 } catch (e) {
                   Alert.alert(
-                    "Delete failed",
-                    e instanceof Error ? e.message : "Could not delete commission"
+                    t("order.delete.failed"),
+                    e instanceof Error ? e.message : t("order.delete.failed_body")
                   );
                 }
               });
@@ -178,7 +177,7 @@ export default function OrderDetail() {
       >
         <Text style={styles.title}>{order.jewelry_name}</Text>
         <Text style={styles.subtitle}>
-          Client · {order.client_name}   |   Workshop · {workshopDisplay}
+          {t("order.subtitle", { client: order.client_name, workshop: workshopDisplay })}
         </Text>
         {adminCanReveal && (
           <TouchableOpacity
@@ -192,7 +191,7 @@ export default function OrderDetail() {
               color={theme.primary}
             />
             <Text style={styles.revealText}>
-              {revealWorkshop ? "HIDE WORKSHOP" : "REVEAL WORKSHOP"}
+              {revealWorkshop ? t("order.hide_workshop") : t("order.reveal_workshop")}
             </Text>
           </TouchableOpacity>
         )}
@@ -218,10 +217,8 @@ export default function OrderDetail() {
           >
             <Ionicons name="document-lock-outline" size={18} color={theme.primary} />
             <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={styles.customsTitle}>CUSTOMS · AIRWAY BILL</Text>
-              <Text style={styles.customsSub}>
-                Confidential — atelier only
-              </Text>
+              <Text style={styles.customsTitle}>{t("order.customs.title")}</Text>
+              <Text style={styles.customsSub}>{t("order.customs.sub")}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
           </TouchableOpacity>
@@ -233,8 +230,8 @@ export default function OrderDetail() {
           onPress={() => {
             if (!dnaUnlocked) {
               Alert.alert(
-                "Digital DNA locked",
-                `Available once all 26 steps are finalised. ${completed} of ${total} complete.`
+                t("order.dna.locked_alert_title"),
+                t("order.dna.locked_alert_body", { done: completed, total })
               );
               return;
             }
@@ -248,12 +245,12 @@ export default function OrderDetail() {
           />
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
             <Text style={[styles.dnaTitle, !dnaUnlocked && styles.dnaTitleLocked]}>
-              {dnaUnlocked ? "VIEW DIGITAL DNA" : "DIGITAL DNA · LOCKED"}
+              {dnaUnlocked ? t("order.dna.unlocked") : t("order.dna.locked")}
             </Text>
             <Text style={[styles.dnaSub, !dnaUnlocked && styles.dnaSubLocked]}>
               {dnaUnlocked
-                ? "Provenance certificate · PDF"
-                : `Unlocks once all 26 steps are finalised · ${completed}/${total}`}
+                ? t("order.dna.unlocked_sub")
+                : t("order.dna.locked_sub", { done: completed, total })}
             </Text>
           </View>
           <Ionicons

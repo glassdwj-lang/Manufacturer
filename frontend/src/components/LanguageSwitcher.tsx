@@ -11,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 const OPTIONS: { code: string; label: string; native: string }[] = [
   { code: "en", label: "English", native: "EN" },
@@ -27,6 +28,7 @@ const OPTIONS: { code: string; label: string; native: string }[] = [
  */
 export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
   const { user, setLanguage } = useAuth();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -65,11 +67,10 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
       >
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.eyebrow}>LANGUAGE</Text>
-            <Text style={styles.title}>Display language</Text>
+            <Text style={styles.eyebrow}>{t("lang.eyebrow")}</Text>
+            <Text style={styles.title}>{t("lang.title")}</Text>
             <Text style={styles.sub}>
-              Changes step titles, phase titles and any auto-translated notes
-              across every screen. Setting follows you across devices.
+              {t("lang.sub")}
             </Text>
             {OPTIONS.map((o) => {
               const isCurrent = current === o.code;

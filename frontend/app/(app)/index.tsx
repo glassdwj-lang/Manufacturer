@@ -18,9 +18,11 @@ import { Eyebrow, ProgressBar, PhaseBadge } from "@/src/components/Ui";
 import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { useI18n } from "@/src/i18n";
 
 export default function HomeScreen() {
   const { user, signOut, languageVersion } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,10 +63,9 @@ export default function HomeScreen() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     confirmAction({
-      title: `Move ${ids.length} commission${ids.length === 1 ? "" : "s"} to Recycle Bin?`,
-      message:
-        "They will disappear from the active list. Restore any of them from Atelier · Recycle Bin.",
-      confirmLabel: `Move ${ids.length} to bin`,
+      title: t("home.confirm.bulk_title", { n: ids.length, s: ids.length === 1 ? "" : "s" }),
+      message: t("home.confirm.bulk_message"),
+      confirmLabel: t("home.confirm.bulk_confirm", { n: ids.length }),
       destructive: true,
       onConfirm: async () => {
         setBulkBusy(true);
@@ -79,7 +80,7 @@ export default function HomeScreen() {
         }
       },
     });
-  }, [selectedIds, exitSelect, load]);
+  }, [selectedIds, exitSelect, load, t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -106,7 +107,7 @@ export default function HomeScreen() {
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <View>
-          <Text style={styles.brandMark}>SOMNIO.CO · ATELIER</Text>
+          <Text style={styles.brandMark}>{t("home.brand_mark")}</Text>
           <Text style={styles.welcome}>{roleLabel} · {user.name}</Text>
         </View>
         <View style={styles.headerActions}>
@@ -118,9 +119,9 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsRow}>
-        <Stat label="ACTIVE" value={String(orders.filter((o) => o.status === "in_progress").length)} />
-        <Stat label="COMPLETED" value={String(orders.filter((o) => o.status === "completed").length)} />
-        <Stat label="TOTAL" value={String(orders.length)} />
+        <Stat label={t("home.stat.active")} value={String(orders.filter((o) => o.status === "in_progress").length)} />
+        <Stat label={t("home.stat.completed")} value={String(orders.filter((o) => o.status === "completed").length)} />
+        <Stat label={t("home.stat.total")} value={String(orders.length)} />
       </View>
 
       {(user.role === "admin" || user.role === "associate") && (
@@ -130,7 +131,7 @@ export default function HomeScreen() {
           onPress={() => router.push("/(app)/create-order")}
         >
           <Ionicons name="add" size={16} color="#0A0A0A" />
-          <Text style={styles.ctaText}>NEW COMMISSION</Text>
+          <Text style={styles.ctaText}>{t("home.cta.new_commission")}</Text>
         </TouchableOpacity>
       )}
 
@@ -142,7 +143,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/users")}
           >
             <Ionicons name="people-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>MANUFACTURERS · USERS</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.manage_users")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -151,7 +152,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/recycle-bin")}
           >
             <Ionicons name="trash-bin-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>ATELIER · RECYCLE BIN</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.recycle_bin")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -160,7 +161,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/test-translate")}
           >
             <Ionicons name="language-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>ATELIER · TEST TRANSLATION</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.test_translation")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           {flags.enableDebug && (
@@ -170,22 +171,22 @@ export default function HomeScreen() {
               onPress={() => router.push("/(app)/debug")}
             >
               <Ionicons name="construct-outline" size={16} color={theme.primary} />
-              <Text style={styles.linkBtnText}>ATELIER DEBUG · SAMPLE DATA</Text>
+              <Text style={styles.linkBtnText}>{t("home.link.debug")}</Text>
               <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      <Eyebrow testID="orders-section-eyebrow">COMMISSIONS</Eyebrow>
+      <Eyebrow testID="orders-section-eyebrow">{t("home.section.commissions")}</Eyebrow>
       {user.role === "admin" && orders.length > 0 && (
         <View style={styles.selectModeRow}>
           {selectMode ? (
             <Text style={styles.selectModeHint}>
-              {selectedIds.size} selected · tap rows to toggle
+              {t("home.bulk.selected", { n: selectedIds.size })}
             </Text>
           ) : (
-            <Text style={styles.selectModeHint}>Bulk-manage commissions</Text>
+            <Text style={styles.selectModeHint}>{t("home.bulk.hint")}</Text>
           )}
           <TouchableOpacity
             testID={selectMode ? "exit-select-mode" : "enter-select-mode"}
@@ -198,7 +199,7 @@ export default function HomeScreen() {
               color={theme.primary}
             />
             <Text style={styles.selectToggleText}>
-              {selectMode ? "CANCEL SELECT" : "SELECT"}
+              {selectMode ? t("home.bulk.cancel_select") : t("home.bulk.select")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -236,11 +237,11 @@ export default function HomeScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No commissions yet</Text>
+            <Text style={styles.emptyTitle}>{t("home.empty.title")}</Text>
             <Text style={styles.emptyText}>
               {user.role === "admin" || user.role === "associate"
-                ? "Tap NEW COMMISSION above to start one."
-                : "Awaiting assignment from the atelier."}
+                ? t("home.empty.admin")
+                : t("home.empty.viewer")}
             </Text>
           </View>
         }
@@ -267,7 +268,7 @@ export default function HomeScreen() {
             style={styles.bulkCancel}
             disabled={bulkBusy}
           >
-            <Text style={styles.bulkCancelText}>CANCEL</Text>
+            <Text style={styles.bulkCancelText}>{t("common.cancel")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             testID="bulk-delete"
@@ -284,7 +285,7 @@ export default function HomeScreen() {
               <>
                 <Ionicons name="trash-outline" size={14} color="#0A0A0A" />
                 <Text style={styles.bulkDeleteText}>
-                  MOVE {selectedIds.size} TO BIN
+                  {t("home.bulk.move_to_bin", { n: selectedIds.size })}
                 </Text>
               </>
             )}
@@ -315,6 +316,7 @@ function OrderCard({
   selectMode?: boolean;
   selected?: boolean;
 }) {
+  const { t } = useI18n();
   const completed = order.progress?.completed_count ?? 0;
   const total = order.progress?.total ?? 26;
   const currentStep = order.steps?.find((s) => !s.completed);
@@ -485,4 +487,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   bulkDeleteText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+});
+eight: "700" },
 });
