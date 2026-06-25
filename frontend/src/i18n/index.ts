@@ -307,6 +307,18 @@ const STRINGS = {
   },
 
   // -------- Step detail --------
+  "common.phase": {
+    en: "PHASE",
+    zh: "阶段",
+    fr: "PHASE",
+    it: "FASE",
+  },
+  "common.phase_with_value": {
+    en: "PHASE {phase}",
+    zh: "阶段 {phase}",
+    fr: "PHASE {phase}",
+    it: "FASE {phase}",
+  },
   "step.eyebrow": {
     en: "STEP {n} · PHASE {phase}",
     zh: "第 {n} 步 · 阶段 {phase}",

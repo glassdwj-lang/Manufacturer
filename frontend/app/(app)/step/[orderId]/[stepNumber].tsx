@@ -255,7 +255,7 @@ export default function StepActionScreen() {
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerEyebrow}>STEP {String(stepNum).padStart(2, "0")} · PHASE {step.phase}</Text>
+            <Text style={styles.headerEyebrow}>{t("step.eyebrow", { n: String(stepNum).padStart(2, "0"), phase: step.phase })}</Text>
           </View>
           <LanguageSwitcher compact />
         </View>

@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Step } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 import { StepRow } from "./StepRow";
 
 export interface PhaseSectionProps {
@@ -32,6 +33,7 @@ export function PhaseSection({
   onPressStep,
 }: PhaseSectionProps) {
   const doneCount = steps.filter((s) => s.completed).length;
+  const { t } = useI18n();
   return (
     <View style={styles.phaseBlock}>
       <TouchableOpacity
@@ -40,7 +42,7 @@ export function PhaseSection({
         style={styles.phaseHeader}
       >
         <View>
-          <Text style={styles.phaseEyebrow}>PHASE {phase}</Text>
+          <Text style={styles.phaseEyebrow}>{t("common.phase_with_value", { phase })}</Text>
           <Text style={styles.phaseTitle}>{phaseTitle}</Text>
         </View>
         <View style={styles.phaseRight}>

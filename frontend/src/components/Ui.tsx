@@ -1,11 +1,13 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { theme, spacing } from "@/src/theme";
+import { useI18n } from "@/src/i18n";
 
 export function PhaseBadge({ phase }: { phase: string }) {
+  const { t } = useI18n();
   return (
     <View style={styles.phaseBadge}>
-      <Text style={styles.phaseBadgeText}>PHASE {phase}</Text>
+      <Text style={styles.phaseBadgeText}>{t("common.phase_with_value", { phase })}</Text>
     </View>
   );
 }
