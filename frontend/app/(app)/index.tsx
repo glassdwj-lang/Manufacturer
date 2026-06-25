@@ -16,6 +16,7 @@ import { api, Order } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { Eyebrow, ProgressBar, PhaseBadge } from "@/src/components/Ui";
 import { flags } from "@/src/flags";
+import { confirmAction } from "@/src/utils/confirm";
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth();
@@ -23,6 +24,25 @@ export default function HomeScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Admin-only bulk-select state. When `selectMode` is on, each order card
+  // becomes a tap-to-toggle checkbox row instead of opening the order detail.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -35,6 +55,30 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, []);
+
+  const bulkDelete = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    confirmAction({
+      title: `Move ${ids.length} commission${ids.length === 1 ? "" : "s"} to Recycle Bin?`,
+      message:
+        "They will disappear from the active list. Restore any of them from Atelier · Recycle Bin.",
+      confirmLabel: `Move ${ids.length} to bin`,
+      destructive: true,
+      onConfirm: async () => {
+        setBulkBusy(true);
+        try {
+          await api.bulkSoftDeleteOrders(ids);
+          exitSelect();
+          await load();
+        } catch (e) {
+          console.warn("bulk delete", e);
+        } finally {
+          setBulkBusy(false);
+        }
+      },
+    });
+  }, [selectedIds, exitSelect, load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -114,6 +158,31 @@ export default function HomeScreen() {
       )}
 
       <Eyebrow testID="orders-section-eyebrow">COMMISSIONS</Eyebrow>
+      {user.role === "admin" && orders.length > 0 && (
+        <View style={styles.selectModeRow}>
+          {selectMode ? (
+            <Text style={styles.selectModeHint}>
+              {selectedIds.size} selected · tap rows to toggle
+            </Text>
+          ) : (
+            <Text style={styles.selectModeHint}>Bulk-manage commissions</Text>
+          )}
+          <TouchableOpacity
+            testID={selectMode ? "exit-select-mode" : "enter-select-mode"}
+            onPress={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            style={styles.selectToggle}
+          >
+            <Ionicons
+              name={selectMode ? "close-outline" : "checkbox-outline"}
+              size={14}
+              color={theme.primary}
+            />
+            <Text style={styles.selectToggleText}>
+              {selectMode ? "CANCEL SELECT" : "SELECT"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 
@@ -155,8 +224,53 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => <OrderCard order={item} onPress={() => router.push(`/(app)/order/${item.id}`)} />}
+        renderItem={({ item }) => (
+          <OrderCard
+            order={item}
+            selectMode={selectMode}
+            selected={selectedIds.has(item.id)}
+            onPress={() => {
+              if (selectMode) {
+                toggleSelect(item.id);
+              } else {
+                router.push(`/(app)/order/${item.id}`);
+              }
+            }}
+          />
+        )}
       />
+      {selectMode && (
+        <View style={styles.bulkBar} testID="bulk-action-bar">
+          <TouchableOpacity
+            testID="bulk-cancel"
+            onPress={exitSelect}
+            style={styles.bulkCancel}
+            disabled={bulkBusy}
+          >
+            <Text style={styles.bulkCancelText}>CANCEL</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="bulk-delete"
+            onPress={bulkDelete}
+            style={[
+              styles.bulkDelete,
+              (bulkBusy || selectedIds.size === 0) && { opacity: 0.4 },
+            ]}
+            disabled={bulkBusy || selectedIds.size === 0}
+          >
+            {bulkBusy ? (
+              <ActivityIndicator color="#0A0A0A" />
+            ) : (
+              <>
+                <Ionicons name="trash-outline" size={14} color="#0A0A0A" />
+                <Text style={styles.bulkDeleteText}>
+                  MOVE {selectedIds.size} TO BIN
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -170,12 +284,38 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
+function OrderCard({
+  order,
+  onPress,
+  selectMode = false,
+  selected = false,
+}: {
+  order: Order;
+  onPress: () => void;
+  selectMode?: boolean;
+  selected?: boolean;
+}) {
   const completed = order.progress?.completed_count ?? 0;
   const total = order.progress?.total ?? 26;
   const currentStep = order.steps?.find((s) => !s.completed);
   return (
-    <TouchableOpacity testID={`order-card-${order.id}`} onPress={onPress} style={styles.orderCard}>
+    <TouchableOpacity
+      testID={`order-card-${order.id}`}
+      onPress={onPress}
+      style={[
+        styles.orderCard,
+        selectMode && selected && styles.orderCardSelected,
+      ]}
+    >
+      {selectMode && (
+        <View style={styles.cardCheckbox} testID={`order-checkbox-${order.id}`}>
+          <Ionicons
+            name={selected ? "checkbox" : "square-outline"}
+            size={22}
+            color={selected ? theme.primary : theme.textMuted}
+          />
+        </View>
+      )}
       <View style={styles.orderCardTop}>
         <View style={{ flex: 1 }}>
           <Text style={styles.orderRef}>{order.order_ref}</Text>
@@ -255,4 +395,66 @@ const styles = StyleSheet.create({
   empty: { padding: spacing.xl, alignItems: "center", borderWidth: 1, borderColor: theme.border },
   emptyTitle: { color: theme.textPrimary, fontSize: 16, marginBottom: spacing.sm },
   emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: "center" },
+  // ---- Bulk-select ----
+  selectModeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  selectModeHint: { color: theme.textMuted, fontSize: 11 },
+  selectToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: theme.primary,
+  },
+  selectToggleText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  orderCardSelected: {
+    borderColor: theme.primary,
+    backgroundColor: theme.surfaceElevated,
+  },
+  cardCheckbox: {
+    position: "absolute",
+    top: spacing.sm,
+    right: spacing.sm,
+    zIndex: 2,
+  },
+  bulkBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    backgroundColor: theme.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  bulkCancel: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  bulkCancelText: { color: theme.textSecondary, fontSize: 11, letterSpacing: 2 },
+  bulkDelete: {
+    flex: 2,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: spacing.md,
+    backgroundColor: theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  bulkDeleteText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
 });
