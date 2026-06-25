@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 4 — Claude Sonnet 4.5 translation of step notes + associate review notes into client's native language (country-derived). Backend pytest suite /app/backend/tests/test_translation.py: 14/14 PASS (~11s). Frontend mobile smoke: admin login, Users screen, Create-User → Maison Client → COUNTRY · LANGUAGE selector renders with 35 country chips (AU/CN/FR all present), tapping CN shows 'Chinese (Simplified)' subtitle and a yellow checkmark, submit creates the new client and returns to the users list. Workshop login + SMN-DEMO0001 navigation works; step rows are tappable; step screen renders. No regressions detected in login, order list, order detail, or import flows. Translation actually returns Mandarin Han characters via Claude Sonnet 4.5 and the call completes well under 30s (each translate ~3-6s end-to-end). No deprecated expo-av/expo-barcode-scanner/expo-background-fetch usage detected on changed screens.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_translation.py",
+    "/app/test_reports/pytest/iteration_4.xml",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "action_items": [
+    "No fixes required for this iteration — all 14 new backend tests pass and the Create-User country dropdown renders correctly on mobile. Optional polish: persist the previously-completed AU note on the demo step 4 was overwritten by my CN backend test (now 'TEST_AU step 7 — diamond verified.' is on step 7 instead of the original demo note). If the demo data is supposed to read like a real commission, consider re-running /api/seed or resetting the demo notes — but this is purely cosmetic and the seed is idempotent, so re-seeding does not reset already-completed steps. Either accept the TEST_* leftover notes as test artifacts or add a /api/admin/reset-demo route.",
+    "Expo upgrade nag in supervisor logs (expo@54.0.34 vs ~54.0.35, expo-router@6.0.23 vs ~6.0.24, expo-font@14.0.11 vs ~14.0.12). Not blocking but worth bumping next maintenance window."
+  ],
+  "critical_code_review_comments": [
+    "server.py:325-336 PUT /users/{id}/country guards correctly: 404 unknown user, 400 non-client target, 403 non-owning associate, default country upper-cased to AU.",
+    "server.py:338-345 GET /api/meta/countries returns 35 rows with the exact shape spec'd (code/name/language/language_name). Public route by design — no auth dependency — which matches the dropdown use case.",
+    "server.py:502-509 + 546-554 translation is fire-and-await per request; on LLM failure the endpoint still completes (translate_text returns None and translated_note stays ''), so a transient Claude outage degrades gracefully to 'original note only'. Good resilience.",
+    "_translation.py:123-126 short-circuits when target_lang starts with 'en' → zero LLM cost for EN-EN, verified by test_au_client_no_translation.",
+    "server.py:441-445 client-view masking correctly hides notes_translated and associate_review_note_translated for steps not yet forwarded — verified by TestClientViewMaskingOfTranslations.",
+    "frontend/app/(app)/create-user.tsx adds the COUNTRY · LANGUAGE chip group above the Associate selector for role=client only (line 134-145), each chip carries testID `country-{CODE}` and lists native language under the country name. Matches spec.",
+    "Translation is correctly NOT cached by content (per spec 'second call triggers the LLM again'). Each call ~3-6s — acceptable. If a future iteration wants caching, hash(notes + target_lang) → notes_translated would be a natural addition."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_translation.py (new — 14 pytest tests)",
+    "/app/test_reports/iteration_4.json (new)",
+    "/app/test_reports/pytest/iteration_4.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all asserted UI elements present and interactive: 35 country chips, CN selection, submit→list flow, login/nav)"},
+  "seed_data_creation": "Tests call POST /api/seed (idempotent). Additionally created during this run: ~6 TEST_*@somnio.co clients (auto-cleaned via session teardown), 1 new TEST_CN piece order on the demo manufacturer (Master Wei Chen) — left in DB because there is no DELETE /api/orders endpoint. Demo order SMN-DEMO0001 steps 4, 5, 7, 8, 9 have TEST_* notes from prior iterations and this run; step 4 is forwarded with EN review note 'TEST_AU all good — released.' These are visible in the workshop dashboard and can be left as-is (no PII) or cleared by re-seeding with a hard reset.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Re-run `pytest /app/backend/tests/test_translation.py -v` for the 14 translation-specific tests + `pytest /app/backend/tests/test_associate_import.py /app/backend/tests/test_somnio_api.py -v` for the existing 19+27 regression tests. The Claude Sonnet 4.5 call adds 3–6 s per /complete or /forward call against a CN client, so set request timeout >= 30 s on translation paths. The TEST_CN piece order leaked from this iteration is fine to leave — every test that needs CN translation creates a *new* client + order via the admin token.",
+  "rca_of_issue": "N/A — no bugs found in iteration 4."
+}

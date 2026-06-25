@@ -25,10 +25,13 @@ export type Step = {
   completed_at_china: string | null;
   completed_at_utc: string | null;
   notes: string;
+  notes_translated?: string;
+  notes_target_lang?: string;
   photos: string[];
   forwarded_to_client: boolean;
   forwarded_at: string | null;
   associate_review_note?: string;
+  associate_review_note_translated?: string;
 };
 
 export type Order = {
@@ -120,12 +123,22 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ auto_forward }),
     }),
+  setCountry: (userId: string, country: string) =>
+    request<any>(`/users/${userId}/country`, {
+      method: "PUT",
+      body: JSON.stringify({ country }),
+    }),
+  listCountries: () =>
+    request<{ code: string; name: string; language: string; language_name: string }[]>(
+      "/meta/countries"
+    ),
   createUser: (payload: {
     email: string;
     password: string;
     name: string;
     role: Role;
     associate_id?: string | null;
+    country?: string;
   }) => request<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
   deleteUser: (userId: string) =>
     request<any>(`/users/${userId}`, { method: "DELETE" }),

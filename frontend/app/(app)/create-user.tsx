@@ -12,6 +12,8 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 const ROLE_OPTIONS: Role[] = ["manufacturer", "client"];
 
+type Country = { code: string; name: string; language: string; language_name: string };
+
 export default function CreateUserScreen() {
   const router = useRouter();
   const safeBack = useSafeBack();
@@ -22,14 +24,20 @@ export default function CreateUserScreen() {
   const [password, setPassword] = useState("");
   const [associates, setAssociates] = useState<User[]>([]);
   const [selectedAssociate, setSelectedAssociate] = useState<User | null>(null);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [country, setCountry] = useState<string>("AU");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const list = await api.listUsers("associate");
-        setAssociates(list);
+        const [a, c] = await Promise.all([
+          api.listUsers("associate"),
+          api.listCountries(),
+        ]);
+        setAssociates(a);
+        setCountries(c);
       } catch {}
     })();
   }, []);
@@ -48,7 +56,8 @@ export default function CreateUserScreen() {
         password,
         role,
         associate_id: role === "client" ? selectedAssociate?.id ?? null : null,
-      });
+        ...(role === "client" ? { country } : {}),
+      } as any);
       router.back();
     } catch (e: any) {
       setError(e?.message ?? "Failed");
@@ -119,6 +128,35 @@ export default function CreateUserScreen() {
             secureTextEntry
             style={styles.input}
           />
+
+          {role === "client" && (
+            <>
+              <Text style={styles.formLabel}>COUNTRY · LANGUAGE</Text>
+              <View style={styles.selectorBox}>
+                <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                  {countries.map((c) => {
+                    const isSel = country === c.code;
+                    return (
+                      <TouchableOpacity
+                        key={c.code}
+                        testID={`country-${c.code}`}
+                        onPress={() => setCountry(c.code)}
+                        style={[styles.selectorRow, isSel && styles.selectorRowSel]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.selectorName, isSel && { color: theme.primary }]}>
+                            {c.name}
+                          </Text>
+                          <Text style={styles.selectorEmail}>{c.language_name}</Text>
+                        </View>
+                        {isSel && <Ionicons name="checkmark" size={18} color={theme.primary} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </>
+          )}
 
           {role === "client" && associates.length > 0 && (
             <>

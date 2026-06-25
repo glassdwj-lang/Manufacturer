@@ -35,6 +35,7 @@ export default function StepActionScreen() {
   const [reviewNote, setReviewNote] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -244,7 +245,32 @@ export default function StepActionScreen() {
           {/* Read-only view for already-completed / forwarded */}
           {step.completed && !showForwardFlow && !showCompleteFlow && (
             <>
-              {!!step.notes && (
+              {!!(step.notes_translated && user?.role === "client") && (
+                <>
+                  <Text style={styles.formLabel}>WORKSHOP NOTES</Text>
+                  <Text style={styles.readonlyBlock}>{step.notes_translated}</Text>
+                  {!!step.notes && (
+                    <TouchableOpacity
+                      testID="toggle-original-note"
+                      onPress={() => setShowOriginal((v) => !v)}
+                      style={styles.viewOriginalBtn}
+                    >
+                      <Ionicons
+                        name={showOriginal ? "eye-off-outline" : "eye-outline"}
+                        size={14}
+                        color={theme.primary}
+                      />
+                      <Text style={styles.viewOriginalText}>
+                        {showOriginal ? "HIDE ORIGINAL" : "VIEW ORIGINAL"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {showOriginal && !!step.notes && (
+                    <Text style={[styles.readonlyBlock, styles.originalBlock]}>{step.notes}</Text>
+                  )}
+                </>
+              )}
+              {!step.notes_translated && !!step.notes && (
                 <>
                   <Text style={styles.formLabel}>WORKSHOP NOTES</Text>
                   <Text style={styles.readonlyBlock}>{step.notes}</Text>
@@ -253,7 +279,11 @@ export default function StepActionScreen() {
               {!!step.associate_review_note && (
                 <>
                   <Text style={styles.formLabel}>ASSOCIATE NOTE</Text>
-                  <Text style={styles.readonlyBlock}>{step.associate_review_note}</Text>
+                  <Text style={styles.readonlyBlock}>
+                    {step.associate_review_note_translated && user?.role === "client"
+                      ? step.associate_review_note_translated
+                      : step.associate_review_note}
+                  </Text>
                 </>
               )}
               {photos.length > 0 && (
@@ -346,4 +376,10 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     lineHeight: 19,
   },
+  originalBlock: { marginTop: spacing.sm, borderColor: theme.borderSubtle, opacity: 0.7 },
+  viewOriginalBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingVertical: spacing.sm, alignSelf: "flex-start",
+  },
+  viewOriginalText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
 });

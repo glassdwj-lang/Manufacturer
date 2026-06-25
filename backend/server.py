@@ -21,6 +21,7 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from _associate_importer import run_import_and_record, get_last_run, SOURCE_TAG
+from _translation import translate as translate_text, language_for_country, COUNTRY_LIST
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -117,10 +118,13 @@ def build_initial_steps():
                 "completed_at_china": None,  # ISO string
                 "completed_at_utc": None,
                 "notes": "",
+                "notes_translated": "",
+                "notes_target_lang": "",
                 "photos": [],  # list of base64 strings
                 "forwarded_to_client": False,
                 "forwarded_at": None,
                 "associate_review_note": "",
+                "associate_review_note_translated": "",
             })
     return steps
 
@@ -133,6 +137,10 @@ class UserCreate(BaseModel):
     name: str
     role: Role
     associate_id: Optional[str] = None  # for clients: which associate manages them
+    country: Optional[str] = "AU"  # ISO 3166-1 alpha-2 (clients only); default Australia
+
+class UserCountryUpdate(BaseModel):
+    country: str
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -144,8 +152,11 @@ class UserPublic(BaseModel):
     name: str
     role: str
     associate_id: Optional[str] = None
-    auto_forward: bool = False  # associate-level default (used when client has none set)
-    source: str = "local"  # 'local' or 'gem-gallery' (imported from source app)
+    auto_forward: bool = False
+    source: str = "local"
+    country: str = "AU"
+    language: str = "en"
+    language_name: str = "English"
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -214,6 +225,8 @@ def require_roles(*allowed: str):
     return checker
 
 def user_to_public(u: dict) -> dict:
+    country = u.get("country") or "AU"
+    lang_tag, lang_name = language_for_country(country)
     return {
         "id": u["id"],
         "email": u["email"],
@@ -222,6 +235,9 @@ def user_to_public(u: dict) -> dict:
         "associate_id": u.get("associate_id"),
         "auto_forward": u.get("auto_forward", False),
         "source": u.get("source", "local"),
+        "country": country,
+        "language": lang_tag,
+        "language_name": lang_name,
     }
 
 def now_china_iso() -> str:
@@ -300,10 +316,33 @@ async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"
         "associate_id": data.associate_id,
         "auto_forward": False,
         "source": "local",
+        "country": (data.country or "AU").upper(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
     return user_to_public(user_doc)
+
+@api_router.put("/users/{user_id}/country")
+async def admin_update_country(user_id: str, body: UserCountryUpdate, user=Depends(require_roles("admin", "associate"))):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target["role"] != "client":
+        raise HTTPException(status_code=400, detail="Country is only tracked for clients.")
+    if user["role"] == "associate" and target.get("associate_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your client")
+    code = (body.country or "AU").upper()
+    await db.users.update_one({"id": user_id}, {"$set": {"country": code}})
+    return {"ok": True, "country": code}
+
+@api_router.get("/meta/countries")
+async def list_countries():
+    """Public list used by the country dropdown — code, name, language."""
+    rows = []
+    for code, name in COUNTRY_LIST:
+        lang_tag, lang_name = language_for_country(code)
+        rows.append({"code": code, "name": name, "language": lang_tag, "language_name": lang_name})
+    return rows
 
 @api_router.delete("/users/{user_id}")
 async def admin_delete_user(user_id: str, user=Depends(require_roles("admin"))):
@@ -399,8 +438,11 @@ def _strip_order_for_role(order: dict, user: dict) -> dict:
                     "completed_at_china": s["completed_at_china"] if s.get("forwarded_to_client") else None,
                     "completed_at_utc": s["completed_at_utc"] if s.get("forwarded_to_client") else None,
                     "notes": s["notes"] if s.get("forwarded_to_client") else "",
+                    "notes_translated": s.get("notes_translated", "") if s.get("forwarded_to_client") else "",
+                    "notes_target_lang": s.get("notes_target_lang", "") if s.get("forwarded_to_client") else "",
                     "photos": s["photos"] if s.get("forwarded_to_client") else [],
                     "associate_review_note": s.get("associate_review_note", "") if s.get("forwarded_to_client") else "",
+                    "associate_review_note_translated": s.get("associate_review_note_translated", "") if s.get("forwarded_to_client") else "",
                 })
         o["steps"] = visible_steps
     o["progress"] = progress_summary(order["steps"])
@@ -457,6 +499,14 @@ async def complete_step(order_id: str, step_number: int, body: StepUpdate, user=
     # Check if associate has auto_forward for this client
     client = await db.users.find_one({"id": order["client_id"]})
     auto_forward = client.get("auto_forward", False) if client else False
+    # Translate notes to client's language if needed
+    client_country = (client or {}).get("country") or "AU"
+    target_lang, target_lang_name = language_for_country(client_country)
+    translated_note = ""
+    if body.notes and not target_lang.lower().startswith("en"):
+        t = await translate_text(body.notes, target_lang, target_lang_name)
+        if t:
+            translated_note = t
 
     china_iso = now_china_iso()
     utc_iso = datetime.now(timezone.utc).isoformat()
@@ -466,6 +516,8 @@ async def complete_step(order_id: str, step_number: int, body: StepUpdate, user=
         "steps.$.completed_at_china": china_iso,
         "steps.$.completed_at_utc": utc_iso,
         "steps.$.notes": body.notes or "",
+        "steps.$.notes_translated": translated_note,
+        "steps.$.notes_target_lang": target_lang if translated_note else "",
         "steps.$.photos": body.photos or [],
         "steps.$.forwarded_to_client": auto_forward,
         "steps.$.forwarded_at": china_iso if auto_forward else None,
@@ -491,6 +543,15 @@ async def forward_step(order_id: str, step_number: int, body: ForwardUpdate, use
         raise HTTPException(status_code=404, detail="Order not found")
     if user["role"] == "associate" and order["associate_id"] != user["id"]:
         raise HTTPException(status_code=403)
+    # Translate review_note to client's language if needed
+    client_doc = await db.users.find_one({"id": order["client_id"]})
+    client_country = (client_doc or {}).get("country") or "AU"
+    target_lang, target_lang_name = language_for_country(client_country)
+    translated_review = ""
+    if body.review_note and not target_lang.lower().startswith("en"):
+        t = await translate_text(body.review_note, target_lang, target_lang_name)
+        if t:
+            translated_review = t
     china_iso = now_china_iso()
     res = await db.orders.update_one(
         {"id": order_id, "steps.step_number": step_number},
@@ -498,6 +559,7 @@ async def forward_step(order_id: str, step_number: int, body: ForwardUpdate, use
             "steps.$.forwarded_to_client": True,
             "steps.$.forwarded_at": china_iso,
             "steps.$.associate_review_note": body.review_note or "",
+            "steps.$.associate_review_note_translated": translated_review,
         }},
     )
     if res.matched_count == 0:
