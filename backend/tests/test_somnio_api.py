@@ -1,4 +1,4 @@
-"""End-to-end backend tests for Somnio Atelier 26-step manufacturing tracker."""
+"""End-to-end backend tests for Somnio.Co Atelier 26-step manufacturing tracker."""
 import os
 import pytest
 import requests

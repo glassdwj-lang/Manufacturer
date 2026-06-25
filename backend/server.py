@@ -1,5 +1,5 @@
 """
-Somnio Atelier - 26-Step Jewelry Manufacturing Tracker
+Somnio.Co Atelier - 26-Step Jewelry Manufacturing Tracker
 Backend: FastAPI + MongoDB + JWT auth (4 roles)
 """
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
@@ -48,7 +48,7 @@ CHINA_TZ = pytz.timezone("Asia/Shanghai")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # ---------------- App ----------------
-app = FastAPI(title="Somnio Atelier API")
+app = FastAPI(title="Somnio.Co Atelier API")
 api_router = APIRouter(prefix="/api")
 
 # ---------------- 26-step canonical list ----------------
@@ -164,7 +164,7 @@ class UserPublic(BaseModel):
     id: str
     email: str
     name: str
-    alias: str = ""  # for manufacturers: 'Somnio Atelier N' shown to clients/associates
+    alias: str = ""  # for manufacturers: 'Somnio.Co Atelier N' shown to clients/associates
     role: str
     associate_id: Optional[str] = None
     auto_forward: bool = False
@@ -240,7 +240,7 @@ def require_roles(*allowed: str):
     return checker
 
 async def _next_manufacturer_alias() -> str:
-    """Compute the next 'Somnio Atelier N' alias not already in use."""
+    """Compute the next 'Somnio.Co Atelier N' alias not already in use."""
     cursor = db.users.find({"role": "manufacturer", "alias": {"$exists": True, "$ne": ""}}, {"_id": 0, "alias": 1})
     used: set[int] = set()
     async for row in cursor:
@@ -252,7 +252,7 @@ async def _next_manufacturer_alias() -> str:
     n = 1
     while n in used:
         n += 1
-    return f"Somnio Atelier {n}"
+    return f"Somnio.Co Atelier {n}"
 
 
 def user_to_public(u: dict) -> dict:
@@ -397,7 +397,7 @@ async def admin_set_alias(user_id: str, body: UserAliasUpdate, user=Depends(requ
 
 @api_router.post("/admin/backfill-aliases")
 async def admin_backfill_aliases(user=Depends(require_roles("admin"))):
-    """Assigns 'Somnio Atelier N' to any manufacturer that doesn't have an alias yet,
+    """Assigns 'Somnio.Co Atelier N' to any manufacturer that doesn't have an alias yet,
     and stamps the manufacturer_alias on existing orders."""
     assigned = []
     async for m in db.users.find({"role": "manufacturer", "$or": [{"alias": {"$exists": False}}, {"alias": ""}]}, {"_id": 0, "id": 1, "name": 1}):
@@ -498,7 +498,7 @@ async def create_order(data: OrderCreate, user=Depends(require_roles("admin", "a
         "client_name": client["name"],
         "manufacturer_id": data.manufacturer_id,
         "manufacturer_name": manufacturer["name"],
-        "manufacturer_alias": manufacturer.get("alias") or "Somnio Atelier",
+        "manufacturer_alias": manufacturer.get("alias") or "Somnio.Co Atelier",
         "associate_id": associate_id,
         "jewelry_name": data.jewelry_name,
         "sku": data.sku or "",
@@ -516,14 +516,14 @@ def _strip_order_for_role(order: dict, user: dict) -> dict:
     """Remove _id; hide customs from non-admin; hide unforwarded steps' detail from client.
     Also localize step titles / phase titles / descriptions when the viewer is a client
     whose country maps to a non-English language we have pre-translated.
-    Mask manufacturer real name as 'Somnio Atelier N' alias for client + associate."""
+    Mask manufacturer real name as 'Somnio.Co Atelier N' alias for client + associate."""
     o = {k: v for k, v in order.items() if k != "_id"}
     if user["role"] != "admin":
         o["customs"] = {"has_docs": bool(o.get("customs", {}).get("airway_bill") or o.get("customs", {}).get("customs_document"))}
 
     # Mask manufacturer real name with alias for client and associate views.
     if user["role"] in ("client", "associate"):
-        alias = o.get("manufacturer_alias") or "Somnio Atelier"
+        alias = o.get("manufacturer_alias") or "Somnio.Co Atelier"
         o["manufacturer_name"] = alias
 
     # Pick a language pack to localize titles/phase_titles/descriptions
@@ -835,7 +835,7 @@ async def order_digital_dna(
 
     # Always anonymize the workshop in the PDF, regardless of viewer role.
     masked = dict(order)
-    masked["manufacturer_name"] = order.get("manufacturer_alias") or "Somnio Atelier"
+    masked["manufacturer_name"] = order.get("manufacturer_alias") or "Somnio.Co Atelier"
     masked["progress"] = progress_summary(order["steps"])
 
     pdf_bytes = build_digital_dna_pdf(
@@ -850,7 +850,7 @@ async def order_digital_dna(
     if include_photos:
         suffix_bits.append("photos")
     suffix = ("-" + "-".join(suffix_bits)) if suffix_bits else ""
-    filename = f"Somnio-DigitalDNA-{order.get('order_ref','order')}{suffix}.pdf"
+    filename = f"Somnio.Co-DigitalDNA-{order.get('order_ref','order')}{suffix}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -859,7 +859,7 @@ async def order_digital_dna(
 
 @api_router.get("/")
 async def root():
-    return {"app": "Somnio Atelier API", "status": "ok"}
+    return {"app": "Somnio.Co Atelier API", "status": "ok"}
 
 @api_router.post("/admin/wipe-demo")
 async def admin_wipe_demo(user=Depends(require_roles("admin"))):

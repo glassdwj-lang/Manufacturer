@@ -54,7 +54,7 @@ export default function HomeScreen() {
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <View>
-          <Text style={styles.brandMark}>SOMNIO · ATELIER</Text>
+          <Text style={styles.brandMark}>SOMNIO.CO · ATELIER</Text>
           <Text style={styles.welcome}>{roleLabel} · {user.name}</Text>
         </View>
         <TouchableOpacity testID="logout-button" onPress={signOut} style={styles.iconBtn}>

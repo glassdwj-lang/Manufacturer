@@ -103,7 +103,7 @@ def _draw_masthead(c: canvas.Canvas, lang_name: str, order_ref: str) -> None:
     c.line(LEFT, PAGE_H - 22 * mm, RIGHT, PAGE_H - 22 * mm)
     c.setFillColor(GOLD)
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(LEFT, PAGE_H - 18 * mm, "SOMNIO · ATELIER")
+    c.drawString(LEFT, PAGE_H - 18 * mm, "SOMNIO.CO · ATELIER")
     c.setFillColor(SUB)
     c.setFont("Helvetica", 8)
     c.drawRightString(
@@ -171,7 +171,7 @@ def build_digital_dna_pdf(
     kv("REFERENCE", order_ref, y)
     kv("PIECE", order.get("jewelry_name", "—"), y - 12 * mm)
     kv("CLIENT", order.get("client_name", "—"), y - 24 * mm)
-    alias = order.get("manufacturer_alias") or "Somnio Atelier"
+    alias = order.get("manufacturer_alias") or "Somnio.Co Atelier"
     kv("WORKSHOP", alias, y - 36 * mm)
     if order.get("sku"):
         kv("SKU", order["sku"], y - 48 * mm)

@@ -1,4 +1,4 @@
-# Somnio Atelier — Product Requirements
+# Somnio.Co Atelier — Product Requirements
 
 ## Overview
 A luxury React Native (Expo) mobile app that tracks every Somnio.Co jewelry piece through a proprietary 26-step "Digital DNA" manufacturing journey. Replaces email/spreadsheet status updates with an auditable, role-filtered, China-time-stamped workflow.

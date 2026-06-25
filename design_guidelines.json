@@ -1,5 +1,5 @@
 {
-  "app_name": "Somnio Atelier",
+  "app_name": "Somnio.Co Atelier",
   "theme": "Dark",
   "archetype": "5 (Luxury)",
   "color_palette": {
@@ -59,7 +59,7 @@
   },
   "screen_layouts": {
     "login": {
-      "description": "Elegant splash background with Somnio Atelier logo. Form for role selection and login.",
+      "description": "Elegant splash background with Somnio.Co Atelier logo. Form for role selection and login.",
       "layout_rules": "Full screen image background with dark gradient overlay (bg-black/60). Form items stacked vertically."
     },
     "dashboard": {

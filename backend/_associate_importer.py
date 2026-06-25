@@ -86,7 +86,7 @@ async def login_source(client: httpx.AsyncClient, base_url: str, email: str, pas
     r = await client.post(
         f"{base_url}/api/admin/auth",
         json={"email": email.strip().lower(), "password": password},
-        headers={"User-Agent": "Somnio-Atelier-Sync/1.0"},
+        headers={"User-Agent": "Somnio.Co-Atelier-Sync/1.0"},
     )
     if r.status_code != 200:
         raise RuntimeError(f"Source admin login failed: HTTP {r.status_code} {r.text[:200]}")
@@ -99,7 +99,7 @@ async def login_source(client: httpx.AsyncClient, base_url: str, email: str, pas
 
 async def fetch_associates(client: httpx.AsyncClient, base_url: str, token: str) -> list[dict]:
     """gem-gallery-193 exposes the associate list at /api/admin/associates."""
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": "Somnio-Atelier-Sync/1.0"}
+    headers = {"Authorization": f"Bearer {token}", "User-Agent": "Somnio.Co-Atelier-Sync/1.0"}
     r = await client.get(f"{base_url}/api/admin/associates", headers=headers)
     if r.status_code != 200:
         raise RuntimeError(f"GET /api/admin/associates failed: HTTP {r.status_code} {r.text[:200]}")
@@ -257,7 +257,7 @@ async def source_proxy_auth(email: str, password: str) -> bool:
                     r = await client.post(
                         f"{base}{path}",
                         json=payload,
-                        headers={"User-Agent": "Somnio-Atelier-Auth/1.0"},
+                        headers={"User-Agent": "Somnio.Co-Atelier-Auth/1.0"},
                     )
                 except httpx.HTTPError:
                     continue

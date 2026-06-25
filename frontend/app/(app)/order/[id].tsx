@@ -50,7 +50,7 @@ export default function OrderDetail() {
       ]
         .filter(Boolean)
         .join("-");
-      const filename = `Somnio-DigitalDNA-${order.order_ref}${
+      const filename = `Somnio.Co-DigitalDNA-${order.order_ref}${
         suffix ? "-" + suffix : ""
       }.pdf`;
       if (Platform.OS === "web") {

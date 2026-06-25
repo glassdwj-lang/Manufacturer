@@ -65,7 +65,7 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.brandBlock}>
-              <Text style={styles.eyebrow}>SOMNIO · ATELIER</Text>
+              <Text style={styles.eyebrow}>SOMNIO.CO · ATELIER</Text>
               <Text style={styles.brandTitle}>Digital DNA{"\n"}for every Maison piece.</Text>
               <Text style={styles.brandSub}>
                 A 26-step traceable journey, from origin to ownership.

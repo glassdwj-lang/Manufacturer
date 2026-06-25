@@ -1,4 +1,4 @@
-// API client for Somnio Atelier backend.
+// API client for Somnio.Co Atelier backend.
 import { storage } from "@/src/utils/storage";
 
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL;

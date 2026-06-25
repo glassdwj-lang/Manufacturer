@@ -6,7 +6,7 @@ client's preferred language using Claude Sonnet 4.5 via the Emergent LLM key.
 
 - One-shot, non-streaming: caller awaits result and persists the translation.
 - Skipped when source == target (e.g. English client receiving English note).
-- Country → language mapping is opinionated for the markets Somnio serves.
+- Country → language mapping is opinionated for the markets Somnio.Co serves.
 """
 from __future__ import annotations
 import os
@@ -137,10 +137,10 @@ async def translate(
         return None
 
     system_prompt = (
-        "You are a precise luxury-brand translator for Somnio Atelier, a high-end jewelry maison. "
+        "You are a precise luxury-brand translator for Somnio.Co Atelier, a high-end jewelry maison. "
         "Translate the manufacturer's craftsmanship note into the requested target language for a "
         "discerning client. Preserve brand terminology in their original form: Atelier, Maison, "
-        "Provenance, Somnio. Keep the same number of sentences. Do NOT add commentary, do NOT "
+        "Provenance, Somnio.Co. Keep the same number of sentences. Do NOT add commentary, do NOT "
         "wrap in quotes, do NOT prefix with 'Translation:'. Return only the translated text."
     )
 

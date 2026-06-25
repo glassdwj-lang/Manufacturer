@@ -1,4 +1,4 @@
-// Theme tokens for Somnio Atelier (dark luxury).
+// Theme tokens for Somnio.Co Atelier (dark luxury).
 export const theme = {
   bg: "#0A0A0A",
   surface: "#1A1A1A",
