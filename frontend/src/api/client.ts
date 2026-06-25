@@ -132,6 +132,16 @@ export const api = {
     request<Order>(`/orders/${orderId}/steps/${stepNumber}/reopen`, {
       method: "POST",
     }),
+  // ---- Cloudinary photo uploads ----
+  signCloudinaryUpload: (body: { folder?: string; public_id?: string; tags?: string }) =>
+    request<any>("/uploads/sign", { method: "POST", body: JSON.stringify(body || {}) }),
+  uploadBase64: (body: { base64_data: string; folder?: string; public_id?: string }) =>
+    request<{ secure_url: string }>("/uploads/base64", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  migratePhotos: (limit = 0) =>
+    request<any>(`/admin/photos/migrate${limit ? `?limit=${limit}` : ""}`, { method: "POST" }),
   // ---- Manual language preference ----
   setMyLanguage: (language: string | null) =>
     request<User>("/users/me/language", {

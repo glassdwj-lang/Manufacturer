@@ -25,6 +25,7 @@ from routes import (
     auth_router,
     meta_router,
     orders_router,
+    uploads_router,
     users_router,
 )
 
@@ -42,6 +43,7 @@ api_router.include_router(users_router)
 api_router.include_router(orders_router)
 api_router.include_router(admin_router)
 api_router.include_router(meta_router)
+api_router.include_router(uploads_router)
 app.include_router(api_router)
 
 app.add_middleware(

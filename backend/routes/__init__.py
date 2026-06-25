@@ -7,6 +7,7 @@ from .users import router as users_router
 from .orders import router as orders_router
 from .admin import router as admin_router
 from .meta import router as meta_router
+from .uploads import router as uploads_router
 
 __all__ = [
     "auth_router",
@@ -14,4 +15,5 @@ __all__ = [
     "orders_router",
     "admin_router",
     "meta_router",
+    "uploads_router",
 ]

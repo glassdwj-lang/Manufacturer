@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { uploadStepPhoto } from "@/src/api/cloudinaryUpload";
 import * as ImagePicker from "expo-image-picker";
 import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -106,14 +107,29 @@ export default function StepActionScreen() {
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
-      base64: true,
-      quality: 0.6,
+      quality: 0.7,
     });
-    if (!res.canceled) {
-      const added = res.assets
-        .filter((a) => a.base64)
-        .map((a) => `data:image/jpeg;base64,${a.base64}`);
-      setPhotos((p) => [...p, ...added]);
+    if (res.canceled) return;
+    // Upload every selected asset to Cloudinary (parallel), then append
+    // the returned secure URLs to the step's photo list.
+    try {
+      const uploads = await Promise.all(
+        res.assets
+          .filter((a) => !!a.uri)
+          .map((a) =>
+            uploadStepPhoto({ uri: a.uri }).then((r) => r.secure_url).catch((e) => {
+              console.warn("photo upload failed", e);
+              return null;
+            }),
+          ),
+      );
+      const urls = uploads.filter((u): u is string => !!u);
+      if (urls.length) setPhotos((p) => [...p, ...urls]);
+      if (urls.length < res.assets.length) {
+        setError("Some photos failed to upload — please try again.");
+      }
+    } catch (e: any) {
+      setError(e?.message || "Photo upload failed");
     }
   };
 
