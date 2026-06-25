@@ -1,0 +1,17 @@
+"""Route packages — one APIRouter per domain concern.
+
+Each module exposes a `router: APIRouter` that `server.py` mounts under /api.
+"""
+from .auth import router as auth_router
+from .users import router as users_router
+from .orders import router as orders_router
+from .admin import router as admin_router
+from .meta import router as meta_router
+
+__all__ = [
+    "auth_router",
+    "users_router",
+    "orders_router",
+    "admin_router",
+    "meta_router",
+]

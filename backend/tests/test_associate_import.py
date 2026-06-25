@@ -214,10 +214,14 @@ class TestImportedLogin:
             lr = s.post(f"{API}/auth/login", json={"email": target["email"], "password": pw}, timeout=15)
             assert lr.status_code == 401, f"imported user {target['email']} logged in with {pw!r}: {lr.status_code} {lr.text}"
 
-    def test_associate_somnio_co_login_fails_after_import(self, s):
-        # per request: local associate@somnio.co was overwritten by import -> 401
+    def test_associate_somnio_co_login_still_works_after_import(self, s):
+        # New contract: local seed `associate@somnio.co` is *exempt* from the
+        # gem-gallery import wipe so the QUICK ACCESS · DEMO row always works.
         lr = s.post(f"{API}/auth/login", json={"email": "associate@somnio.co", "password": "Assoc@2026"}, timeout=15)
-        assert lr.status_code == 401, f"expected 401, got {lr.status_code} {lr.text}"
+        assert lr.status_code == 200, f"expected 200, got {lr.status_code} {lr.text}"
+        body = lr.json()
+        assert body["user"]["email"] == "associate@somnio.co"
+        assert body["user"]["role"] == "associate"
 
 
 # ---------- 5. Demo logins still work ----------
