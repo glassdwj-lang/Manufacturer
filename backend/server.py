@@ -696,7 +696,23 @@ async def seed_demo():
     for u in demo_users:
         existing = await db.users.find_one({"email": u["email"]})
         if existing:
+            # The associate seed can have its hashed_password wiped by the
+            # gem-gallery importer in earlier runs. Restore it (and clear the
+            # source tag) so the QUICK ACCESS · DEMO row keeps working.
             if u["role"] == "associate":
+                await db.users.update_one(
+                    {"email": u["email"]},
+                    {
+                        "$set": {
+                            "hashed_password": hash_password(u["password"]),
+                            "name": u["name"],
+                            "role": "associate",
+                            "source": "local-seed",
+                            "disabled": False,
+                            "status": "active",
+                        }
+                    },
+                )
                 associate_id = existing["id"]
             created.append({"email": u["email"], "role": u["role"], "status": "exists"})
             continue

@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 SOURCE_TAG = "gem-gallery"
 
+# Local seed accounts that are NEVER touched by the source import.
+# Keeping these intact lets the "QUICK ACCESS · DEMO" entries on the login
+# screen always log in, even after the gem-gallery sync runs.
+LOCAL_SEED_EMAILS = {"associate@somnio.co"}
+
 
 def _cfg() -> dict:
     return {
@@ -118,12 +123,18 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
         if not norm:
             skipped += 1
             continue
+        # Never overwrite our local demo associate seed — preserves the
+        # login-screen "QUICK ACCESS · DEMO" associate row.
+        if norm["email"] in LOCAL_SEED_EMAILS:
+            skipped += 1
+            continue
         existing = await db.users.find_one({"email": norm["email"]})
         if existing:
             # Only update fields that the source owns; do NOT touch id.
-            # Wipe local password so source-owned users can NEVER log in via Atelier.
+            # Do NOT touch hashed_password — source-owned users must still be
+            # able to log in here using their gem-gallery-193 credentials
+            # (which we verify by proxying to the source app on login).
             update = {
-                "hashed_password": "",
                 "name": norm["name"],
                 "role": norm["role"],
                 "source": SOURCE_TAG,
