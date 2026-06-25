@@ -120,8 +120,10 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
             continue
         existing = await db.users.find_one({"email": norm["email"]})
         if existing:
-            # Only update fields that the source owns; do NOT touch password / id.
+            # Only update fields that the source owns; do NOT touch id.
+            # Wipe local password so source-owned users can NEVER log in via Atelier.
             update = {
+                "hashed_password": "",
                 "name": norm["name"],
                 "role": norm["role"],
                 "source": SOURCE_TAG,
