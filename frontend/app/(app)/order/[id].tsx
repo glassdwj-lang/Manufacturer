@@ -260,7 +260,7 @@ export default function OrderDetail() {
           />
         </TouchableOpacity>
 
-        <Eyebrow>26-STEP JOURNEY</Eyebrow>
+        <Eyebrow>{t("order.section.journey")}</Eyebrow>
 
         {phases.map((p) => (
           <PhaseSection

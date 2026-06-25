@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 7 — End-to-end verification of the new frontend i18n dictionary + Digital DNA PDF localization across en/zh/fr/it. BACKEND (10/10 pytest pass, /app/backend/tests/test_pdf_localization.py): PUT /api/users/me/language persists each of zh/fr/it/en (verified via GET /api/auth/me); GET /api/orders/{id}/digital-dna for a fully-complete order (26/26, SMN-2026-108) returns application/pdf, >5KB, %PDF magic, and the extracted text contains the correct localized chrome — EN: 'Digital DNA' + 'PROVENANCE'; ZH: '数字 DNA' + '26 步工艺之旅' + '编号' + '已完成' + step title '设计师识别'; FR: 'ADN Numérique' + 'RÉFÉRENCE' + 'Terminé'; IT: 'DNA Digitale' + 'RIFERIMENTO' + 'Completato'. POST /api/orders/{id}/steps/{n}/translate returns non-empty notes_translated with target_lang=zh-CN. Admin preferred_language restored to 'en' at end. FRONTEND (mobile 390x844): logged in as admin via demo chip; Home brand mark renders 'SOMNIO.CO · ATELIER' (EN) → 'SOMNIO.CO · 工作室' (ZH); stat labels switch ACTIVE/COMPLETED/TOTAL → 进行中/已完成/总计 without reload; CTA NEW COMMISSION → 新建委托, COMMISSIONS → 委托, MANUFACTURERS·USERS → 工坊·用户, ATELIER·RECYCLE BIN → 工作室·回收站; step 1 inside every order card flips 'Designer Identification' → '设计师识别'. Order detail (SMN-DEMO0001) localises 客户/工坊, 显示工坊, 海关·空运单, 数字 DNA·已锁定, Phase I '起源与设计', step rows '设计师识别 / 概念渲染 / 金属采购 / 无冲突钻石采购 / 宝石鉴定' — all consistent with the i18n pack. Switching back to EN leaves zero leaked Chinese tokens. Found and FIXED 1 i18n leak: '26-STEP JOURNEY' label on order/[id].tsx:263 was hardcoded — now uses t('order.section.journey') so it renders 26 步工艺之旅/PARCOURS EN 26 ÉTAPES/PERCORSO IN 26 PASSI/26-STEP JOURNEY correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "order/[id].tsx",
+        "issue": "'26-STEP JOURNEY' eyebrow on the order-detail journey section was a hardcoded literal — did not localise when the language switched. FIXED in this iteration by switching to t('order.section.journey').",
+        "testID": "n/a (Eyebrow text)",
+        "priority": "P2"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pdf_localization.py",
+    "/app/test_reports/pytest/iteration_7.xml",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "action_items": [
+    "No blocking action items. P0 PDF localisation works end-to-end across en/zh/fr/it (chrome + step titles + phase titles + footer + masthead). UI dictionary covers all visible chrome on Home, order detail, step detail and language switcher.",
+    "OPTIONAL (low priority): The PUT /api/users/me/language endpoint accepts JSON key `language` (not `preferred_language` as mentioned in the review brief). The response surface returns `preferred_language`, which is correct. If the team wants to align with the brief, accept both keys — current behaviour is intentional and matches frontend (AuthContext.setLanguage sends {language:...})."
+  ],
+  "critical_code_review_comments": [
+    "_digital_dna.py: chrome_tag normalisation (line 279-283) correctly bridges zh→zh-CN and falls back to en for unsupported tags. Step + phase titles use STEP_I18N from _step_translations.py keyed by the same BCP-47 tag. Solid.",
+    "_digital_dna.py:_pick_font auto-detects CJK glyphs per string and lazily registers STSong-Light, allowing mixed CJK/Latin pages without separate code paths. Working as designed — verified Chinese PDF contains '数字 DNA', '设计师识别', '阶段 I · 起源与设计' all rendered legibly.",
+    "frontend/src/i18n/index.ts is a clean self-contained pack (en/zh/fr/it) with placeholder interpolation and pluralisation hint ({s}) — consumed via useI18n() which subscribes to AuthContext.languageVersion so screens re-render immediately on language change. Verified end-to-end in Playwright (no manual refresh required).",
+    "MINOR (already fixed in this iter): order/[id].tsx had one missed string ('26-STEP JOURNEY'). I added t('order.section.journey'). Grep-searched the two referenced screens for other literals (REVEAL WORKSHOP, CUSTOMS, DIGITAL DNA, MARK STEP, TRANSLATE TO, FORWARD TO CLIENT) — none remain hardcoded.",
+    "Frontend supervisor logs continue to warn about props.pointerEvents deprecation in a child component — cosmetic, not user-facing, but worth tidying when convenient."
+  ],
+  "updated_files": [
+    "/app/frontend/app/(app)/order/[id].tsx (fixed hardcoded '26-STEP JOURNEY' → t('order.section.journey'))",
+    "/app/backend/tests/test_pdf_localization.py (new — 10 backend tests for PDF localisation + manual translate + cleanup)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 pytest cases)",
+    "frontend": "100% (Home + Order detail + brand mark + stat labels + section headers + step row titles all localise on language switch with NO stale strings on switch back to EN)"
+  },
+  "seed_data_creation": "Used the existing complete demo order SMN-2026-108 (26/26 steps). Test triggered idempotent _complete_all_steps on the first incomplete order — no new orders created. Admin's preferred_language reset to 'en' as final cleanup test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PUT /api/users/me/language expects JSON body {\"language\": \"<code>\"} (not preferred_language). Response surfaces it as `preferred_language`. The four supported codes are en/zh/fr/it. ZH maps to BCP-47 'zh-CN' inside _digital_dna.py via the chrome_tag normaliser. For PDF tests, pypdf extracts CJK text from the STSong-Light CID font cleanly — assertions on '数字', '26 步', '设计师识别' all match. For UI tests, the LanguageSwitcher button has testID='lang-switcher-button' (multiple instances in the DOM because Expo Router keeps parent stack screens mounted — iterate .count() and pick the first .is_visible()). Demo orders worth using: SMN-DEMO0001 (Étoile Solitaire) has steps 1-9 completed and is the canonical translation playground; SMN-2026-108 (Héritage Three-Stone) is fully 26/26 complete and is the canonical Digital DNA PDF target.",
+  "rca_of_issue": "Bug discovered + fixed in this iteration: order/[id].tsx:263 rendered '<Eyebrow>26-STEP JOURNEY</Eyebrow>' as a hardcoded string literal instead of t('order.section.journey'). Reproduction: open any order detail screen, switch language to ZH/FR/IT — the section header above the phase accordion stays in English while every other label on the screen localises. Fix: replaced with t('order.section.journey'), verified via Playwright on the SMN-DEMO0001 order that the header now reads '26 步工艺之旅' under ZH. No other hardcoded strings detected in the order detail or step detail screens (grep ed for REVEAL WORKSHOP / CUSTOMS / DIGITAL DNA / MARK STEP / TRANSLATE TO / FORWARD TO CLIENT — all already use t())."
+}
