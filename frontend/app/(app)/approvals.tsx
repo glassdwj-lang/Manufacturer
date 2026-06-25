@@ -276,12 +276,27 @@ export default function ApprovalsScreen() {
 
   if (!canModerate) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={["top"]}>
         <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} hitSlop={12} testID="approvals-back">
+            <Ionicons name="chevron-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
+          <View style={{ width: 24 }} />
+        </View>
         <View style={styles.empty}>
+          <Ionicons name="lock-closed-outline" size={28} color={theme.muted} />
           <Text style={styles.emptyText}>
             Only admins and associates can manage the approval queue.
           </Text>
+          <TouchableOpacity
+            style={styles.backToHome}
+            onPress={() => router.replace("/(app)")}
+            testID="approvals-back-home"
+          >
+            <Text style={styles.backToHomeText}>BACK TO HOME</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -533,6 +548,14 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { color: theme.primary, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
   toggleHelp: { color: theme.muted, fontSize: 11, marginTop: 2 },
+  backToHome: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.primary,
+  },
+  backToHomeText: { color: theme.primary, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
 });
 
 // Silence unused Platform import if downstream ever drops platform branches.
