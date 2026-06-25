@@ -161,7 +161,12 @@ function Selector({ label, items, selected, onSelect, testID }: {
                 style={[styles.selectorRow, isSel && styles.selectorRowSel]}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.selectorName, isSel && { color: theme.primary }]}>{u.name}</Text>
+                  <Text style={[styles.selectorName, isSel && { color: theme.primary }]}>
+                    {u.name}
+                    {u.alias ? (
+                      <Text style={styles.selectorAlias}>{`  (${u.alias})`}</Text>
+                    ) : null}
+                  </Text>
                   <Text style={styles.selectorEmail}>{u.email}</Text>
                 </View>
                 {isSel && <Ionicons name="checkmark" size={18} color={theme.primary} />}
@@ -189,6 +194,7 @@ const styles = StyleSheet.create({
   },
   selectorRowSel: { backgroundColor: "rgba(212,175,55,0.08)" },
   selectorName: { color: theme.textPrimary, fontSize: 14 },
+  selectorAlias: { color: theme.primary, fontSize: 12, fontStyle: "italic" },
   selectorEmail: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   error: { color: theme.error, fontSize: 12, marginTop: spacing.md },
   primaryBtn: { backgroundColor: theme.primary, paddingVertical: 16, alignItems: "center", marginTop: spacing.xl },
