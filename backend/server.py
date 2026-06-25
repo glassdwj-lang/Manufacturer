@@ -59,6 +59,15 @@ scheduler: Optional[AsyncIOScheduler] = None
 @app.on_event("startup")
 async def _start_scheduler():
     global scheduler
+    # One-shot alias migration: rename legacy 'Somnio.Co Atelier N' to
+    # 'Somnio.Co Atelier Workshop N' on users + orders. Safe & idempotent.
+    try:
+        from helpers import migrate_workshop_aliases
+        res = await migrate_workshop_aliases()
+        if res["users_updated"] or res["orders_updated"]:
+            logger.info("Workshop alias migration: %s", res)
+    except Exception as e:
+        logger.warning("Workshop alias migration failed: %s", e)
     try:
         tz_name = os.environ.get("ASSOCIATE_SYNC_TZ", "Australia/Sydney")
         hour = int(os.environ.get("ASSOCIATE_SYNC_HOUR", "0"))

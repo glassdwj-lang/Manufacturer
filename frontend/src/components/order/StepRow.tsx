@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Step } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { formatChinaTime } from "@/src/utils/format";
+import { useAuth } from "@/src/context/AuthContext";
 
 export interface StepRowProps {
   step: Step;
@@ -19,8 +20,11 @@ export interface StepRowProps {
  * any attached notes/photos.
  */
 export function StepRow({ step, isLast, canEdit, canForward, onPress }: StepRowProps) {
+  const { user } = useAuth();
+  const isClient = user?.role === "client";
   const dotColor = step.completed ? theme.primary : theme.border;
   const interactive = canEdit || canForward;
+  const noteToShow = step.notes_translated || step.notes || "";
   return (
     <TouchableOpacity
       testID={`step-row-${step.step_number}`}
@@ -47,16 +51,22 @@ export function StepRow({ step, isLast, canEdit, canForward, onPress }: StepRowP
           )}
         </View>
         {step.description ? <Text style={styles.stepDesc}>{step.description}</Text> : null}
-        {step.completed && step.completed_at_china && (
+        {step.completed && step.completed_at_china && !isClient && (
           <Text style={styles.stepMeta}>
             ✓ {formatChinaTime(step.completed_at_china)} CST
             {step.forwarded_to_client ? "  ·  Sent to client" : "  ·  Pending forward"}
           </Text>
         )}
+        {step.completed && step.completed_at_china && isClient && (
+          <Text style={styles.stepMeta}>
+            ✓ {formatChinaTime(step.completed_at_china)}
+            {step.forwarded_to_client ? "  ·  Received" : "  ·  Awaiting release"}
+          </Text>
+        )}
         {!!step.photos?.length && (
           <Text style={styles.stepMeta}>{Platform.OS === "web" ? "\u{1F4F7}" : "\u{1F4F7}"} {step.photos.length} photo(s)</Text>
         )}
-        {!!step.notes && <Text style={styles.stepNotes}>{step.notes}</Text>}
+        {!!noteToShow && <Text style={styles.stepNotes}>{noteToShow}</Text>}
       </View>
     </TouchableOpacity>
   );

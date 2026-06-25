@@ -46,8 +46,13 @@ def progress_summary(steps: list) -> dict:
     }
 
 
+WORKSHOP_ALIAS_PREFIX = "Somnio.Co Atelier Workshop"
+LEGACY_WORKSHOP_ALIAS_PREFIX = "Somnio.Co Atelier"
+WORKSHOP_FALLBACK = "Somnio.Co Atelier Workshop"
+
+
 async def _next_manufacturer_alias() -> str:
-    """Compute the next 'Somnio.Co Atelier N' alias not already in use."""
+    """Compute the next 'Somnio.Co Atelier Workshop N' alias not already in use."""
     cursor = db.users.find(
         {"role": "manufacturer", "alias": {"$exists": True, "$ne": ""}},
         {"_id": 0, "alias": 1},
@@ -61,7 +66,44 @@ async def _next_manufacturer_alias() -> str:
     n = 1
     while n in used:
         n += 1
-    return f"Somnio.Co Atelier {n}"
+    return f"{WORKSHOP_ALIAS_PREFIX} {n}"
+
+
+async def migrate_workshop_aliases() -> dict:
+    """One-shot migration: rename legacy 'Somnio.Co Atelier N' aliases to
+    'Somnio.Co Atelier Workshop N' on users and orders. Idempotent."""
+    import re
+    users_updated = 0
+    orders_updated = 0
+    pattern = re.compile(rf"^{re.escape(LEGACY_WORKSHOP_ALIAS_PREFIX)} (\d+)$")
+    async for u in db.users.find(
+        {"role": "manufacturer", "alias": {"$regex": rf"^{re.escape(LEGACY_WORKSHOP_ALIAS_PREFIX)} \d+$"}},
+        {"_id": 0, "id": 1, "alias": 1},
+    ):
+        m = pattern.match(u.get("alias", ""))
+        if not m:
+            continue
+        new_alias = f"{WORKSHOP_ALIAS_PREFIX} {m.group(1)}"
+        await db.users.update_one({"id": u["id"]}, {"$set": {"alias": new_alias}})
+        users_updated += 1
+        r = await db.orders.update_many(
+            {"manufacturer_id": u["id"], "manufacturer_alias": u["alias"]},
+            {"$set": {"manufacturer_alias": new_alias}},
+        )
+        orders_updated += r.modified_count
+    # Also catch any stray orders that reference legacy alias even when their
+    # mfg user has been re-aliased.
+    async for o in db.orders.find(
+        {"manufacturer_alias": {"$regex": rf"^{re.escape(LEGACY_WORKSHOP_ALIAS_PREFIX)} \d+$"}},
+        {"_id": 0, "id": 1, "manufacturer_alias": 1},
+    ):
+        m = pattern.match(o.get("manufacturer_alias", ""))
+        if not m:
+            continue
+        new_alias = f"{WORKSHOP_ALIAS_PREFIX} {m.group(1)}"
+        await db.orders.update_one({"id": o["id"]}, {"$set": {"manufacturer_alias": new_alias}})
+        orders_updated += 1
+    return {"users_updated": users_updated, "orders_updated": orders_updated}
 
 
 SUPPORTED_MANUAL_LANGS = {
@@ -137,7 +179,7 @@ def strip_order_for_role(order: dict, user: dict) -> dict:
 
     # Mask manufacturer real name with alias for client and associate views.
     if user["role"] in ("client", "associate"):
-        alias = o.get("manufacturer_alias") or "Somnio.Co Atelier"
+        alias = o.get("manufacturer_alias") or WORKSHOP_FALLBACK
         o["manufacturer_name"] = alias
 
     # Pick a language pack to localize titles/phase_titles/descriptions.

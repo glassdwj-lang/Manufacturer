@@ -238,6 +238,7 @@ export default function StepActionScreen() {
 
   const isManufacturer = user?.role === "manufacturer" || user?.role === "admin";
   const isAssociate = user?.role === "associate" || user?.role === "admin";
+  const isClient = user?.role === "client";
   const showCompleteFlow = isManufacturer && !step.completed;
   const showForwardFlow = isAssociate && step.completed && !step.forwarded_to_client;
   const canManufacturerEdit = isManufacturer && step.completed;
@@ -263,12 +264,21 @@ export default function StepActionScreen() {
           <Text style={styles.title}>{step.title}</Text>
           {step.description ? <Text style={styles.desc}>{step.description}</Text> : null}
 
-          {step.completed && step.completed_at_china && (
+          {step.completed && step.completed_at_china && !isClient && (
             <View style={styles.timestampBox}>
               <Text style={styles.tsEyebrow}>COMPLETED · CHINA TIME (CST)</Text>
               <Text style={styles.tsValue}>{formatChinaTime(step.completed_at_china)}</Text>
               <Text style={styles.tsSub}>
                 {step.forwarded_to_client ? "Forwarded to client" : "Awaiting associate forward"}
+              </Text>
+            </View>
+          )}
+          {step.completed && step.completed_at_china && isClient && (
+            <View style={styles.timestampBox}>
+              <Text style={styles.tsEyebrow}>COMPLETED</Text>
+              <Text style={styles.tsValue}>{formatChinaTime(step.completed_at_china)}</Text>
+              <Text style={styles.tsSub}>
+                {step.forwarded_to_client ? "Received" : "Awaiting release"}
               </Text>
             </View>
           )}
@@ -431,11 +441,11 @@ export default function StepActionScreen() {
                   <Text style={styles.readonlyBlock}>{manualTranslated.notes}</Text>
                 </>
               )}
-              {!!(step.notes_translated && user?.role === "client") && (
+              {!!(step.notes_translated && step.notes_translated !== step.notes) && (
                 <>
                   <Text style={styles.formLabel}>WORKSHOP NOTES</Text>
                   <Text style={styles.readonlyBlock}>{step.notes_translated}</Text>
-                  {!!step.notes && (
+                  {!!step.notes && !isClient && (
                     <TouchableOpacity
                       testID="toggle-original-note"
                       onPress={() => setShowOriginal((v) => !v)}
@@ -451,7 +461,7 @@ export default function StepActionScreen() {
                       </Text>
                     </TouchableOpacity>
                   )}
-                  {showOriginal && !!step.notes && (
+                  {showOriginal && !!step.notes && !isClient && (
                     <Text style={[styles.readonlyBlock, styles.originalBlock]}>{step.notes}</Text>
                   )}
                 </>
@@ -468,7 +478,7 @@ export default function StepActionScreen() {
                   <Text style={styles.readonlyBlock}>
                     {manualTranslated && manualTranslated.review
                       ? manualTranslated.review
-                      : step.associate_review_note_translated && user?.role === "client"
+                      : step.associate_review_note_translated
                       ? step.associate_review_note_translated
                       : step.associate_review_note}
                   </Text>

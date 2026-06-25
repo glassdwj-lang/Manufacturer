@@ -152,7 +152,7 @@ export default function UsersScreen() {
                         autoFocus
                         onBlur={() => saveAlias(u)}
                         onSubmitEditing={() => saveAlias(u)}
-                        placeholder="Somnio.Co Atelier N"
+                        placeholder="Somnio.Co Atelier Workshop N"
                         placeholderTextColor={theme.textMuted}
                         style={styles.aliasInput}
                       />

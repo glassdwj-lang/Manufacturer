@@ -175,6 +175,14 @@ def _format_china(iso: str | None) -> str:
         return iso
 
 
+def _strip_tz_label(s: str) -> str:
+    """Removes any trailing 'CST' (and similar TZ acronyms) from a formatted
+    timestamp so clients see the date/time without the China-specific tag."""
+    if not s:
+        return s
+    return s.replace(" CST", "").replace(" UTC", "").rstrip()
+
+
 def _pack_for(lang: str) -> dict | None:
     return STEP_I18N.get(lang)
 
@@ -267,9 +275,12 @@ def build_digital_dna_pdf(
 
     Localization respects the viewer's manual ``preferred_language`` first,
     then falls back to the country-derived language (matches `helpers.language_for_user`).
+    Client viewers see provenance steps without raw CST timestamps — only the
+    completion state is surfaced ("Forwarded" / "Pending").
     """
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
+    is_client = (viewer.get("role") == "client") if viewer else False
 
     # Effective language. `language_for_user` already returns the BCP-47 tag
     # that matches STEP_I18N (e.g. "zh-CN"), so we can use it as-is for both
@@ -311,7 +322,7 @@ def build_digital_dna_pdf(
     kv(_t(chrome_tag, "reference"), order_ref, y)
     kv(_t(chrome_tag, "piece"), order.get("jewelry_name", "—"), y - 12 * mm)
     kv(_t(chrome_tag, "client"), order.get("client_name", "—"), y - 24 * mm)
-    alias = order.get("manufacturer_alias") or "Somnio.Co Atelier"
+    alias = order.get("manufacturer_alias") or "Somnio.Co Atelier Workshop"
     kv(_t(chrome_tag, "workshop"), alias, y - 36 * mm)
     if order.get("sku"):
         kv(_t(chrome_tag, "sku"), order["sku"], y - 48 * mm)
@@ -390,6 +401,9 @@ def build_digital_dna_pdf(
         c.setFillColor(TEXT if done_flag else SUB)
         _draw_text(c, LEFT + 14 * mm, y_cursor, title, 10)
         ts = _format_china(s.get("completed_at_china")) if done_flag else _t(chrome_tag, "pending")
+        # Clients see the date+time but without the "CST" timezone label.
+        if is_client and done_flag:
+            ts = _strip_tz_label(ts)
         c.setFillColor(GOLD if done_flag else MUTE)
         _draw_text(c, RIGHT, y_cursor, ts, 8, right=True)
         y_cursor -= line_h
@@ -444,7 +458,11 @@ def build_digital_dna_pdf(
     c.setStrokeColor(BORDER)
     c.line(LEFT, 18 * mm, RIGHT, 18 * mm)
     c.setFillColor(MUTE)
-    generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M CST")
+    if is_client:
+        # Clients see the same generation time but without the "CST" label.
+        generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M")
+    else:
+        generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M CST")
     _draw_text(c, LEFT, 12 * mm, _t(chrome_tag, "generated", when=generated_at), 7)
     _draw_text(c, RIGHT, 12 * mm, _t(chrome_tag, "footer"), 7, right=True)
 

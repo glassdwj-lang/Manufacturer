@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from _digital_dna import build_digital_dna_pdf
+from _notes_translation import ensure_translations_for_viewer
 from _translation import language_for_country, translate as translate_text
 from deps import db, get_current_user, require_roles
 from helpers import (
@@ -48,7 +49,7 @@ async def create_order(
         "client_name": client["name"],
         "manufacturer_id": data.manufacturer_id,
         "manufacturer_name": manufacturer["name"],
-        "manufacturer_alias": manufacturer.get("alias") or "Somnio.Co Atelier",
+        "manufacturer_alias": manufacturer.get("alias") or "Somnio.Co Atelier Workshop",
         "associate_id": associate_id,
         "jewelry_name": data.jewelry_name,
         "sku": data.sku or "",
@@ -209,6 +210,9 @@ async def get_order(order_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=403)
     if user["role"] == "client" and order["client_id"] != user["id"]:
         raise HTTPException(status_code=403)
+    # Translate every step's notes + associate review note into the viewer's
+    # preferred language (cached per language on the step). Skips for English.
+    await ensure_translations_for_viewer(order, user)
     return strip_order_for_role(order, user)
 
 
@@ -506,9 +510,11 @@ async def order_digital_dna(
 
     masked = dict(order)
     masked["manufacturer_name"] = (
-        order.get("manufacturer_alias") or "Somnio.Co Atelier"
+        order.get("manufacturer_alias") or "Somnio.Co Atelier Workshop"
     )
     masked["progress"] = progress_summary(order["steps"])
+    # Translate all step notes into the viewer's language before rendering.
+    await ensure_translations_for_viewer(masked, user)
 
     pdf_bytes = build_digital_dna_pdf(
         masked,
