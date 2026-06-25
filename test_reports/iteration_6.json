@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 6 — Verified P0 language-refresh bug fix + P1 enhancements. BACKEND: 20/20 pytest cases pass in /app/backend/tests/test_language_refresh.py covering login (4 roles), PUT /api/users/me/language (en/zh/fr/it/null/invalid), GET /api/orders localization with preferred_language (the key-mismatch bug — confirmed step 1 title returns '设计师识别' for zh and non-English for fr/it, and 'Designer Identification' returns for en), POST /api/orders/{id}/steps/{n}/translate (returns non-empty notes_translated for zh-CN with target_lang in response; 400 on missing target_lang; 404 on bad step), and regression coverage for recycle-bin (delete/list/restore/purge), customs PUT/GET, and Digital DNA PDF stream (Content-Type pdf + %PDF magic bytes). FRONTEND: Playwright (390x844 mobile) logs in as admin via demo chip; on the dashboard switches EN→ZH→FR→IT→EN and asserts the order-card text re-renders (step 1 title shows '设计师识别' after ZH pick within ~2.5s — the user-reported bug is FIXED). Opens first order; the order-detail header exposes lang-switcher-button (compact), trash (soft-delete-button), digital-dna-button — all visible; switching ZH↔EN inside the detail re-localizes phase + step titles (e.g. 'PHASE I 起源与设计' / 'Origin & Design'). Opens step 01; the step-detail header also exposes lang-switcher-button; switching language re-renders the step title ('设计师识别' ↔ 'Designer Identification') and description. The manual-translate-button correctly DOES NOT appear when language is EN; it also did not appear on the empty-note step under ZH (correct — only renders when the step has notes and there is no matching auto-translation), which matches the spec.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_language_refresh.py",
+    "/app/test_reports/pytest/iteration_6.xml",
+    "/app/test_reports/iteration_6.json"
+  ],
+  "action_items": [
+    "No fixes required. P0 language-refresh bug is resolved end-to-end (backend STEP_I18N key mapping + AuthContext.languageVersion + screen useEffect rerenders all wired correctly).",
+    "OPTIONAL (not a bug): The manual-translate-button could not be exercised end-to-end via UI in this run because the first order card opened ('TEST_new piece') has no completed step 1 with notes. The visibility logic is correctly gated (hidden in EN; backend translate endpoint independently verified by pytest)."
+  ],
+  "critical_code_review_comments": [
+    "backend/helpers.py:79-99 — `_MANUAL_LANG_TO_PACK_TAG` cleanly bridges the short-code stored on `preferred_language` (zh/en/fr/it) onto the BCP-47 pack tag (`zh-CN`, etc.) used by `_step_translations.STEP_I18N`. The fallback `(tag, name) = language_for_country(...)` for unset preferences preserves prior client-country localization. Good fix.",
+    "backend/routes/orders.py:396-454 — `/translate` endpoint is read-only (no DB mutation), properly role-gated, returns 400 for missing target_lang and 404 for unknown step, and falls back gracefully to original text when translation raises. Safe to expose to admin/associate/manufacturer/client (with own-resource checks).",
+    "frontend/src/context/AuthContext.tsx:26,71-80 — `setLanguage` PUTs to /api/users/me/language, updates in-memory user with the new preferred_language, and bumps `languageVersion`. Subscribers (`useEffect(..., [languageVersion])`) refetch — clean unidirectional flow.",
+    "frontend/src/components/LanguageSwitcher.tsx:40 — Calls `setLanguage(code)` (not raw API) so the version-counter pattern fires every time. testIDs on the trigger (`lang-switcher-button`) and each option (`lang-option-{code}`) make UI testing trivial.",
+    "Order detail / Step detail / Home all useEffect on `languageVersion` — verified by Playwright: each screen rebinds & re-fetches localized titles within ~2-3s of selection.",
+    "Minor: On the order detail screen Playwright counted 2 instances of `lang-switcher-button` in the DOM (and 3 on step detail). This is because Expo Router keeps parent screens mounted in the stack — the offscreen instances aren't visible to the user but they ARE focusable / clickable by automation. Consider giving the compact detail-screen variant a distinct testID (e.g., `lang-switcher-button-detail`) to make selectors deterministic in tests; not a user-facing bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_language_refresh.py (new — 20 backend tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 pytest cases)",
+    "frontend": "100% (login → home EN→ZH→FR→IT→EN localization + order detail switch + step detail switch + translate-button gating ALL pass)"
+  },
+  "seed_data_creation": "Step 1 of SMN-DEMO0001 was completed with notes 'TEST_step1 designer identified: Marie Curie.' by the backend test (needed for the /translate endpoint test). Throwaway orders TEST_recycle_lifecycle were created, deleted, restored, redeleted, and purged. A TEST_CN_* client may already exist from prior iterations; not modified here. Admin's preferred_language was reset to null at the end of testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The 4 supported manual languages are en/zh/fr/it. Internally, zh maps to the 'zh-CN' i18n pack via `_MANUAL_LANG_TO_PACK_TAG` in /app/backend/helpers.py. When verifying localization, look for '设计师识别' (zh step 1) in the rendered home/order/step screens — that string is the most reliable assertion since it is unique to the ZH pack. On the order detail and step detail screens, multiple instances of testID='lang-switcher-button' exist in the DOM because Expo Router keeps parent stack screens mounted; always iterate via locator.count() + .nth(i).is_visible() to find the on-screen one. The manual-translate-button is gated by (a) non-English target, (b) step has notes, (c) existing notes_translated does not already match the target language — so it will NOT appear on empty-note steps or when the auto-translation already matches.",
+  "rca_of_issue": "Root cause: `helpers.py::language_for_user()` was returning the raw short-code (`zh`) from `preferred_language`, but `_step_translations.STEP_I18N` is keyed by the BCP-47 tag (`zh-CN`). Lookup `STEP_I18N.get('zh')` returned None, so `strip_order_for_role` skipped the localization branch and titles stayed in English even after the user picked Chinese in the switcher. Fix (verified): added `_MANUAL_LANG_TO_PACK_TAG = {'en':'en','zh':'zh-CN','fr':'fr','it':'it'}` and use it to normalize the returned tag. Reproduction (before fix): PUT /api/users/me/language with {language:'zh'} → GET /api/orders → step[0].title == 'Designer Identification' (BUG). After fix: same flow → step[0].title == '设计师识别' (CORRECT, asserted by tests)."
+}

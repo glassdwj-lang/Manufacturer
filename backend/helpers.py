@@ -71,17 +71,30 @@ SUPPORTED_MANUAL_LANGS = {
     "it": "Italiano",
 }
 
+# Maps the short manual-override code stored on the user document
+# (`preferred_language` ∈ {en, zh, fr, it}) onto the BCP-47 tag that
+# `STEP_I18N` is actually keyed by. Without this mapping the dashboard
+# would pick "zh" and the i18n lookup would silently miss the "zh-CN"
+# pack — leaving step titles in English.
+_MANUAL_LANG_TO_PACK_TAG = {
+    "en": "en",
+    "zh": "zh-CN",
+    "fr": "fr",
+    "it": "it",
+}
+
 
 def language_for_user(user: dict) -> tuple[str, str]:
     """Resolve the effective language pack for a viewer.
 
     Priority: user's manual `preferred_language` → country-derived language.
     The returned tag is normalized so it always maps onto one of the
-    pre-translated step packs (`en`, `zh`, `fr`, `it`).
+    pre-translated step packs (e.g. `en`, `zh-CN`, `fr`, `it`).
     """
     pref = (user.get("preferred_language") or "").strip().lower()
     if pref in SUPPORTED_MANUAL_LANGS:
-        return pref, SUPPORTED_MANUAL_LANGS[pref]
+        tag = _MANUAL_LANG_TO_PACK_TAG.get(pref, pref)
+        return tag, SUPPORTED_MANUAL_LANGS[pref]
     country = user.get("country") or "AU"
     return language_for_country(country)
 

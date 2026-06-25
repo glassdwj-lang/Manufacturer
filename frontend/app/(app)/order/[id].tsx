@@ -20,12 +20,13 @@ import { Eyebrow, ProgressBar, StatusPill } from "@/src/components/Ui";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { PhaseSection } from "@/src/components/order/PhaseSection";
 import { DigitalDnaModal } from "@/src/components/DigitalDnaModal";
+import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 
 export default function OrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
-  const { user } = useAuth();
+  const { user, languageVersion } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -55,6 +56,13 @@ export default function OrderDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Re-fetch the order whenever the signed-in user changes their manual
+  // display language so the 26-step phase titles localize instantly.
+  useEffect(() => {
+    if (!loading) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [languageVersion]);
 
   if (loading || !order) {
     return (
@@ -101,10 +109,12 @@ export default function OrderDetail() {
         <View style={{ flex: 1 }}>
           <Text style={styles.refText}>{order.order_ref}</Text>
         </View>
-        <StatusPill
-          status={order.status === "completed" ? "completed" : "in progress"}
-        />
-        {user?.role === "admin" && (
+        <View style={styles.headerRight}>
+          <LanguageSwitcher compact />
+          <StatusPill
+            status={order.status === "completed" ? "completed" : "in progress"}
+          />
+          {user?.role === "admin" && (
           <TouchableOpacity
             testID="soft-delete-button"
             onPress={() => {
@@ -147,6 +157,7 @@ export default function OrderDetail() {
             <Ionicons name="trash-outline" size={20} color={theme.danger} />
           </TouchableOpacity>
         )}
+        </View>
       </View>
 
       <ScrollView
@@ -298,6 +309,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bg,
   },
   iconBtn: { padding: 4, marginRight: spacing.sm },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   refText: { color: theme.primary, fontSize: 12, letterSpacing: 2 },
   title: {
     color: theme.textPrimary,

@@ -18,6 +18,7 @@ export type User = {
   country?: string;
   language?: string;
   language_name?: string;
+  preferred_language?: string | null;
 };
 
 export type Step = {

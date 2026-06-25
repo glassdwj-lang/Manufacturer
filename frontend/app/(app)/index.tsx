@@ -20,7 +20,7 @@ import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 
 export default function HomeScreen() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, languageVersion } = useAuth();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +96,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!loading) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.preferred_language]);
+  }, [languageVersion]);
 
   if (!user) return null;
 

@@ -9,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 
@@ -27,7 +26,7 @@ const OPTIONS: { code: string; label: string; native: string }[] = [
  * and we refresh the in-memory user so screens re-render with the new pack.
  */
 export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
-  const { user, refresh } = useAuth();
+  const { user, setLanguage } = useAuth();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -38,8 +37,7 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
   const pick = async (code: string) => {
     setBusy(code);
     try {
-      await api.setMyLanguage(code);
-      await refresh();
+      await setLanguage(code);
       setOpen(false);
     } catch (e) {
       console.warn("language pick", e);

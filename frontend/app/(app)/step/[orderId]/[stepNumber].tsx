@@ -20,12 +20,22 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction } from "@/src/utils/confirm";
+import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+
+// Map manual-pick code → BCP47 tag + display name used when calling the
+// /translate endpoint. Mirrors backend SUPPORTED_MANUAL_LANGS.
+const MANUAL_TARGETS: Record<string, { tag: string; name: string }> = {
+  en: { tag: "en", name: "English" },
+  zh: { tag: "zh-CN", name: "Chinese" },
+  fr: { tag: "fr", name: "French" },
+  it: { tag: "it", name: "Italian" },
+};
 
 export default function StepActionScreen() {
   const { orderId, stepNumber } = useLocalSearchParams<{ orderId: string; stepNumber: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
-  const { user } = useAuth();
+  const { user, languageVersion } = useAuth();
   const stepNum = parseInt(stepNumber || "0", 10);
 
   const [order, setOrder] = useState<Order | null>(null);
@@ -40,6 +50,17 @@ export default function StepActionScreen() {
   // When a manufacturer/admin taps "UPDATE" on a completed step, flip into
   // edit mode so the same notes/photos form is reused for the patch.
   const [editMode, setEditMode] = useState(false);
+  // Manual on-demand translation state (the "Translate to X" button) — lets
+  // a viewer translate a previously untranslated workshop note into their
+  // currently-picked display language without touching the DB.
+  const [manualTranslated, setManualTranslated] = useState<{
+    notes: string;
+    review: string;
+    targetTag: string;
+    targetName: string;
+  } | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -63,6 +84,18 @@ export default function StepActionScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Re-fetch when display language changes (step title / phase title
+  // localize when STEP_I18N is keyed). Also clear any on-demand manual
+  // translation so the new pick takes over.
+  useEffect(() => {
+    if (!loading) {
+      setManualTranslated(null);
+      setTranslateError(null);
+      load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [languageVersion]);
 
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -154,6 +187,45 @@ export default function StepActionScreen() {
     }
   };
 
+  // Manual on-demand translation. Uses the viewer's currently-picked
+  // display language (`user.preferred_language` → MANUAL_TARGETS) and asks
+  // the backend to translate the step's workshop note + associate review
+  // note. Result is held in component state only — NOT persisted.
+  const handleManualTranslate = async () => {
+    if (!orderId || !step) return;
+    const code = (user?.preferred_language || "").toLowerCase();
+    const target = MANUAL_TARGETS[code];
+    if (!target) {
+      setTranslateError(
+        "Pick a non-English display language from the header first."
+      );
+      return;
+    }
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const res = await api.translateStepNote(
+        orderId,
+        stepNum,
+        target.tag,
+        target.name
+      );
+      setManualTranslated({
+        notes: res.notes_translated || step.notes || "",
+        review:
+          res.associate_review_note_translated ||
+          step.associate_review_note ||
+          "",
+        targetTag: res.target_lang,
+        targetName: res.target_lang_name,
+      });
+    } catch (e: any) {
+      setTranslateError(e?.message ?? "Translation failed");
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   if (loading || !step || !order) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -184,6 +256,7 @@ export default function StepActionScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.headerEyebrow}>STEP {String(stepNum).padStart(2, "0")} · PHASE {step.phase}</Text>
           </View>
+          <LanguageSwitcher compact />
         </View>
 
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
@@ -305,6 +378,59 @@ export default function StepActionScreen() {
           {/* Read-only view for already-completed / forwarded */}
           {step.completed && !showForwardFlow && !showFormFlow && (
             <>
+              {(() => {
+                const code = (user?.preferred_language || "").toLowerCase();
+                const target = MANUAL_TARGETS[code];
+                const isNonEnglish = !!target && !target.tag.toLowerCase().startsWith("en");
+                const hasNote = !!step.notes;
+                // Step's auto-translation is for this language already? skip.
+                const alreadyAutoMatches =
+                  !!step.notes_target_lang &&
+                  target &&
+                  step.notes_target_lang.toLowerCase() === target.tag.toLowerCase();
+                // Show when the viewer picked a non-English language and there
+                // is no matching pre-baked translation available. Useful for
+                // admins / associates / manufacturers viewing notes left by
+                // someone else, where the auto-translation only ran against
+                // the client's country (and may be empty for that viewer).
+                const canManualTranslate =
+                  isNonEnglish && hasNote && !alreadyAutoMatches && !manualTranslated;
+                if (!canManualTranslate) return null;
+                return (
+                  <TouchableOpacity
+                    testID="manual-translate-button"
+                    onPress={handleManualTranslate}
+                    disabled={translating}
+                    style={[styles.translateBtn, translating && { opacity: 0.6 }]}
+                  >
+                    {translating ? (
+                      <ActivityIndicator color={theme.primary} />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="language-outline"
+                          size={14}
+                          color={theme.primary}
+                        />
+                        <Text style={styles.translateBtnText}>
+                          TRANSLATE TO {target!.name.toUpperCase()}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                );
+              })()}
+              {!!translateError && (
+                <Text style={styles.errorText}>{translateError}</Text>
+              )}
+              {!!manualTranslated && !!manualTranslated.notes && (
+                <>
+                  <Text style={styles.formLabel}>
+                    WORKSHOP NOTES · {manualTranslated.targetName.toUpperCase()}
+                  </Text>
+                  <Text style={styles.readonlyBlock}>{manualTranslated.notes}</Text>
+                </>
+              )}
               {!!(step.notes_translated && user?.role === "client") && (
                 <>
                   <Text style={styles.formLabel}>WORKSHOP NOTES</Text>
@@ -340,7 +466,9 @@ export default function StepActionScreen() {
                 <>
                   <Text style={styles.formLabel}>ASSOCIATE NOTE</Text>
                   <Text style={styles.readonlyBlock}>
-                    {step.associate_review_note_translated && user?.role === "client"
+                    {manualTranslated && manualTranslated.review
+                      ? manualTranslated.review
+                      : step.associate_review_note_translated && user?.role === "client"
                       ? step.associate_review_note_translated
                       : step.associate_review_note}
                   </Text>
@@ -415,6 +543,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
+    gap: spacing.sm,
   },
   iconBtn: { padding: 4, marginRight: spacing.sm },
   headerEyebrow: { color: theme.primary, fontSize: 11, letterSpacing: 3 },
@@ -465,6 +594,25 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm, alignSelf: "flex-start",
   },
   viewOriginalText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  // ---- Manual on-demand translate (CTA shown when viewer language differs
+  // from the step's auto-translated language)
+  translateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    alignSelf: "stretch",
+    minHeight: 44,
+  },
+  translateBtnText: {
+    color: theme.primary,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
   // ---- Amendment actions (manufacturer/admin on completed steps) ----
   mfgAmendRow: {
     flexDirection: "row",
