@@ -1,0 +1,47 @@
+{
+  "summary": "Backend-only test of the gem-gallery-193 associate import + source-app lockdown (iteration 3). Created /app/backend/tests/test_associate_import.py with 19 tests covering all 7 backend bullets from the request. Result: 17/19 PASS, 2 FAIL — both failures are the same root cause (one real backend bug). PASS: POST /api/admin/import-associates is admin-only (403 for non-admin), fetched 7 records, ok:true, created/updated/skipped counts present. GET /api/admin/import-associates/status admin-only with schedule {tz:'Australia/Sydney', hour:0, minute:1}. POST /api/users role=associate/admin → 400 with 'source app' message. POST /api/users role=manufacturer/client → 200 with source='local'. DELETE on a gem-gallery user → 400 ('mirrored'), DELETE on a local user → 200. GET /api/users carries source='gem-gallery' for imports and source='local' for seed users. /api/seed idempotent. admin@somnio.co / mfg@somnio.co / client@somnio.co demo logins all 200. FAIL: associate@somnio.co (which the import overwrote) still logs in with the old seed password Assoc@2026 — the spec requires this to ALWAYS return 401 because imported users carry no local password. Root cause is a one-field omission in _associate_importer.upsert_associates: the UPDATE-path $set dict does not clear hashed_password, so a previously-seeded local user retains their old bcrypt hash after the import upgrade. Fix is one line. Reporting (not fixing) because it's a deliberate business-rule decision documented in the request.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/login (after POST /api/admin/import-associates)",
+        "issue": "Imported associate associate@somnio.co (source='gem-gallery') still authenticates successfully with the old local seed password 'Assoc@2026' and receives a valid JWT. Spec requires ALWAYS 401 because imported users must have no local password. RCA: /app/backend/_associate_importer.py:124-144 — upsert_associates' update branch builds a $set dict that omits 'hashed_password'. For brand-new imports the insert branch correctly sets hashed_password='', but when an email already exists locally (e.g. associate@somnio.co was created by /api/seed before the first import) the bcrypt hash from seed survives the upsert. Fix: add 'hashed_password': '' to the update dict (line ~124 in _associate_importer.py), or run an additional update_many to clear hashed_password on any user with source=SOURCE_TAG. After the fix, re-run the two failing tests to confirm 401.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_associate_import.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/iteration_3.json"
+  ],
+  "action_items": [
+    "FIX (one line) in /app/backend/_associate_importer.py upsert_associates() update branch: include 'hashed_password': '' in the $set dict so the local seed password is wiped when the source app overwrites an existing email. This will make imported associates ALWAYS fail /api/auth/login (matches the iteration spec).",
+    "Optional hardening: after a successful run_import, also issue db.users.update_many({'source': SOURCE_TAG}, {'$set': {'hashed_password': ''}}) so any user currently mirrored is guaranteed blank, regardless of past upserts.",
+    "Note for future iterations: GEM_GALLERY actually returned 7 associate records (not 8 as the request spec assumed). Frontend log assertion 'fetched 8' in the request may need to be 'fetched 7' — main agent should reconcile or confirm with the source app."
+  ],
+  "critical_code_review_comments": [
+    "server.py:281-306 (admin_create_user) correctly blocks role in {'associate','admin'} with a 400 — matches spec.",
+    "server.py:308-321 (admin_delete_user) correctly blocks deletion when target.source == SOURCE_TAG — matches spec.",
+    "server.py:260-266 (login) login predicate is `not user.get('hashed_password') or not verify_password(...)`. The empty-string short-circuit is correct — IF the importer actually writes hashed_password=''. It doesn't on the update path, which is the bug.",
+    "_associate_importer.py:111-176 — insert path sets hashed_password='' correctly. Update path omits it. Asymmetry is the root cause of the 2 failing tests.",
+    "Scheduler wiring in server.py:796-813 looks correct (APScheduler cron at 00:01 Australia/Sydney). status endpoint reflects the env-driven values, verified by test_status_returns_last_run_and_schedule.",
+    "Importer correctly excludes Mongo _id (find/find_one called with projection elsewhere; in importer the doc is built fresh).",
+    "Source app actually returned 7 records (not 8 as request assumed) — the importer code path is fine, but spec assertion of 'fetched 8' in any frontend test must be relaxed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_associate_import.py (new — 19 tests, pytest)"
+  ],
+  "success_rate": {"backend": "89% (17/19 tests passed)", "frontend": "not tested per request"},
+  "seed_data_creation": "Tests call POST /api/seed (idempotent) and POST /api/admin/import-associates as setup. After this run the DB contains: 4 base seed users, ~7 imported gem-gallery associates/admins (associate@somnio.co overlaps both — currently has the seed password still set, which is the bug). Test teardown removes any TEST_-prefixed users created locally.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After the main agent applies the one-line fix to _associate_importer.py, run `pytest /app/backend/tests/test_associate_import.py -v` and expect 19/19 PASS. The two relevant tests are TestImportedLogin::test_imported_associate_cannot_login and TestImportedLogin::test_associate_somnio_co_login_fails_after_import. The fix must be followed by another POST /api/admin/import-associates (or the optional update_many) so the existing associate@somnio.co record has its hashed_password actually wiped — the test calls the import once via the admin_token fixture so this is handled automatically.",
+  "rca_of_issue": "Reproduce: 1) POST /api/seed (creates associate@somnio.co with bcrypt('Assoc@2026')). 2) POST /api/admin/import-associates (the upstream associate list contains associate@somnio.co). 3) upsert_associates finds the existing email and enters the UPDATE branch (_associate_importer.py:122-144). 4) The $set dict updates name/role/source/source_id/etc. but does NOT include hashed_password, so the bcrypt hash from step 1 is preserved. 5) POST /api/auth/login {email:'associate@somnio.co', password:'Assoc@2026'} → 200 with a valid JWT (should be 401 per spec). Mitigation: add 'hashed_password': '' to the update dict OR do a defensive db.users.update_many({'source': SOURCE_TAG}, {'$set': {'hashed_password': ''}}) at the end of run_import."
+}

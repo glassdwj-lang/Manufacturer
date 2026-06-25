@@ -35,34 +35,42 @@ def _cfg() -> dict:
 
 def _normalize(record: dict) -> dict | None:
     """Map a record from gem-gallery-193 (Somnio.Co API) into Atelier's user schema.
-    Known field shape: {id, email, full_name, country, state_region, tz_offset_min, tz_label}."""
+    Live field shape: {id, email, full_name, disabled, status, created_at, mobile_phone,
+    birthday, city, country, state_region, is_secondary_admin, session_count,
+    last_login_at, last_login_ip}."""
     email = record.get("email") or record.get("user_email") or record.get("login")
     if not email:
         return None
     email = email.strip().lower()
-    role_raw = (record.get("role") or "associate").lower()
-    role = "admin" if "admin" in role_raw else "associate"
+    # is_secondary_admin maps to role=admin in Atelier
+    is_admin = bool(record.get("is_secondary_admin"))
+    role = "admin" if is_admin else "associate"
     name = (
         record.get("full_name")
         or record.get("name")
-        or record.get("display_name")
         or " ".join(filter(None, [record.get("first_name"), record.get("last_name")]))
         or email.split("@")[0]
     )
-    region_parts = [record.get("state_region"), record.get("country")]
-    region = ", ".join([p for p in region_parts if p]) or record.get("region") or ""
+    region_parts = [record.get("city"), record.get("state_region"), record.get("country")]
+    region = ", ".join([p for p in region_parts if p])
     out = {
         "email": email,
         "name": name,
         "role": role,
         "source": SOURCE_TAG,
-        "source_id": str(record.get("id") or record.get("_id") or record.get("uuid") or ""),
-        "phone": record.get("phone") or record.get("mobile") or "",
+        "source_id": str(record.get("id") or ""),
+        "phone": record.get("mobile_phone") or record.get("phone") or "",
         "region": region,
+        "city": record.get("city") or "",
         "country": record.get("country") or "",
         "state_region": record.get("state_region") or "",
-        "tz_offset_min": record.get("tz_offset_min"),
-        "tz_label": record.get("tz_label") or "",
+        "birthday": record.get("birthday"),
+        "disabled": bool(record.get("disabled")),
+        "status": record.get("status") or "active",
+        "is_secondary_admin": is_admin,
+        "session_count": record.get("session_count") or 0,
+        "last_login_at": record.get("last_login_at"),
+        "source_created_at": record.get("created_at"),
         "source_updated_at": record.get("updated_at") or record.get("modified_at"),
     }
     return out
@@ -120,10 +128,16 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
                 "source_id": norm["source_id"],
                 "phone": norm["phone"],
                 "region": norm["region"],
+                "city": norm["city"],
                 "country": norm["country"],
                 "state_region": norm["state_region"],
-                "tz_offset_min": norm["tz_offset_min"],
-                "tz_label": norm["tz_label"],
+                "birthday": norm["birthday"],
+                "disabled": norm["disabled"],
+                "status": norm["status"],
+                "is_secondary_admin": norm["is_secondary_admin"],
+                "session_count": norm["session_count"],
+                "last_login_at": norm["last_login_at"],
+                "source_created_at": norm["source_created_at"],
                 "source_updated_at": norm["source_updated_at"],
                 "synced_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -143,10 +157,16 @@ async def upsert_associates(db, records: Iterable[dict]) -> dict:
                 "source_id": norm["source_id"],
                 "phone": norm["phone"],
                 "region": norm["region"],
+                "city": norm["city"],
                 "country": norm["country"],
                 "state_region": norm["state_region"],
-                "tz_offset_min": norm["tz_offset_min"],
-                "tz_label": norm["tz_label"],
+                "birthday": norm["birthday"],
+                "disabled": norm["disabled"],
+                "status": norm["status"],
+                "is_secondary_admin": norm["is_secondary_admin"],
+                "session_count": norm["session_count"],
+                "last_login_at": norm["last_login_at"],
+                "source_created_at": norm["source_created_at"],
                 "source_updated_at": norm["source_updated_at"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "synced_at": datetime.now(timezone.utc).isoformat(),
