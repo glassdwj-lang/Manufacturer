@@ -275,9 +275,9 @@ export default function OrderDetail() {
             canEditStep={canEditStep}
             canForward={canForward}
             onPressStep={(stepNumber) => {
-              if (canEditStep || canForward) {
-                router.push(`/(app)/step/${order.id}/${stepNumber}`);
-              }
+              // Anyone with access to this order can open the step detail
+              // (clients get a read-only view; staff get edit/forward CTAs).
+              router.push(`/(app)/step/${order.id}/${stepNumber}`);
             }}
           />
         ))}

@@ -23,7 +23,11 @@ export function StepRow({ step, isLast, canEdit, canForward, onPress }: StepRowP
   const { user } = useAuth();
   const isClient = user?.role === "client";
   const dotColor = step.completed ? theme.primary : theme.border;
-  const interactive = canEdit || canForward;
+  // Clients can open completed + forwarded steps to view provenance details
+  // (notes, photos, lightbox). Staff can always tap to act on the step.
+  const interactive = isClient
+    ? !!(step.completed && step.forwarded_to_client)
+    : canEdit || canForward || step.completed;
   const noteToShow = step.notes_translated || step.notes || "";
   return (
     <TouchableOpacity
