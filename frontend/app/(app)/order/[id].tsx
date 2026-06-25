@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -73,6 +74,7 @@ export default function OrderDetail() {
 
   const completed = order.progress?.completed_count ?? 0;
   const total = order.progress?.total ?? 26;
+  const dnaUnlocked = completed >= total && total > 0;
 
   const isAdmin = user?.role === "admin";
   const aliasOrName = isAdmin
@@ -172,15 +174,38 @@ export default function OrderDetail() {
 
         <TouchableOpacity
           testID="digital-dna-button"
-          style={styles.dnaBtn}
-          onPress={() => setDnaModal(true)}
+          style={[styles.dnaBtn, !dnaUnlocked && styles.dnaBtnLocked]}
+          onPress={() => {
+            if (!dnaUnlocked) {
+              Alert.alert(
+                "Digital DNA locked",
+                `Available once all 26 steps are finalised. ${completed} of ${total} complete.`
+              );
+              return;
+            }
+            setDnaModal(true);
+          }}
         >
-          <Ionicons name="document-text-outline" size={18} color="#0A0A0A" />
+          <Ionicons
+            name={dnaUnlocked ? "document-text-outline" : "lock-closed-outline"}
+            size={18}
+            color={dnaUnlocked ? "#0A0A0A" : theme.textMuted}
+          />
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
-            <Text style={styles.dnaTitle}>VIEW DIGITAL DNA</Text>
-            <Text style={styles.dnaSub}>Provenance certificate · PDF</Text>
+            <Text style={[styles.dnaTitle, !dnaUnlocked && styles.dnaTitleLocked]}>
+              {dnaUnlocked ? "VIEW DIGITAL DNA" : "DIGITAL DNA · LOCKED"}
+            </Text>
+            <Text style={[styles.dnaSub, !dnaUnlocked && styles.dnaSubLocked]}>
+              {dnaUnlocked
+                ? "Provenance certificate · PDF"
+                : `Unlocks once all 26 steps are finalised · ${completed}/${total}`}
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color="#0A0A0A" />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={dnaUnlocked ? "#0A0A0A" : theme.textMuted}
+          />
         </TouchableOpacity>
 
         <Eyebrow>26-STEP JOURNEY</Eyebrow>
@@ -277,6 +302,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  dnaBtnLocked: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: theme.borderSubtle,
+  },
   dnaTitle: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+  dnaTitleLocked: { color: theme.textMuted },
   dnaSub: { color: "#0A0A0A", fontSize: 11, marginTop: 2, opacity: 0.7 },
+  dnaSubLocked: { color: theme.textMuted, opacity: 1 },
 });
