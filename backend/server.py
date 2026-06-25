@@ -577,6 +577,19 @@ async def seed_demo():
 async def root():
     return {"app": "Somnio Atelier API", "status": "ok"}
 
+@api_router.post("/admin/wipe-demo")
+async def admin_wipe_demo(user=Depends(require_roles("admin"))):
+    """DESTRUCTIVE - QA only. Deletes ALL orders and ALL users except the calling admin.
+    Re-run /api/seed (and /api/seed-extended) afterwards to repopulate."""
+    o_res = await db.orders.delete_many({})
+    u_res = await db.users.delete_many({"id": {"$ne": user["id"]}})
+    return {
+        "ok": True,
+        "orders_deleted": o_res.deleted_count,
+        "users_deleted": u_res.deleted_count,
+        "preserved_admin": user["email"],
+    }
+
 # ---------------- Extended seed (8 commissions at varying stages) ----------------
 @api_router.post("/seed-extended")
 async def seed_extended():

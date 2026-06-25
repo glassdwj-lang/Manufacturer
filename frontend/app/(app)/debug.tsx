@@ -11,12 +11,14 @@ import { theme, spacing } from "@/src/theme";
 import { flags } from "@/src/flags";
 
 type ResultRow = { tone: "ok" | "err"; text: string };
+type LoadingKey = "base" | "extended" | "wipe" | null;
 
 export default function DebugScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [loading, setLoading] = useState<"base" | "extended" | null>(null);
+  const [loading, setLoading] = useState<LoadingKey>(null);
   const [results, setResults] = useState<ResultRow[]>([]);
+  const [confirmWipe, setConfirmWipe] = useState(false);
 
   if (!flags.enableDebug || user?.role !== "admin") {
     return (
@@ -34,7 +36,9 @@ export default function DebugScreen() {
   }
 
   const pushResult = (row: ResultRow) =>
-    setResults((r) => [{ ...row, text: `[${new Date().toLocaleTimeString()}] ${row.text}` }, ...r].slice(0, 12));
+    setResults((r) =>
+      [{ ...row, text: `[${new Date().toLocaleTimeString()}] ${row.text}` }, ...r].slice(0, 12)
+    );
 
   const runSeedBase = async () => {
     setLoading("base");
@@ -59,6 +63,22 @@ export default function DebugScreen() {
       });
     } catch (e: any) {
       pushResult({ tone: "err", text: `Extended seed failed · ${e?.message ?? "error"}` });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const runWipe = async () => {
+    setLoading("wipe");
+    setConfirmWipe(false);
+    try {
+      const out = await api.wipeDemo();
+      pushResult({
+        tone: "ok",
+        text: `Wipe OK · ${out.orders_deleted} order(s), ${out.users_deleted} user(s) deleted (your admin preserved)`,
+      });
+    } catch (e: any) {
+      pushResult({ tone: "err", text: `Wipe failed · ${e?.message ?? "error"}` });
     } finally {
       setLoading(null);
     }
@@ -100,6 +120,54 @@ export default function DebugScreen() {
           onPress={runSeedExtended}
           testID="seed-extended-button"
         />
+
+        <Text style={[styles.section, { marginTop: spacing.xl, color: theme.error }]}>DANGER ZONE</Text>
+
+        <View style={[styles.card, styles.danger]}>
+          <Text style={[styles.cardTitle, { color: theme.error }]}>Wipe Demo Data</Text>
+          <Text style={styles.cardSub}>
+            Deletes ALL commissions and ALL users except your own admin account. Use this to start a clean QA run, then re-load the seeds above. Irreversible.
+          </Text>
+
+          {!confirmWipe ? (
+            <TouchableOpacity
+              testID="wipe-demo-button"
+              onPress={() => setConfirmWipe(true)}
+              disabled={loading !== null}
+              style={[styles.dangerBtn, loading !== null && { opacity: 0.5 }]}
+            >
+              <Ionicons name="trash-outline" size={14} color={theme.error} />
+              <Text style={styles.dangerBtnText}>WIPE DEMO DATA</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.confirmBlock}>
+              <Text style={styles.confirmText}>
+                This will delete every commission and user (except you). Continue?
+              </Text>
+              <View style={styles.confirmRow}>
+                <TouchableOpacity
+                  testID="wipe-cancel-button"
+                  onPress={() => setConfirmWipe(false)}
+                  style={styles.cancelBtn}
+                >
+                  <Text style={styles.cancelBtnText}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID="wipe-confirm-button"
+                  onPress={runWipe}
+                  disabled={loading !== null}
+                  style={[styles.confirmDangerBtn, loading !== null && { opacity: 0.5 }]}
+                >
+                  {loading === "wipe" ? (
+                    <ActivityIndicator color="#0A0A0A" />
+                  ) : (
+                    <Text style={styles.confirmDangerBtnText}>YES, WIPE</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
 
         {results.length > 0 && (
           <>
@@ -166,12 +234,32 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1, borderColor: theme.border, padding: spacing.md, backgroundColor: theme.surface,
   },
+  danger: { borderColor: theme.error, backgroundColor: theme.errorBg },
   cardTitle: { color: theme.textPrimary, fontSize: 15, marginBottom: 6 },
   cardSub: { color: theme.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: spacing.md },
   cardBtn: {
     backgroundColor: theme.primary, paddingVertical: 14, alignItems: "center",
   },
   cardBtnText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 3, fontWeight: "700" },
+  dangerBtn: {
+    borderWidth: 1, borderColor: theme.error,
+    paddingVertical: 12, alignItems: "center", justifyContent: "center",
+    flexDirection: "row", gap: 6,
+  },
+  dangerBtnText: { color: theme.error, fontSize: 11, letterSpacing: 3, fontWeight: "700" },
+  confirmBlock: { gap: spacing.sm },
+  confirmText: { color: theme.textPrimary, fontSize: 12, lineHeight: 18 },
+  confirmRow: { flexDirection: "row", gap: spacing.sm },
+  cancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: theme.border, paddingVertical: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  cancelBtnText: { color: theme.textSecondary, fontSize: 11, letterSpacing: 3 },
+  confirmDangerBtn: {
+    flex: 1, backgroundColor: theme.error, paddingVertical: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  confirmDangerBtnText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 3, fontWeight: "700" },
   logBox: { borderWidth: 1, borderColor: theme.border, padding: spacing.md },
   logLine: { color: theme.textSecondary, fontSize: 11, fontFamily: "Courier", marginBottom: 4 },
 });

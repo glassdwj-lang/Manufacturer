@@ -84,6 +84,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
+  wipeDemo: () => request<any>("/admin/wipe-demo", { method: "POST" }),
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
