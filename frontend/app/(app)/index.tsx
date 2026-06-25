@@ -90,6 +90,15 @@ export default function HomeScreen() {
             <Text style={styles.linkBtnText}>MANUFACTURERS · USERS</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
+          <TouchableOpacity
+            testID="recycle-bin-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/recycle-bin")}
+          >
+            <Ionicons name="trash-bin-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>ATELIER · RECYCLE BIN</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
           {flags.enableDebug && (
             <TouchableOpacity
               testID="debug-button"

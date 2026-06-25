@@ -80,3 +80,7 @@ class CustomsDocs(BaseModel):
     airway_bill: Optional[str] = None  # base64 (admin only)
     customs_document: Optional[str] = None  # base64
     notes: Optional[str] = ""
+
+
+class BulkDeletePayload(BaseModel):
+    ids: List[str]

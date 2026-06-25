@@ -59,6 +59,12 @@ export type Order = {
   progress?: { completed_count: number; total: number; current_step: number | null };
 };
 
+export type RecycledOrder = Order & {
+  deleted_at: string;
+  deleted_at_china: string;
+  deleted_by: string;
+};
+
 async function getToken(): Promise<string | null> {
   return await storage.getItem<string>(TOKEN_KEY, "");
 }
@@ -111,6 +117,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ notes, photos }),
     }),
+  updateStep: (
+    orderId: string,
+    stepNumber: number,
+    notes: string,
+    photos: string[]
+  ) =>
+    request<Order>(`/orders/${orderId}/steps/${stepNumber}/update`, {
+      method: "POST",
+      body: JSON.stringify({ notes, photos }),
+    }),
+  reopenStep: (orderId: string, stepNumber: number) =>
+    request<Order>(`/orders/${orderId}/steps/${stepNumber}/reopen`, {
+      method: "POST",
+    }),
   forwardStep: (orderId: string, stepNumber: number, review_note: string) =>
     request<Order>(`/orders/${orderId}/steps/${stepNumber}/forward`, {
       method: "POST",
@@ -155,6 +175,25 @@ export const api = {
   }) => request<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
   deleteUser: (userId: string) =>
     request<any>(`/users/${userId}`, { method: "DELETE" }),
+  // ---- Soft-delete / recycle bin ----
+  softDeleteOrder: (orderId: string) =>
+    request<{ ok: boolean; deleted_at?: string }>(`/orders/${orderId}`, {
+      method: "DELETE",
+    }),
+  bulkSoftDeleteOrders: (ids: string[]) =>
+    request<{ ok: boolean; deleted: number }>("/orders/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+  listRecycleBin: () => request<RecycledOrder[]>("/admin/recycle-bin"),
+  restoreOrder: (orderId: string) =>
+    request<{ ok: boolean }>(`/admin/recycle-bin/${orderId}/restore`, {
+      method: "POST",
+    }),
+  purgeOrder: (orderId: string) =>
+    request<{ ok: boolean }>(`/admin/recycle-bin/${orderId}/purge`, {
+      method: "DELETE",
+    }),
   fetchDigitalDna: async (
     orderId: string,
     opts: { includeNotes?: boolean; includePhotos?: boolean } = {}

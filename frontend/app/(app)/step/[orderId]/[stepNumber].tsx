@@ -19,6 +19,7 @@ import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { confirmAction } from "@/src/utils/confirm";
 
 export default function StepActionScreen() {
   const { orderId, stepNumber } = useLocalSearchParams<{ orderId: string; stepNumber: string }>();
@@ -36,6 +37,9 @@ export default function StepActionScreen() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  // When a manufacturer/admin taps "UPDATE" on a completed step, flip into
+  // edit mode so the same notes/photos form is reused for the patch.
+  const [editMode, setEditMode] = useState(false);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -98,6 +102,44 @@ export default function StepActionScreen() {
     }
   };
 
+  const handleUpdate = async () => {
+    if (!orderId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateStep(orderId, stepNum, notes, photos);
+      setEditMode(false);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!orderId) return;
+    confirmAction({
+      title: "Remove completion?",
+      message:
+        "This step will be marked as not done and any forwarding will be reset. Your notes and photos are kept so you can resume.",
+      confirmLabel: "Remove complete",
+      destructive: true,
+      onConfirm: async () => {
+        setSaving(true);
+        setError(null);
+        try {
+          await api.reopenStep(orderId, stepNum);
+          await load();
+        } catch (e: any) {
+          setError(e?.message ?? "Failed");
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+  };
+
   const handleForward = async () => {
     if (!orderId) return;
     setSaving(true);
@@ -126,6 +168,8 @@ export default function StepActionScreen() {
   const isAssociate = user?.role === "associate" || user?.role === "admin";
   const showCompleteFlow = isManufacturer && !step.completed;
   const showForwardFlow = isAssociate && step.completed && !step.forwarded_to_client;
+  const canManufacturerEdit = isManufacturer && step.completed;
+  const showFormFlow = showCompleteFlow || (canManufacturerEdit && editMode);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
@@ -156,7 +200,7 @@ export default function StepActionScreen() {
             </View>
           )}
 
-          {showCompleteFlow ? (
+          {showFormFlow ? (
             <>
               <Text style={styles.formLabel}>NOTES</Text>
               <TextInput
@@ -199,17 +243,33 @@ export default function StepActionScreen() {
               {error && <Text style={styles.errorText}>{error}</Text>}
 
               <TouchableOpacity
-                testID="complete-step-button"
-                onPress={handleComplete}
+                testID={editMode ? "save-update-button" : "complete-step-button"}
+                onPress={editMode ? handleUpdate : handleComplete}
                 disabled={saving}
                 style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
               >
                 {saving ? (
                   <ActivityIndicator color="#0A0A0A" />
                 ) : (
-                  <Text style={styles.primaryBtnText}>MARK STEP COMPLETE</Text>
+                  <Text style={styles.primaryBtnText}>
+                    {editMode ? "SAVE UPDATE" : "MARK STEP COMPLETE"}
+                  </Text>
                 )}
               </TouchableOpacity>
+              {editMode && (
+                <TouchableOpacity
+                  testID="cancel-update-button"
+                  onPress={() => {
+                    setEditMode(false);
+                    setNotes(step.notes || "");
+                    setPhotos(step.photos || []);
+                  }}
+                  style={styles.secondaryBtn}
+                  disabled={saving}
+                >
+                  <Text style={styles.secondaryBtnText}>CANCEL</Text>
+                </TouchableOpacity>
+              )}
             </>
           ) : null}
 
@@ -243,7 +303,7 @@ export default function StepActionScreen() {
           ) : null}
 
           {/* Read-only view for already-completed / forwarded */}
-          {step.completed && !showForwardFlow && !showCompleteFlow && (
+          {step.completed && !showForwardFlow && !showFormFlow && (
             <>
               {!!(step.notes_translated && user?.role === "client") && (
                 <>
@@ -297,6 +357,29 @@ export default function StepActionScreen() {
                     ))}
                   </View>
                 </>
+              )}
+              {/* Manufacturer / admin amendments on an already-finalised step */}
+              {canManufacturerEdit && (
+                <View style={styles.mfgAmendRow}>
+                  <TouchableOpacity
+                    testID="enter-update-button"
+                    onPress={() => setEditMode(true)}
+                    style={styles.secondaryBtn}
+                    disabled={saving}
+                  >
+                    <Ionicons name="create-outline" size={14} color={theme.primary} />
+                    <Text style={styles.secondaryBtnText}>UPDATE</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="reopen-step-button"
+                    onPress={handleReopen}
+                    style={styles.dangerBtn}
+                    disabled={saving}
+                  >
+                    <Ionicons name="close-circle-outline" size={14} color={theme.danger} />
+                    <Text style={styles.dangerBtnText}>REMOVE COMPLETE</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </>
           )}
@@ -382,4 +465,42 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm, alignSelf: "flex-start",
   },
   viewOriginalText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  // ---- Amendment actions (manufacturer/admin on completed steps) ----
+  mfgAmendRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xl,
+  },
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    minHeight: 44,
+  },
+  secondaryBtnText: {
+    color: theme.primary,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
+  dangerBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: theme.danger,
+    minHeight: 44,
+  },
+  dangerBtnText: {
+    color: theme.danger,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
 });

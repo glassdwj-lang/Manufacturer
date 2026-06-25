@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -103,6 +104,49 @@ export default function OrderDetail() {
         <StatusPill
           status={order.status === "completed" ? "completed" : "in progress"}
         />
+        {user?.role === "admin" && (
+          <TouchableOpacity
+            testID="soft-delete-button"
+            onPress={() => {
+              const confirm = (proceed: () => void) => {
+                if (Platform.OS === "web") {
+                  // Native Alert dismisses too quickly on web; use confirm().
+                  if (
+                    typeof window !== "undefined" &&
+                    window.confirm(
+                      `Move ${order.order_ref} to the Recycle Bin? You can restore it from Atelier · Recycle Bin.`
+                    )
+                  ) {
+                    proceed();
+                  }
+                  return;
+                }
+                Alert.alert(
+                  "Move to Recycle Bin?",
+                  `${order.order_ref} will leave the active list. Restore from Atelier · Recycle Bin.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Move to bin", style: "destructive", onPress: proceed },
+                  ]
+                );
+              };
+              confirm(async () => {
+                try {
+                  await api.softDeleteOrder(order.id);
+                  router.replace("/(app)");
+                } catch (e) {
+                  Alert.alert(
+                    "Delete failed",
+                    e instanceof Error ? e.message : "Could not delete commission"
+                  );
+                }
+              });
+            }}
+            style={[styles.iconBtn, { marginLeft: spacing.sm }]}
+          >
+            <Ionicons name="trash-outline" size={20} color={theme.danger} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView

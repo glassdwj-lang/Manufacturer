@@ -16,7 +16,7 @@ from helpers import (
     progress_summary,
     strip_order_for_role,
 )
-from models import CustomsDocs, ForwardUpdate, OrderCreate, StepUpdate
+from models import BulkDeletePayload, CustomsDocs, ForwardUpdate, OrderCreate, StepUpdate
 from phases import build_initial_steps
 
 router = APIRouter(tags=["orders"])
@@ -65,19 +65,139 @@ async def create_order(
 
 @router.get("/orders")
 async def list_orders(user=Depends(get_current_user)):
-    q: dict = {}
+    """Returns the calling user's visible orders. Soft-deleted commissions
+    are excluded — they live exclusively in /admin/recycle-bin."""
+    not_deleted = {
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+            {"deleted_at": ""},
+        ]
+    }
+    role_filter: dict = {}
     if user["role"] == "manufacturer":
-        q["manufacturer_id"] = user["id"]
+        role_filter["manufacturer_id"] = user["id"]
     elif user["role"] == "associate":
-        q["associate_id"] = user["id"]
+        role_filter["associate_id"] = user["id"]
     elif user["role"] == "client":
-        q["client_id"] = user["id"]
+        role_filter["client_id"] = user["id"]
+    q = {"$and": [not_deleted, role_filter]} if role_filter else not_deleted
     orders = (
         await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     )
     return [list_strip(o, user) for o in orders]
 
 
+@router.delete("/orders/{order_id}")
+async def soft_delete_order(order_id: str, user=Depends(require_roles("admin"))):
+    """Admin-only soft delete. Sets `deleted_at`; the order disappears from
+    the active list and lives in the Recycle Bin indefinitely. Restore or
+    purge it from `/admin/recycle-bin`."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("deleted_at"):
+        return {"ok": True, "already_deleted": True, "deleted_at": order["deleted_at"]}
+    now_utc = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$set": {
+                "deleted_at": now_utc,
+                "deleted_at_china": now_china_iso(),
+                "deleted_by": user["email"],
+            }
+        },
+    )
+    return {"ok": True, "deleted_at": now_utc}
+
+
+@router.post("/orders/bulk-delete")
+async def bulk_soft_delete_orders(
+    body: BulkDeletePayload, user=Depends(require_roles("admin"))
+):
+    """Admin-only bulk soft-delete (used by the orders-list multi-select)."""
+    if not body.ids:
+        return {"ok": True, "deleted": 0}
+    now_utc = datetime.now(timezone.utc).isoformat()
+    res = await db.orders.update_many(
+        {
+            "id": {"$in": body.ids},
+            "$or": [
+                {"deleted_at": {"$exists": False}},
+                {"deleted_at": None},
+                {"deleted_at": ""},
+            ],
+        },
+        {
+            "$set": {
+                "deleted_at": now_utc,
+                "deleted_at_china": now_china_iso(),
+                "deleted_by": user["email"],
+            }
+        },
+    )
+    return {"ok": True, "deleted": res.modified_count}
+
+
+# ---- Recycle bin (admin only) ----
+@router.get("/admin/recycle-bin")
+async def admin_recycle_bin(user=Depends(require_roles("admin"))):
+    """Lists soft-deleted commissions, most recent first. Restore or purge
+    individually from the corresponding endpoints below."""
+    cursor = db.orders.find(
+        {"deleted_at": {"$nin": [None, ""]}},
+        {"_id": 0},
+    ).sort("deleted_at", -1)
+    rows = []
+    async for o in cursor:
+        # Light projection — same shape as the regular orders list, with
+        # additional deleted_* fields and progress.
+        light = list_strip(o, user)
+        light["deleted_at"] = o.get("deleted_at")
+        light["deleted_at_china"] = o.get("deleted_at_china")
+        light["deleted_by"] = o.get("deleted_by")
+        rows.append(light)
+    return rows
+
+
+@router.post("/admin/recycle-bin/{order_id}/restore")
+async def admin_restore_order(order_id: str, user=Depends(require_roles("admin"))):
+    """Restore a soft-deleted commission back to the active list."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not order.get("deleted_at"):
+        return {"ok": True, "already_active": True}
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$unset": {
+                "deleted_at": "",
+                "deleted_at_china": "",
+                "deleted_by": "",
+            }
+        },
+    )
+    return {"ok": True, "restored_by": user["email"]}
+
+
+@router.delete("/admin/recycle-bin/{order_id}/purge")
+async def admin_purge_order(order_id: str, user=Depends(require_roles("admin"))):
+    """Hard-delete a soft-deleted commission from the database. Irreversible."""
+    order = await db.orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not order.get("deleted_at"):
+        raise HTTPException(
+            status_code=400,
+            detail="Order is still active — soft-delete it first before purging.",
+        )
+    res = await db.orders.delete_one({"id": order_id})
+    return {"ok": True, "purged": res.deleted_count == 1, "purged_by": user["email"]}
+
+
+# ---- Order CRUD continued ----
 @router.get("/orders/{order_id}")
 async def get_order(order_id: str, user=Depends(get_current_user)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
@@ -145,7 +265,98 @@ async def complete_step(
     return strip_order_for_role(updated, user)
 
 
-@router.post("/orders/{order_id}/steps/{step_number}/forward")
+@router.post("/orders/{order_id}/steps/{step_number}/update")
+async def update_completed_step(
+    order_id: str,
+    step_number: int,
+    body: StepUpdate,
+    user=Depends(require_roles("manufacturer", "admin")),
+):
+    """Edit notes/photos on an already-completed step *without* changing the
+    completion timestamp or the forwarding state. Use this to correct a typo
+    or add a forgotten photo after the step was finalised."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    step = next((s for s in order["steps"] if s["step_number"] == step_number), None)
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if not step.get("completed"):
+        raise HTTPException(
+            status_code=400,
+            detail="Step is not completed yet — use /complete instead.",
+        )
+
+    client = await db.users.find_one({"id": order["client_id"]})
+    client_country = (client or {}).get("country") or "AU"
+    target_lang, target_lang_name = language_for_country(client_country)
+    translated_note = ""
+    if body.notes and not target_lang.lower().startswith("en"):
+        t = await translate_text(body.notes, target_lang, target_lang_name)
+        if t:
+            translated_note = t
+
+    await db.orders.update_one(
+        {"id": order_id, "steps.step_number": step_number},
+        {
+            "$set": {
+                "steps.$.notes": body.notes or "",
+                "steps.$.notes_translated": translated_note,
+                "steps.$.notes_target_lang": target_lang if translated_note else "",
+                "steps.$.photos": body.photos or [],
+                "steps.$.updated_at_china": now_china_iso(),
+                "steps.$.updated_by": user["email"],
+            }
+        },
+    )
+    updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return strip_order_for_role(updated, user)
+
+
+@router.post("/orders/{order_id}/steps/{step_number}/reopen")
+async def reopen_step(
+    order_id: str,
+    step_number: int,
+    user=Depends(require_roles("manufacturer", "admin")),
+):
+    """Un-mark a completed step. Clears completion + forwarding state but
+    preserves the notes and photos so the manufacturer can amend and
+    re-complete without re-uploading from scratch."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    step = next((s for s in order["steps"] if s["step_number"] == step_number), None)
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if not step.get("completed"):
+        return {"ok": True, "already_open": True}
+
+    await db.orders.update_one(
+        {"id": order_id, "steps.step_number": step_number},
+        {
+            "$set": {
+                "steps.$.completed": False,
+                "steps.$.completed_at_china": None,
+                "steps.$.completed_at_utc": None,
+                "steps.$.forwarded_to_client": False,
+                "steps.$.forwarded_at": None,
+                "steps.$.reopened_at_china": now_china_iso(),
+                "steps.$.reopened_by": user["email"],
+            }
+        },
+    )
+    # If reopening step 26, downgrade the order status back to in_progress.
+    if step_number == 26:
+        await db.orders.update_one(
+            {"id": order_id}, {"$set": {"status": "in_progress"}}
+        )
+
+    updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return strip_order_for_role(updated, user)
 async def forward_step(
     order_id: str,
     step_number: int,

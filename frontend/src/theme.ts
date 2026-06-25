@@ -15,6 +15,7 @@ export const theme = {
   successBg: "#1F3A2A",
   error: "#C97B7B",
   errorBg: "#3A1F1F",
+  danger: "#C97B7B",
   warning: "#E0B062",
 };
 
