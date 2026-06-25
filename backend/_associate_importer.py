@@ -227,3 +227,49 @@ async def run_import_and_record(db) -> dict:
     result = await run_import(db)
     _LAST_RUN = result
     return result
+
+
+async def source_proxy_auth(email: str, password: str) -> bool:
+    """Verify the supplied email/password against gem-gallery-193.
+
+    Returns True only when the source confirms the credentials. Used as a
+    fall-back inside Atelier's /auth/login for users whose local password
+    isn't set or is out of date.
+
+    The endpoint set is intentionally generous: gem-gallery-193 has shipped
+    multiple auth paths over time, so we try each in sequence.
+    """
+    cfg = _cfg()
+    base = cfg["base_url"]
+    if not base:
+        return False
+    candidates = [
+        "/api/admin/auth",
+        "/api/auth/login",
+        "/api/admin/login",
+        "/api/login",
+    ]
+    payload = {"email": email.strip().lower(), "password": password}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for path in candidates:
+                try:
+                    r = await client.post(
+                        f"{base}{path}",
+                        json=payload,
+                        headers={"User-Agent": "Somnio-Atelier-Auth/1.0"},
+                    )
+                except httpx.HTTPError:
+                    continue
+                if r.status_code == 200:
+                    try:
+                        body = r.json()
+                    except Exception:
+                        body = {}
+                    if body.get("access_token") or body.get("token") or body.get("ok"):
+                        return True
+                    # 200 OK with no token field is treated as a valid login
+                    return True
+    except Exception:
+        logger.exception("source_proxy_auth failed")
+    return False

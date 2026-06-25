@@ -20,7 +20,12 @@ from typing import List, Optional, Literal
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from _associate_importer import run_import_and_record, get_last_run, SOURCE_TAG
+from _associate_importer import (
+    run_import_and_record,
+    get_last_run,
+    SOURCE_TAG,
+    source_proxy_auth,
+)
 from _translation import translate as translate_text, language_for_country, COUNTRY_LIST
 from _step_translations import STEP_I18N
 from _digital_dna import build_digital_dna_pdf
@@ -147,6 +152,9 @@ class UserCountryUpdate(BaseModel):
 
 class UserAliasUpdate(BaseModel):
     alias: str
+
+class UserPasswordUpdate(BaseModel):
+    password: str
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -300,8 +308,34 @@ async def register(data: UserCreate):
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(data: UserLogin):
     user = await db.users.find_one({"email": data.email.lower()})
-    if not user or not user.get("hashed_password") or not verify_password(data.password, user["hashed_password"]):
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    local_ok = bool(user.get("hashed_password")) and verify_password(
+        data.password, user["hashed_password"]
+    )
+
+    if not local_ok:
+        # Fallback for source-owned users: verify against gem-gallery-193.
+        # Imported associates/admins can keep using the credentials they have
+        # on the source app even when no local password has been issued.
+        if user.get("source") == SOURCE_TAG:
+            try:
+                proxy_ok = await source_proxy_auth(data.email.lower(), data.password)
+            except Exception:
+                proxy_ok = False
+            if proxy_ok:
+                # Cache the bcrypt hash so subsequent logins work even when
+                # the source app is unreachable.
+                await db.users.update_one(
+                    {"id": user["id"]},
+                    {"$set": {"hashed_password": hash_password(data.password)}},
+                )
+                local_ok = True
+
+    if not local_ok:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     token = create_token(user["id"], user["role"])
     return TokenResponse(access_token=token, user=UserPublic(**user_to_public(user)))
 
@@ -775,9 +809,19 @@ async def seed_demo():
     return {"seeded": created}
 
 @api_router.get("/orders/{order_id}/digital-dna")
-async def order_digital_dna(order_id: str, user=Depends(get_current_user)):
+async def order_digital_dna(
+    order_id: str,
+    include_notes: bool = False,
+    include_photos: bool = False,
+    user=Depends(get_current_user),
+):
     """Returns the Digital DNA PDF certificate for an order. Available to every role
-    that can already see the order; manufacturer real name is never included."""
+    that can already see the order; manufacturer real name is never included.
+
+    Query params:
+      - include_notes:  embed manufacturer notes (localized when available)
+      - include_photos: embed up to 2 thumbnails per step
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -794,8 +838,19 @@ async def order_digital_dna(order_id: str, user=Depends(get_current_user)):
     masked["manufacturer_name"] = order.get("manufacturer_alias") or "Somnio Atelier"
     masked["progress"] = progress_summary(order["steps"])
 
-    pdf_bytes = build_digital_dna_pdf(masked, user)
-    filename = f"Somnio-DigitalDNA-{order.get('order_ref','order')}.pdf"
+    pdf_bytes = build_digital_dna_pdf(
+        masked,
+        user,
+        include_notes=include_notes,
+        include_photos=include_photos,
+    )
+    suffix_bits = []
+    if include_notes:
+        suffix_bits.append("notes")
+    if include_photos:
+        suffix_bits.append("photos")
+    suffix = ("-" + "-".join(suffix_bits)) if suffix_bits else ""
+    filename = f"Somnio-DigitalDNA-{order.get('order_ref','order')}{suffix}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

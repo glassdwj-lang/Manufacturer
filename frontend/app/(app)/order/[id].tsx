@@ -9,6 +9,8 @@ import {
   RefreshControl,
   Platform,
   Alert,
+  Modal,
+  Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -29,6 +31,58 @@ export default function OrderDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ I: true });
   const [revealWorkshop, setRevealWorkshop] = useState(false);
+  const [dnaModal, setDnaModal] = useState(false);
+  const [dnaIncludeNotes, setDnaIncludeNotes] = useState(false);
+  const [dnaIncludePhotos, setDnaIncludePhotos] = useState(false);
+  const [dnaGenerating, setDnaGenerating] = useState(false);
+
+  const generateDna = useCallback(async () => {
+    if (!order) return;
+    setDnaGenerating(true);
+    try {
+      const blob = await api.fetchDigitalDna(order.id, {
+        includeNotes: dnaIncludeNotes,
+        includePhotos: dnaIncludePhotos,
+      });
+      const suffix = [
+        dnaIncludeNotes ? "notes" : null,
+        dnaIncludePhotos ? "photos" : null,
+      ]
+        .filter(Boolean)
+        .join("-");
+      const filename = `Somnio-DigitalDNA-${order.order_ref}${
+        suffix ? "-" + suffix : ""
+      }.pdf`;
+      if (Platform.OS === "web") {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener,noreferrer";
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          import("expo-linking").then(({ openURL }) => openURL(dataUrl));
+        };
+        reader.readAsDataURL(blob);
+      }
+      setDnaModal(false);
+    } catch (e) {
+      Alert.alert(
+        "Digital DNA",
+        e instanceof Error ? e.message : "Failed to load certificate"
+      );
+      console.warn("digital dna error", e);
+    } finally {
+      setDnaGenerating(false);
+    }
+  }, [order, dnaIncludeNotes, dnaIncludePhotos]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -154,41 +208,10 @@ export default function OrderDetail() {
         <TouchableOpacity
           testID="digital-dna-button"
           style={styles.dnaBtn}
-          onPress={async () => {
-            try {
-              const blob = await api.fetchDigitalDna(order.id);
-              if (Platform.OS === "web") {
-                const url = URL.createObjectURL(blob);
-                // Anchor-click is the most reliable way to open/save a
-                // blob without tripping pop-up blockers. We open in a
-                // new tab so the user can view the PDF inline.
-                const a = document.createElement("a");
-                a.href = url;
-                a.target = "_blank";
-                a.rel = "noopener,noreferrer";
-                // Setting download lets browsers that can't render inline
-                // PDFs fall back to a save action.
-                a.download = `Somnio-DigitalDNA-${order.order_ref}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
-              } else {
-                // Native: best-effort open via OS handler.
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const dataUrl = reader.result as string;
-                  import("expo-linking").then(({ openURL }) => openURL(dataUrl));
-                };
-                reader.readAsDataURL(blob);
-              }
-            } catch (e) {
-              Alert.alert(
-                "Digital DNA",
-                e instanceof Error ? e.message : "Failed to load certificate"
-              );
-              console.warn("digital dna error", e);
-            }
+          onPress={() => {
+            setDnaIncludeNotes(false);
+            setDnaIncludePhotos(false);
+            setDnaModal(true);
           }}
         >
           <Ionicons name="document-text-outline" size={18} color="#0A0A0A" />
@@ -247,6 +270,81 @@ export default function OrderDetail() {
           );
         })}
       </ScrollView>
+
+      <Modal
+        visible={dnaModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDnaModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalEyebrow}>DIGITAL DNA · OPTIONS</Text>
+            <Text style={styles.modalTitle}>Generate certificate</Text>
+            <Text style={styles.modalSub}>
+              Choose what to embed alongside the localized 26-step journey.
+            </Text>
+
+            <View style={styles.modalRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalRowTitle}>Include notes</Text>
+                <Text style={styles.modalRowSub}>
+                  Atelier notes per completed step (auto-translated).
+                </Text>
+              </View>
+              <Switch
+                testID="dna-toggle-notes"
+                value={dnaIncludeNotes}
+                onValueChange={setDnaIncludeNotes}
+                trackColor={{ false: theme.border, true: theme.primary }}
+                thumbColor={Platform.OS === "android" ? "#0A0A0A" : undefined}
+              />
+            </View>
+
+            <View style={styles.modalRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalRowTitle}>Include thumbnails</Text>
+                <Text style={styles.modalRowSub}>
+                  Up to two small photos per step. Larger file size.
+                </Text>
+              </View>
+              <Switch
+                testID="dna-toggle-photos"
+                value={dnaIncludePhotos}
+                onValueChange={setDnaIncludePhotos}
+                trackColor={{ false: theme.border, true: theme.primary }}
+                thumbColor={Platform.OS === "android" ? "#0A0A0A" : undefined}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                testID="dna-cancel"
+                style={styles.modalGhost}
+                onPress={() => setDnaModal(false)}
+                disabled={dnaGenerating}
+              >
+                <Text style={styles.modalGhostText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="dna-generate"
+                style={[
+                  styles.modalPrimary,
+                  dnaGenerating && { opacity: 0.6 },
+                ]}
+                onPress={generateDna}
+                disabled={dnaGenerating}
+              >
+                {dnaGenerating ? (
+                  <ActivityIndicator color="#0A0A0A" />
+                ) : (
+                  <Text style={styles.modalPrimaryText}>GENERATE PDF</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -390,4 +488,69 @@ const styles = StyleSheet.create({
   stepDesc: { color: theme.textMuted, fontSize: 12, marginTop: 2, marginLeft: 32, lineHeight: 17 },
   stepMeta: { color: theme.textSecondary, fontSize: 11, marginTop: 4, marginLeft: 32 },
   stepNotes: { color: theme.textPrimary, fontSize: 12, marginTop: 4, marginLeft: 32, fontStyle: "italic" },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: spacing.lg,
+  },
+  modalEyebrow: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  modalTitle: {
+    color: theme.textPrimary,
+    fontSize: 20,
+    fontWeight: "300",
+    marginTop: 6,
+  },
+  modalSub: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  modalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    marginTop: spacing.md,
+  },
+  modalRowTitle: { color: theme.textPrimary, fontSize: 14 },
+  modalRowSub: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  modalGhost: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: "center",
+  },
+  modalGhostText: { color: theme.textSecondary, fontSize: 11, letterSpacing: 2 },
+  modalPrimary: {
+    flex: 2,
+    paddingVertical: spacing.md,
+    backgroundColor: theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  modalPrimaryText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
 });
