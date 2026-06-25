@@ -22,6 +22,7 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { useI18n } from "@/src/i18n";
 
 // Map manual-pick code → BCP47 tag + display name used when calling the
 // /translate endpoint. Mirrors backend SUPPORTED_MANUAL_LANGS.
@@ -37,6 +38,7 @@ export default function StepActionScreen() {
   const router = useRouter();
   const safeBack = useSafeBack();
   const { user, languageVersion } = useAuth();
+  const { t } = useI18n();
   const stepNum = parseInt(stepNumber || "0", 10);
 
   const [order, setOrder] = useState<Order | null>(null);
