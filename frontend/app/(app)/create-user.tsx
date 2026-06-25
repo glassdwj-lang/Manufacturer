@@ -10,7 +10,7 @@ import { api, Role, User } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 
-const ROLE_OPTIONS: Role[] = ["manufacturer", "associate", "client", "admin"];
+const ROLE_OPTIONS: Role[] = ["manufacturer", "client"];
 
 export default function CreateUserScreen() {
   const router = useRouter();

@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 import uuid
 import bcrypt
 import jwt as pyjwt
@@ -17,6 +18,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal
 import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from _associate_importer import run_import_and_record, get_last_run, SOURCE_TAG
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -141,6 +145,7 @@ class UserPublic(BaseModel):
     role: str
     associate_id: Optional[str] = None
     auto_forward: bool = False  # associate-level default (used when client has none set)
+    source: str = "local"  # 'local' or 'gem-gallery' (imported from source app)
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -216,6 +221,7 @@ def user_to_public(u: dict) -> dict:
         "role": u["role"],
         "associate_id": u.get("associate_id"),
         "auto_forward": u.get("auto_forward", False),
+        "source": u.get("source", "local"),
     }
 
 def now_china_iso() -> str:
@@ -254,7 +260,7 @@ async def register(data: UserCreate):
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(data: UserLogin):
     user = await db.users.find_one({"email": data.email.lower()})
-    if not user or not verify_password(data.password, user["hashed_password"]):
+    if not user or not user.get("hashed_password") or not verify_password(data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_token(user["id"], user["role"])
     return TokenResponse(access_token=token, user=UserPublic(**user_to_public(user)))
@@ -274,7 +280,13 @@ async def list_users(role: Optional[str] = None, user=Depends(require_roles("adm
 
 @api_router.post("/users")
 async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"))):
-    """Admin-only: create a new user of any role (manufacturer, associate, client, admin)."""
+    """Admin-only: create a new user. NOTE: associates and admins are managed by the
+    source app (gem-gallery-193) and cannot be created locally."""
+    if data.role in ("associate", "admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="Associates and admins are managed by the source app and cannot be created here.",
+        )
     existing = await db.users.find_one({"email": data.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -287,6 +299,7 @@ async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"
         "role": data.role,
         "associate_id": data.associate_id,
         "auto_forward": False,
+        "source": "local",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
@@ -296,10 +309,32 @@ async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"
 async def admin_delete_user(user_id: str, user=Depends(require_roles("admin"))):
     if user_id == user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    target = await db.users.find_one({"id": user_id})
+    if target and target.get("source") == SOURCE_TAG:
+        raise HTTPException(
+            status_code=400,
+            detail="This user is mirrored from the source app and cannot be deleted here.",
+        )
     res = await db.users.delete_one({"id": user_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"ok": True}
+
+# ---------------- Associate Import ----------------
+@api_router.post("/admin/import-associates")
+async def import_associates(user=Depends(require_roles("admin"))):
+    """Manual trigger for the associate sync. Returns counts created/updated/skipped."""
+    return await run_import_and_record(db)
+
+@api_router.get("/admin/import-associates/status")
+async def import_associates_status(user=Depends(require_roles("admin"))):
+    """Last-run result + scheduled job info."""
+    sched_info = {
+        "tz": os.environ.get("ASSOCIATE_SYNC_TZ", "Australia/Sydney"),
+        "hour": int(os.environ.get("ASSOCIATE_SYNC_HOUR", "0")),
+        "minute": int(os.environ.get("ASSOCIATE_SYNC_MINUTE", "1")),
+    }
+    return {"last_run": get_last_run(), "schedule": sched_info}
 
 @api_router.put("/users/{user_id}/auto-forward")
 async def set_auto_forward(user_id: str, body: AutoForwardToggle, user=Depends(require_roles("admin", "associate"))):
@@ -754,6 +789,33 @@ app.add_middleware(
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# ---------------- Scheduler: daily associate sync ----------------
+scheduler: Optional[AsyncIOScheduler] = None
+
+@app.on_event("startup")
+async def _start_scheduler():
+    global scheduler
+    try:
+        tz_name = os.environ.get("ASSOCIATE_SYNC_TZ", "Australia/Sydney")
+        hour = int(os.environ.get("ASSOCIATE_SYNC_HOUR", "0"))
+        minute = int(os.environ.get("ASSOCIATE_SYNC_MINUTE", "1"))
+        scheduler = AsyncIOScheduler(timezone=pytz.timezone(tz_name))
+        scheduler.add_job(
+            lambda: asyncio.create_task(run_import_and_record(db)),
+            CronTrigger(hour=hour, minute=minute),
+            id="associate_sync",
+            replace_existing=True,
+        )
+        scheduler.start()
+        logger.info("Associate sync scheduled daily at %02d:%02d %s", hour, minute, tz_name)
+    except Exception as e:
+        logger.warning("Could not start scheduler: %s", e)
+
+@app.on_event("shutdown")
+async def _stop_scheduler():
+    if scheduler:
+        scheduler.shutdown(wait=False)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

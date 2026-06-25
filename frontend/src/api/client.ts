@@ -85,6 +85,8 @@ export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
   wipeDemo: () => request<any>("/admin/wipe-demo", { method: "POST" }),
+  importAssociates: () => request<any>("/admin/import-associates", { method: "POST" }),
+  importAssociatesStatus: () => request<any>("/admin/import-associates/status"),
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",

@@ -12,7 +12,7 @@ import { flags } from "@/src/flags";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 
 type ResultRow = { tone: "ok" | "err"; text: string };
-type LoadingKey = "base" | "extended" | "wipe" | null;
+type LoadingKey = "base" | "extended" | "wipe" | "import" | null;
 
 export default function DebugScreen() {
   const router = useRouter();
@@ -86,6 +86,28 @@ export default function DebugScreen() {
     }
   };
 
+  const runImportAssociates = async () => {
+    setLoading("import");
+    try {
+      const out = await api.importAssociates();
+      if (out.ok) {
+        pushResult({
+          tone: "ok",
+          text: `Import OK · fetched ${out.fetched} · created ${out.created} · updated ${out.updated} · skipped ${out.skipped}`,
+        });
+      } else {
+        pushResult({
+          tone: "err",
+          text: `Import failed (${out.reason}) · ${out.detail ?? ""}`,
+        });
+      }
+    } catch (e: any) {
+      pushResult({ tone: "err", text: `Import failed · ${e?.message ?? "error"}` });
+    } finally {
+      setLoading(null);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <View style={styles.header}>
@@ -121,6 +143,18 @@ export default function DebugScreen() {
           loading={loading === "extended"}
           onPress={runSeedExtended}
           testID="seed-extended-button"
+        />
+
+        <Text style={[styles.section, { marginTop: spacing.xl }]}>ASSOCIATE SYNC</Text>
+
+        <Card
+          title="Import Associates from gem-gallery-193"
+          subtitle="Pulls all associates and admins from the source app and upserts them by email. Auto-runs daily at 00:01 Australia/Sydney. Associates and admins cannot be created or edited inside Atelier — they are read-only mirrors."
+          buttonLabel={loading === "import" ? "IMPORTING…" : "IMPORT NOW"}
+          disabled={loading !== null}
+          loading={loading === "import"}
+          onPress={runImportAssociates}
+          testID="import-associates-button"
         />
 
         <Text style={[styles.section, { marginTop: spacing.xl, color: theme.error }]}>DANGER ZONE</Text>
