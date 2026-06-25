@@ -22,6 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from _associate_importer import run_import_and_record, get_last_run, SOURCE_TAG
 from _translation import translate as translate_text, language_for_country, COUNTRY_LIST
+from _step_translations import STEP_I18N
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -420,10 +421,33 @@ async def create_order(data: OrderCreate, user=Depends(require_roles("admin", "a
     return _strip_order_for_role(order, user)
 
 def _strip_order_for_role(order: dict, user: dict) -> dict:
-    """Remove _id; hide customs from non-admin; hide unforwarded steps' detail from client."""
+    """Remove _id; hide customs from non-admin; hide unforwarded steps' detail from client.
+    Also localize step titles / phase titles / descriptions when the viewer is a client
+    whose country maps to a non-English language we have pre-translated."""
     o = {k: v for k, v in order.items() if k != "_id"}
     if user["role"] != "admin":
         o["customs"] = {"has_docs": bool(o.get("customs", {}).get("airway_bill") or o.get("customs", {}).get("customs_document"))}
+
+    # Pick a language pack to localize titles/phase_titles/descriptions
+    pack = None
+    if user["role"] == "client":
+        country = user.get("country") or "AU"
+        lang_tag, _ = language_for_country(country)
+        pack = STEP_I18N.get(lang_tag)
+    if pack:
+        step_map = {s["n"]: s for s in pack.get("steps", [])}
+        phase_map = {p["code"]: p["title"] for p in pack.get("phases", [])}
+        localized_steps = []
+        for s in o["steps"]:
+            t = step_map.get(s["step_number"], {})
+            localized_steps.append({
+                **s,
+                "title": t.get("title", s["title"]),
+                "description": t.get("description", s.get("description", "")),
+                "phase_title": phase_map.get(s["phase"], s.get("phase_title", "")),
+            })
+        o["steps"] = localized_steps
+
     if user["role"] == "client":
         # Hide steps that aren't forwarded yet
         visible_steps = []
