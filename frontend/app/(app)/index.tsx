@@ -101,7 +101,13 @@ export default function HomeScreen() {
 
   if (!user) return null;
 
-  const roleLabel = ROLE_LABELS[user.role] ?? user.role;
+  const ROLE_KEY: Record<string, "role.admin" | "role.manufacturer" | "role.associate" | "role.client"> = {
+    admin: "role.admin",
+    manufacturer: "role.manufacturer",
+    associate: "role.associate",
+    client: "role.client",
+  };
+  const roleLabel = ROLE_KEY[user.role] ? t(ROLE_KEY[user.role]) : (ROLE_LABELS[user.role] ?? user.role);
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -360,9 +366,14 @@ function OrderCard({
         </Text>
       </View>
       {currentStep ? (
-        <Text style={styles.currentStep}>Next · Step {currentStep.step_number} · {currentStep.title}</Text>
+        <Text style={styles.currentStep}>
+          {t("home.card.next_step", {
+            n: currentStep.step_number,
+            title: currentStep.title,
+          })}
+        </Text>
       ) : (
-        <Text style={[styles.currentStep, { color: theme.success }]}>All 26 steps complete</Text>
+        <Text style={[styles.currentStep, { color: theme.success }]}>{t("home.card.all_done")}</Text>
       )}
     </TouchableOpacity>
   );

@@ -170,7 +170,8 @@ def _format_china(iso: str | None) -> str:
         return "—"
     try:
         d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        return d.astimezone(CHINA_TZ).strftime("%d %b %Y · %H:%M CST")
+        # Date + time only — no timezone acronym.
+        return d.astimezone(CHINA_TZ).strftime("%d %b %Y · %H:%M")
     except Exception:
         return iso
 
@@ -280,7 +281,6 @@ def build_digital_dna_pdf(
     """
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
-    is_client = (viewer.get("role") == "client") if viewer else False
 
     # Effective language. `language_for_user` already returns the BCP-47 tag
     # that matches STEP_I18N (e.g. "zh-CN"), so we can use it as-is for both
@@ -401,9 +401,6 @@ def build_digital_dna_pdf(
         c.setFillColor(TEXT if done_flag else SUB)
         _draw_text(c, LEFT + 14 * mm, y_cursor, title, 10)
         ts = _format_china(s.get("completed_at_china")) if done_flag else _t(chrome_tag, "pending")
-        # Clients see the date+time but without the "CST" timezone label.
-        if is_client and done_flag:
-            ts = _strip_tz_label(ts)
         c.setFillColor(GOLD if done_flag else MUTE)
         _draw_text(c, RIGHT, y_cursor, ts, 8, right=True)
         y_cursor -= line_h
@@ -458,11 +455,8 @@ def build_digital_dna_pdf(
     c.setStrokeColor(BORDER)
     c.line(LEFT, 18 * mm, RIGHT, 18 * mm)
     c.setFillColor(MUTE)
-    if is_client:
-        # Clients see the same generation time but without the "CST" label.
-        generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M")
-    else:
-        generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M CST")
+    # No CST anywhere in the PDF — date + time only.
+    generated_at = datetime.now(CHINA_TZ).strftime("%d %b %Y · %H:%M")
     _draw_text(c, LEFT, 12 * mm, _t(chrome_tag, "generated", when=generated_at), 7)
     _draw_text(c, RIGHT, 12 * mm, _t(chrome_tag, "footer"), 7, right=True)
 

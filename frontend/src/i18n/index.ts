@@ -464,6 +464,12 @@ const STRINGS = {
     it: "NOTE DELL’ATELIER · {lang}",
   },
 
+  // -------- Role labels --------
+  "role.admin": { en: "Atelier", zh: "工作室", fr: "Atelier", it: "Atelier" },
+  "role.manufacturer": { en: "Workshop", zh: "工坊", fr: "Atelier de production", it: "Officina" },
+  "role.associate": { en: "Associate", zh: "经理", fr: "Associé", it: "Associato" },
+  "role.client": { en: "Maison Client", zh: "私人客户", fr: "Client Maison", it: "Cliente Maison" },
+
   // -------- Language switcher --------
   "lang.title": {
     en: "Display language",
