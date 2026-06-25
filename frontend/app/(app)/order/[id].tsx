@@ -26,6 +26,7 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ I: true });
+  const [revealWorkshop, setRevealWorkshop] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -89,9 +90,38 @@ export default function OrderDetail() {
         }
       >
         <Text style={styles.title}>{order.jewelry_name}</Text>
-        <Text style={styles.subtitle}>
-          Client · {order.client_name}   |   Workshop · {order.manufacturer_name}
-        </Text>
+        {(() => {
+          // Admin sees the alias by default with a Reveal toggle to expose the real workshop name.
+          // For everyone else, manufacturer_name is already aliased server-side.
+          const isAdmin = user?.role === "admin";
+          const aliasOrName = isAdmin
+            ? (order.manufacturer_alias || order.manufacturer_name)
+            : order.manufacturer_name;
+          const display = isAdmin && revealWorkshop ? order.manufacturer_name : aliasOrName;
+          return (
+            <>
+              <Text style={styles.subtitle}>
+                Client · {order.client_name}   |   Workshop · {display}
+              </Text>
+              {isAdmin && order.manufacturer_alias && order.manufacturer_alias !== order.manufacturer_name && (
+                <TouchableOpacity
+                  testID="reveal-workshop-toggle"
+                  onPress={() => setRevealWorkshop((v) => !v)}
+                  style={styles.revealBtn}
+                >
+                  <Ionicons
+                    name={revealWorkshop ? "eye-off-outline" : "eye-outline"}
+                    size={12}
+                    color={theme.primary}
+                  />
+                  <Text style={styles.revealText}>
+                    {revealWorkshop ? "HIDE WORKSHOP" : "REVEAL WORKSHOP"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          );
+        })()}
         {!!order.sku && <Text style={styles.sku}>SKU · {order.sku}</Text>}
         {!!order.description && <Text style={styles.descText}>{order.description}</Text>}
 
@@ -255,6 +285,13 @@ const styles = StyleSheet.create({
   refText: { color: theme.primary, fontSize: 12, letterSpacing: 2 },
   title: { color: theme.textPrimary, fontSize: 24, fontWeight: "300", marginTop: spacing.sm, lineHeight: 30 },
   subtitle: { color: theme.textSecondary, fontSize: 12, marginTop: 6 },
+  revealBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: spacing.sm, alignSelf: "flex-start",
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderWidth: 1, borderColor: theme.borderSubtle,
+  },
+  revealText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
   sku: { color: theme.textMuted, fontSize: 11, marginTop: 4, letterSpacing: 1 },
   descText: { color: theme.textSecondary, fontSize: 13, marginTop: spacing.sm, lineHeight: 20 },
   progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

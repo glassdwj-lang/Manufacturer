@@ -46,6 +46,7 @@ export type Order = {
   client_name: string;
   manufacturer_id: string;
   manufacturer_name: string;
+  manufacturer_alias?: string;
   associate_id: string | null;
   jewelry_name: string;
   sku: string;
