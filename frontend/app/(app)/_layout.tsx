@@ -11,6 +11,7 @@ export default function AppLayout() {
       <Stack.Screen name="create-order" options={{ presentation: "modal" }} />
       <Stack.Screen name="users" />
       <Stack.Screen name="create-user" options={{ presentation: "modal" }} />
+      <Stack.Screen name="debug" />
     </Stack>
   );
 }

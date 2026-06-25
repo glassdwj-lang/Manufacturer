@@ -89,6 +89,15 @@ export default function HomeScreen() {
             <Text style={styles.linkBtnText}>MANUFACTURERS · USERS</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
+          <TouchableOpacity
+            testID="debug-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/debug")}
+          >
+            <Ionicons name="construct-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>ATELIER DEBUG · SAMPLE DATA</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
         </View>
       )}
 
