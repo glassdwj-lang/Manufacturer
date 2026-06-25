@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
+import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { theme, spacing } from "@/src/theme";
 import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
@@ -57,6 +58,7 @@ function videoPoster(videoUrl: string): string {
 
 export default function ApprovalsScreen() {
   const router = useRouter();
+  const safeBack = useSafeBack();
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("pending");
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -279,7 +281,7 @@ export default function ApprovalsScreen() {
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={12} testID="approvals-back">
+          <TouchableOpacity onPress={safeBack} hitSlop={12} testID="approvals-back">
             <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
@@ -306,7 +308,7 @@ export default function ApprovalsScreen() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+        <TouchableOpacity onPress={safeBack} hitSlop={12}>
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
