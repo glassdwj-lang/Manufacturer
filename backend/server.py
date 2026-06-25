@@ -143,6 +143,9 @@ class UserCreate(BaseModel):
 class UserCountryUpdate(BaseModel):
     country: str
 
+class UserAliasUpdate(BaseModel):
+    alias: str
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -151,6 +154,7 @@ class UserPublic(BaseModel):
     id: str
     email: str
     name: str
+    alias: str = ""  # for manufacturers: 'Somnio Atelier N' shown to clients/associates
     role: str
     associate_id: Optional[str] = None
     auto_forward: bool = False
@@ -225,6 +229,22 @@ def require_roles(*allowed: str):
         return user
     return checker
 
+async def _next_manufacturer_alias() -> str:
+    """Compute the next 'Somnio Atelier N' alias not already in use."""
+    cursor = db.users.find({"role": "manufacturer", "alias": {"$exists": True, "$ne": ""}}, {"_id": 0, "alias": 1})
+    used: set[int] = set()
+    async for row in cursor:
+        a = row.get("alias", "")
+        # parse trailing integer
+        parts = a.split()
+        if parts and parts[-1].isdigit():
+            used.add(int(parts[-1]))
+    n = 1
+    while n in used:
+        n += 1
+    return f"Somnio Atelier {n}"
+
+
 def user_to_public(u: dict) -> dict:
     country = u.get("country") or "AU"
     lang_tag, lang_name = language_for_country(country)
@@ -232,6 +252,7 @@ def user_to_public(u: dict) -> dict:
         "id": u["id"],
         "email": u["email"],
         "name": u["name"],
+        "alias": u.get("alias", ""),
         "role": u["role"],
         "associate_id": u.get("associate_id"),
         "auto_forward": u.get("auto_forward", False),
@@ -320,8 +341,42 @@ async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"
         "country": (data.country or "AU").upper(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if data.role == "manufacturer":
+        user_doc["alias"] = await _next_manufacturer_alias()
     await db.users.insert_one(user_doc)
     return user_to_public(user_doc)
+
+@api_router.put("/users/{user_id}/alias")
+async def admin_set_alias(user_id: str, body: UserAliasUpdate, user=Depends(require_roles("admin"))):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target["role"] != "manufacturer":
+        raise HTTPException(status_code=400, detail="Alias is only used for manufacturers.")
+    alias = (body.alias or "").strip()
+    if not alias:
+        raise HTTPException(status_code=400, detail="Alias cannot be empty")
+    await db.users.update_one({"id": user_id}, {"$set": {"alias": alias}})
+    return {"ok": True, "alias": alias}
+
+@api_router.post("/admin/backfill-aliases")
+async def admin_backfill_aliases(user=Depends(require_roles("admin"))):
+    """Assigns 'Somnio Atelier N' to any manufacturer that doesn't have an alias yet,
+    and stamps the manufacturer_alias on existing orders."""
+    assigned = []
+    async for m in db.users.find({"role": "manufacturer", "$or": [{"alias": {"$exists": False}}, {"alias": ""}]}, {"_id": 0, "id": 1, "name": 1}):
+        alias = await _next_manufacturer_alias()
+        await db.users.update_one({"id": m["id"]}, {"$set": {"alias": alias}})
+        assigned.append({"id": m["id"], "name": m["name"], "alias": alias})
+    # Now propagate aliases onto orders so the strip layer can mask names
+    propagated = 0
+    async for mfg in db.users.find({"role": "manufacturer", "alias": {"$exists": True, "$ne": ""}}, {"_id": 0, "id": 1, "alias": 1}):
+        r = await db.orders.update_many(
+            {"manufacturer_id": mfg["id"], "$or": [{"manufacturer_alias": {"$exists": False}}, {"manufacturer_alias": ""}]},
+            {"$set": {"manufacturer_alias": mfg["alias"]}},
+        )
+        propagated += r.modified_count
+    return {"assigned": assigned, "count": len(assigned), "orders_stamped": propagated}
 
 @api_router.put("/users/{user_id}/country")
 async def admin_update_country(user_id: str, body: UserCountryUpdate, user=Depends(require_roles("admin", "associate"))):
@@ -407,6 +462,7 @@ async def create_order(data: OrderCreate, user=Depends(require_roles("admin", "a
         "client_name": client["name"],
         "manufacturer_id": data.manufacturer_id,
         "manufacturer_name": manufacturer["name"],
+        "manufacturer_alias": manufacturer.get("alias") or "Somnio Atelier",
         "associate_id": associate_id,
         "jewelry_name": data.jewelry_name,
         "sku": data.sku or "",
@@ -423,10 +479,16 @@ async def create_order(data: OrderCreate, user=Depends(require_roles("admin", "a
 def _strip_order_for_role(order: dict, user: dict) -> dict:
     """Remove _id; hide customs from non-admin; hide unforwarded steps' detail from client.
     Also localize step titles / phase titles / descriptions when the viewer is a client
-    whose country maps to a non-English language we have pre-translated."""
+    whose country maps to a non-English language we have pre-translated.
+    Mask manufacturer real name as 'Somnio Atelier N' alias for client + associate."""
     o = {k: v for k, v in order.items() if k != "_id"}
     if user["role"] != "admin":
         o["customs"] = {"has_docs": bool(o.get("customs", {}).get("airway_bill") or o.get("customs", {}).get("customs_document"))}
+
+    # Mask manufacturer real name with alias for client and associate views.
+    if user["role"] in ("client", "associate"):
+        alias = o.get("manufacturer_alias") or "Somnio Atelier"
+        o["manufacturer_name"] = alias
 
     # Pick a language pack to localize titles/phase_titles/descriptions
     pack = None

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Switch, RefreshControl,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
+  ActivityIndicator, Switch, RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -25,6 +26,8 @@ export default function UsersScreen() {
   const [filter, setFilter] = useState("manufacturer");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [editingAliasId, setEditingAliasId] = useState<string | null>(null);
+  const [aliasDraft, setAliasDraft] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +52,27 @@ export default function UsersScreen() {
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, auto_forward: val } : x)));
     } catch (e) {
       console.warn(e);
+    }
+  };
+
+  const startEditAlias = (u: User) => {
+    setEditingAliasId(u.id);
+    setAliasDraft(u.alias || "");
+  };
+
+  const saveAlias = async (u: User) => {
+    const next = aliasDraft.trim();
+    if (!next || next === u.alias) {
+      setEditingAliasId(null);
+      return;
+    }
+    try {
+      await api.setAlias(u.id, next);
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, alias: next } : x)));
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setEditingAliasId(null);
     }
   };
 
@@ -117,9 +141,42 @@ export default function UsersScreen() {
           filtered.map((u) => (
             <View key={u.id} testID={`user-row-${u.id}`} style={styles.userRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.userName}>{u.name}</Text>
-                <Text style={styles.userEmail}>{u.email}</Text>
-                <Text style={styles.userMeta}>{ROLE_LABELS[u.role] || u.role}</Text>
+                {u.role === "manufacturer" ? (
+                  <>
+                    {editingAliasId === u.id ? (
+                      <TextInput
+                        testID={`alias-input-${u.id}`}
+                        value={aliasDraft}
+                        onChangeText={setAliasDraft}
+                        autoFocus
+                        onBlur={() => saveAlias(u)}
+                        onSubmitEditing={() => saveAlias(u)}
+                        placeholder="Somnio Atelier N"
+                        placeholderTextColor={theme.textMuted}
+                        style={styles.aliasInput}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        testID={`alias-edit-${u.id}`}
+                        onPress={() => startEditAlias(u)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.aliasRow}>
+                          <Text style={styles.userName}>{u.alias || "—"}</Text>
+                          <Ionicons name="pencil-outline" size={12} color={theme.textMuted} />
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                    <Text style={styles.realName}>Real name · {u.name}</Text>
+                    <Text style={styles.userEmail}>{u.email}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.userName}>{u.name}</Text>
+                    <Text style={styles.userEmail}>{u.email}</Text>
+                    <Text style={styles.userMeta}>{ROLE_LABELS[u.role] || u.role}</Text>
+                  </>
+                )}
               </View>
               {u.role === "client" && me?.role === "admin" && (
                 <View style={styles.autoFwdBox}>
@@ -166,6 +223,13 @@ const styles = StyleSheet.create({
     padding: spacing.md, borderWidth: 1, borderColor: theme.border, marginBottom: spacing.sm,
   },
   userName: { color: theme.textPrimary, fontSize: 14 },
+  realName: { color: theme.textSecondary, fontSize: 11, marginTop: 2, fontStyle: "italic" },
+  aliasRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  aliasInput: {
+    color: theme.primary, fontSize: 14,
+    borderBottomWidth: 1, borderBottomColor: theme.primary,
+    paddingVertical: 2, paddingHorizontal: 0,
+  },
   userEmail: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   userMeta: { color: theme.primary, fontSize: 10, letterSpacing: 2, marginTop: 4 },
   autoFwdBox: { alignItems: "center", gap: 4, marginLeft: spacing.md },

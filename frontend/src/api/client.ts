@@ -10,9 +10,14 @@ export type User = {
   id: string;
   email: string;
   name: string;
+  alias?: string;
   role: Role;
   associate_id?: string | null;
   auto_forward?: boolean;
+  source?: string;
+  country?: string;
+  language?: string;
+  language_name?: string;
 };
 
 export type Step = {
@@ -123,6 +128,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ auto_forward }),
     }),
+  setAlias: (userId: string, alias: string) =>
+    request<any>(`/users/${userId}/alias`, {
+      method: "PUT",
+      body: JSON.stringify({ alias }),
+    }),
+  backfillAliases: () =>
+    request<any>("/admin/backfill-aliases", { method: "POST" }),
   setCountry: (userId: string, country: string) =>
     request<any>(`/users/${userId}/country`, {
       method: "PUT",
