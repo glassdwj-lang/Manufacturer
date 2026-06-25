@@ -22,6 +22,7 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import { useI18n } from "@/src/i18n";
 
 // Map manual-pick code → BCP47 tag + display name used when calling the
@@ -50,6 +51,7 @@ export default function StepActionScreen() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // When a manufacturer/admin taps "UPDATE" on a completed step, flip into
   // edit mode so the same notes/photos form is reused for the patch.
   const [editMode, setEditMode] = useState(false);
@@ -324,7 +326,13 @@ export default function StepActionScreen() {
               <View style={styles.photoGrid}>
                 {photos.map((p, i) => (
                   <View key={i} style={styles.photoCell}>
-                    <Image source={{ uri: p }} style={styles.photoImg} />
+                    <TouchableOpacity
+                      testID={`open-photo-${i}`}
+                      activeOpacity={0.85}
+                      onPress={() => setLightboxIndex(i)}
+                    >
+                      <Image source={{ uri: p }} style={styles.photoImg} />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       testID={`remove-photo-${i}`}
                       onPress={() => removePhoto(i)}
@@ -507,9 +515,15 @@ export default function StepActionScreen() {
                   <Text style={styles.formLabel}>PHOTOS</Text>
                   <View style={styles.photoGrid}>
                     {photos.map((p, i) => (
-                      <View key={i} style={styles.photoCell}>
+                      <TouchableOpacity
+                        key={i}
+                        testID={`open-readonly-photo-${i}`}
+                        activeOpacity={0.85}
+                        onPress={() => setLightboxIndex(i)}
+                        style={styles.photoCell}
+                      >
                         <Image source={{ uri: p }} style={styles.photoImg} />
-                      </View>
+                      </TouchableOpacity>
                     ))}
                   </View>
                 </>
@@ -541,6 +555,12 @@ export default function StepActionScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <PhotoLightbox
+        photos={photos}
+        visible={lightboxIndex !== null}
+        initialIndex={lightboxIndex ?? 0}
+        onClose={() => setLightboxIndex(null)}
+      />
     </SafeAreaView>
   );
 }
