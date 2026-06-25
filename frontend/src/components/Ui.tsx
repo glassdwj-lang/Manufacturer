@@ -11,10 +11,19 @@ export function PhaseBadge({ phase }: { phase: string }) {
 }
 
 export function ProgressBar({ current, total }: { current: number; total: number }) {
-  const pct = total > 0 ? (current / total) * 100 : 0;
+  // Render `total` discrete segments so the viewer can see exactly which
+  // step the commission is at — matches the 26-step provenance journey.
+  const safeTotal = Math.max(total | 0, 1);
+  const safeCurrent = Math.max(Math.min(current | 0, safeTotal), 0);
+  const segments = Array.from({ length: safeTotal }, (_, i) => i < safeCurrent);
   return (
     <View style={styles.progressOuter} testID="progress-bar">
-      <View style={[styles.progressInner, { width: `${pct}%` }]} />
+      {segments.map((filled, i) => (
+        <View
+          key={i}
+          style={[styles.progressSegment, filled ? styles.progressSegmentFilled : styles.progressSegmentEmpty]}
+        />
+      ))}
     </View>
   );
 }
@@ -56,11 +65,26 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   progressOuter: {
-    height: 2,
-    backgroundColor: theme.border,
+    flexDirection: "row",
+    alignItems: "stretch",
+    height: 8,
     width: "100%",
-    overflow: "hidden",
+    gap: 2,
   },
+  progressSegment: {
+    flex: 1,
+    height: 8,
+    minWidth: 2,
+  },
+  progressSegmentFilled: {
+    backgroundColor: theme.primary,
+  },
+  progressSegmentEmpty: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  // Retained in case external consumers reference the legacy fill style.
   progressInner: {
     height: 2,
     backgroundColor: theme.primary,
