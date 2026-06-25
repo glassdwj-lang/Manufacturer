@@ -19,6 +19,56 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useVideoPlayer, VideoView } from "expo-video";
+
+function isVideoUrl(url: string): boolean {
+  return typeof url === "string" && url.includes("/video/upload/");
+}
+
+function VideoLightboxPage({
+  uri,
+  isActive,
+  width,
+  height,
+  onPress,
+}: {
+  uri: string;
+  isActive: boolean;
+  width: number;
+  height: number;
+  onPress: () => void;
+}) {
+  const player = useVideoPlayer(uri, (p) => {
+    // Cloudinary delivers progressive mp4; default mute false but loop off.
+    p.loop = false;
+  });
+  // Auto-play when the page becomes active; pause when we swipe away.
+  useEffect(() => {
+    if (isActive) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isActive, player]);
+  return (
+    <View style={[styles.page, { width, height }]}>
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        // Tap on the video frame dismisses if it's a single short tap;
+        // for video we keep this active so users can still close quickly.
+        onPress={onPress}
+      >
+        <VideoView
+          player={player}
+          style={styles.photo}
+          allowsFullscreen
+          contentFit="contain"
+          nativeControls
+        />
+      </Pressable>
+    </View>
+  );
+}
 
 export interface PhotoLightboxProps {
   photos: string[];
@@ -74,21 +124,34 @@ export function PhotoLightbox({ photos, visible, initialIndex = 0, onClose }: Ph
           onMomentumScrollEnd={(e) =>
             setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / Math.max(width, 1)))
           }
-          renderItem={({ item }) => (
-            <View style={[styles.page, { width, height }]}>
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={onClose}
-                testID="lightbox-photo-press"
-              >
-                <Image
-                  source={{ uri: item }}
-                  style={styles.photo}
-                  resizeMode="contain"
+          renderItem={({ item, index }) => {
+            if (isVideoUrl(item)) {
+              return (
+                <VideoLightboxPage
+                  uri={item}
+                  isActive={index === activeIndex && visible}
+                  width={width}
+                  height={height}
+                  onPress={onClose}
                 />
-              </Pressable>
-            </View>
-          )}
+              );
+            }
+            return (
+              <View style={[styles.page, { width, height }]}>
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={onClose}
+                  testID="lightbox-photo-press"
+                >
+                  <Image
+                    source={{ uri: item }}
+                    style={styles.photo}
+                    resizeMode="contain"
+                  />
+                </Pressable>
+              </View>
+            );
+          }}
         />
 
         {/* Counter */}

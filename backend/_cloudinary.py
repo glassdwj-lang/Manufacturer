@@ -72,9 +72,14 @@ def upload_base64_to_cloudinary(
     folder: Optional[str] = None,
     public_id: Optional[str] = None,
     max_width: int = 1600,
+    resource_type: str = "image",
 ) -> str:
     """Uploads a base64 (or data URI) string to Cloudinary and returns the
-    secure HTTPS URL. Applies a max-width transform + auto format/quality."""
+    secure HTTPS URL.
+
+    ``resource_type`` defaults to "image" but accepts "video" / "auto" so we
+    can store mp4/mov step videos alongside provenance photos.
+    """
     configure_cloudinary()
     if not base64_data:
         raise ValueError("base64_data is empty")
@@ -83,25 +88,28 @@ def upload_base64_to_cloudinary(
     if base64_data.startswith("data:"):
         data_uri = base64_data
     else:
-        data_uri = "data:image/jpeg;base64," + base64_data
+        # Best-effort default; Cloudinary infers from bytes anyway.
+        prefix = "data:video/mp4;base64," if resource_type == "video" else "data:image/jpeg;base64,"
+        data_uri = prefix + base64_data
 
-    res = uploader.upload(
-        data_uri,
-        resource_type="image",
-        folder=folder or DEFAULT_FOLDER,
-        public_id=public_id,
-        overwrite=False,
-        unique_filename=True,
-        use_filename=False,
-        transformation=[
+    upload_kwargs: dict = {
+        "resource_type": resource_type,
+        "folder": folder or DEFAULT_FOLDER,
+        "public_id": public_id,
+        "overwrite": False,
+        "unique_filename": True,
+        "use_filename": False,
+    }
+    if resource_type == "image":
+        upload_kwargs["transformation"] = [
             {
                 "width": max_width,
                 "crop": "limit",
                 "quality": "auto",
                 "fetch_format": "auto",
             }
-        ],
-    )
+        ]
+    res = uploader.upload(data_uri, **upload_kwargs)
     url = res.get("secure_url")
     if not url:
         raise RuntimeError("Cloudinary upload did not return a secure_url")
@@ -113,9 +121,14 @@ def generate_signed_upload_payload(
     folder: Optional[str] = None,
     public_id: Optional[str] = None,
     tags: Optional[str] = None,
+    resource_type: str = "image",
 ) -> dict:
     """Returns the payload a mobile/web client needs to perform a direct
-    signed upload to Cloudinary's REST endpoint."""
+    signed upload to Cloudinary's REST endpoint.
+
+    ``resource_type`` controls both the signed params and the upload URL
+    (``/image/upload`` vs ``/video/upload``).
+    """
     configure_cloudinary()
     if not API_SECRET:
         raise RuntimeError("CLOUDINARY_API_SECRET is not configured")
@@ -140,5 +153,16 @@ def generate_signed_upload_payload(
         "folder": folder_value,
         "public_id": public_id,
         "tags": tags,
-        "upload_url": f"https://api.cloudinary.com/v1_1/{CLOUD_NAME}/image/upload",
+        "resource_type": resource_type,
+        "upload_url": (
+            f"https://api.cloudinary.com/v1_1/{CLOUD_NAME}/{resource_type}/upload"
+        ),
     }
+
+
+def is_cloudinary_video_url(value: str) -> bool:
+    """Cloudinary video assets sit under ``/video/upload/`` — use this in
+    the UI/PDF layer to decide whether to render a video player."""
+    if not isinstance(value, str):
+        return False
+    return "/video/upload/" in value

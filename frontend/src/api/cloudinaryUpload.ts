@@ -1,13 +1,13 @@
 /**
- * Direct-from-client photo upload helper.
+ * Direct-from-client photo/video upload helper.
  *
- * Asks the backend for a one-shot Cloudinary signature, then POSTs the file
- * straight to Cloudinary's REST endpoint. Returns the persistent
- * ``secure_url`` we then store on the step document.
+ * For images we still resize/compress locally before pushing to Cloudinary.
+ * For videos we upload the raw asset (Cloudinary handles transcoding +
+ * adaptive streaming + auto-quality on delivery).
  *
- * Falls back to the proxy ``/api/uploads/base64`` endpoint when the asset is
- * already a base64 data URI (e.g. on React Native Web where the picker may
- * not give us a file URI).
+ * The Cloudinary "secure_url" path itself tells us the type — image URLs
+ * sit under ``/image/upload/`` and video URLs under ``/video/upload/``,
+ * which we use everywhere downstream (UI grid, lightbox, PDF).
  */
 import * as ImageManipulator from "expo-image-manipulator";
 import { Platform } from "react-native";
@@ -23,16 +23,20 @@ type SignPayload = {
   folder: string;
   public_id: string | null;
   tags: string | null;
+  resource_type: string;
   upload_url: string;
 };
 
-async function fetchSignature(folder = CLOUDINARY_FOLDER_DEFAULT): Promise<SignPayload> {
-  const res = await api.signCloudinaryUpload({ folder });
+async function fetchSignature(
+  folder = CLOUDINARY_FOLDER_DEFAULT,
+  resource_type: "image" | "video" = "image",
+): Promise<SignPayload> {
+  const res = await api.signCloudinaryUpload({ folder, resource_type });
   return res as SignPayload;
 }
 
-/** Best-effort client-side resize: keeps uploads under ~1.5 MB on mobile. */
-async function compressForUpload(uri: string): Promise<{ uri: string; type: string }> {
+/** Best-effort client-side resize for images: keeps uploads small. */
+async function compressImageForUpload(uri: string): Promise<{ uri: string; type: string }> {
   try {
     const out = await ImageManipulator.manipulateAsync(
       uri,
@@ -49,22 +53,24 @@ export interface UploadResult {
   secure_url: string;
 }
 
-/** Upload a local file URI (from expo-image-picker / camera) to Cloudinary. */
-export async function uploadLocalImage(localUri: string): Promise<UploadResult> {
-  const sig = await fetchSignature();
-  const compressed = await compressForUpload(localUri);
+export function isVideoUrl(url: string | undefined | null): boolean {
+  if (!url) return false;
+  return url.includes("/video/upload/");
+}
 
+async function postToCloudinary(
+  sig: SignPayload,
+  fileSpec: { uri: string; name: string; type: string },
+): Promise<UploadResult> {
   const form = new FormData();
-  // React Native FormData file shape: { uri, name, type }
-  // On web, fetch a Blob from the URI to keep cross-platform parity.
   if (Platform.OS === "web") {
-    const blob = await (await fetch(compressed.uri)).blob();
-    form.append("file", blob, "step-photo.jpg");
+    const blob = await (await fetch(fileSpec.uri)).blob();
+    form.append("file", blob, fileSpec.name);
   } else {
     form.append("file", {
-      uri: compressed.uri,
-      name: "step-photo.jpg",
-      type: compressed.type,
+      uri: fileSpec.uri,
+      name: fileSpec.name,
+      type: fileSpec.type,
     } as unknown as Blob);
   }
   form.append("api_key", sig.api_key);
@@ -81,14 +87,45 @@ export async function uploadLocalImage(localUri: string): Promise<UploadResult> 
   return { secure_url: json.secure_url as string };
 }
 
+/** Upload a local image file URI (camera/library) to Cloudinary. */
+export async function uploadLocalImage(localUri: string): Promise<UploadResult> {
+  const sig = await fetchSignature(undefined, "image");
+  const compressed = await compressImageForUpload(localUri);
+  return postToCloudinary(sig, {
+    uri: compressed.uri,
+    name: "step-photo.jpg",
+    type: compressed.type,
+  });
+}
+
+/** Upload a local video file URI to Cloudinary. */
+export async function uploadLocalVideo(localUri: string): Promise<UploadResult> {
+  const sig = await fetchSignature(undefined, "video");
+  // Derive a reasonable mime/extension from the URI; mp4 is the most common.
+  const lower = localUri.toLowerCase();
+  const ext = lower.endsWith(".mov")
+    ? "mov"
+    : lower.endsWith(".webm")
+    ? "webm"
+    : lower.endsWith(".m4v")
+    ? "m4v"
+    : "mp4";
+  const type =
+    ext === "mov" ? "video/quicktime" : ext === "webm" ? "video/webm" : "video/mp4";
+  return postToCloudinary(sig, {
+    uri: localUri,
+    name: `step-video.${ext}`,
+    type,
+  });
+}
+
 /** Upload an existing base64 data URI through the backend proxy. */
 export async function uploadBase64Image(dataUri: string): Promise<UploadResult> {
   const res = await api.uploadBase64({ base64_data: dataUri });
   return res as UploadResult;
 }
 
-/** Convenience: handles both URI and base64 inputs (used during the
- * incremental migration period). */
+/** Convenience: handles both URI and base64 inputs for the legacy path. */
 export async function uploadStepPhoto(input: { uri?: string; base64?: string }): Promise<UploadResult> {
   if (input.uri) return uploadLocalImage(input.uri);
   if (input.base64) {
@@ -98,4 +135,15 @@ export async function uploadStepPhoto(input: { uri?: string; base64?: string }):
     return uploadBase64Image(dataUri);
   }
   throw new Error("uploadStepPhoto: neither uri nor base64 provided");
+}
+
+/** New media uploader that branches on asset kind. */
+export async function uploadStepMedia(asset: {
+  uri: string;
+  type?: string | null; // expo-image-picker asset type: "image" | "video"
+}): Promise<UploadResult> {
+  if ((asset.type || "image").toLowerCase() === "video") {
+    return uploadLocalVideo(asset.uri);
+  }
+  return uploadLocalImage(asset.uri);
 }

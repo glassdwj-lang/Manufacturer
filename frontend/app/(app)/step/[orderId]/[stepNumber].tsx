@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { uploadStepPhoto } from "@/src/api/cloudinaryUpload";
+import { uploadStepMedia, isVideoUrl } from "@/src/api/cloudinaryUpload";
 import * as ImagePicker from "expo-image-picker";
 import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -34,6 +34,22 @@ const MANUAL_TARGETS: Record<string, { tag: string; name: string }> = {
   it: { tag: "it", name: "Italian" },
 };
 
+/**
+ * Build a Cloudinary thumbnail poster URL for a video asset. We swap the
+ * extension to `.jpg` and inject a `so_1` (start-offset 1s) + `w_320`
+ * transformation so the grid stays lightweight even with many clips.
+ */
+function videoPoster(videoUrl: string): string {
+  try {
+    const parts = videoUrl.split("/video/upload/");
+    if (parts.length !== 2) return videoUrl;
+    const tail = parts[1].replace(/\.(mp4|mov|m4v|webm)(?=$|\?)/i, ".jpg");
+    return `${parts[0]}/video/upload/so_1,w_320,h_320,c_fill,q_auto,f_jpg/${tail}`;
+  } catch {
+    return videoUrl;
+  }
+}
+
 export default function StepActionScreen() {
   const { orderId, stepNumber } = useLocalSearchParams<{ orderId: string; stepNumber: string }>();
   const router = useRouter();
@@ -52,6 +68,10 @@ export default function StepActionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // Tracks active media uploads so we can disable the Save button until
+  // all Cloudinary uploads complete (prevents saving with a stale empty
+  // photos array, which used to make freshly-added photos vanish).
+  const [uploadingCount, setUploadingCount] = useState(0);
   // When a manufacturer/admin taps "UPDATE" on a completed step, flip into
   // edit mode so the same notes/photos form is reused for the patch.
   const [editMode, setEditMode] = useState(false);
@@ -108,32 +128,47 @@ export default function StepActionScreen() {
       setError("Photo library permission denied.");
       return;
     }
+    // expo-image-picker v17 prefers the `mediaTypes` array form. Falling
+    // back to the legacy `MediaTypeOptions` enum keeps older SDKs working.
+    let mediaTypes: any = ["images", "videos"];
+    try {
+      // The new array form is supported on SDK ≥ 49 / image-picker ≥ 15.
+      // If not available, fall back to MediaTypeOptions.All.
+      if ((ImagePicker as any).MediaTypeOptions?.All && !Array.isArray((ImagePicker as any).MediaTypeOptions.All)) {
+        mediaTypes = (ImagePicker as any).MediaTypeOptions.All;
+      }
+    } catch {}
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes,
       allowsMultipleSelection: true,
       quality: 0.7,
     });
     if (res.canceled) return;
-    // Upload every selected asset to Cloudinary (parallel), then append
-    // the returned secure URLs to the step's photo list.
+    const assets = res.assets.filter((a) => !!a.uri);
+    if (!assets.length) return;
+    setError(null);
+    setUploadingCount((n) => n + assets.length);
     try {
       const uploads = await Promise.all(
-        res.assets
-          .filter((a) => !!a.uri)
-          .map((a) =>
-            uploadStepPhoto({ uri: a.uri }).then((r) => r.secure_url).catch((e) => {
-              console.warn("photo upload failed", e);
-              return null;
-            }),
-          ),
+        assets.map(async (a) => {
+          try {
+            const r = await uploadStepMedia({ uri: a.uri, type: a.type });
+            return r.secure_url;
+          } catch (e) {
+            console.warn("media upload failed", e);
+            return null;
+          } finally {
+            setUploadingCount((n) => Math.max(0, n - 1));
+          }
+        }),
       );
       const urls = uploads.filter((u): u is string => !!u);
       if (urls.length) setPhotos((p) => [...p, ...urls]);
-      if (urls.length < res.assets.length) {
-        setError("Some photos failed to upload — please try again.");
+      if (urls.length < assets.length) {
+        setError(`Failed to upload ${assets.length - urls.length} file(s).`);
       }
     } catch (e: any) {
-      setError(e?.message || "Photo upload failed");
+      setError(e?.message || "Upload failed");
     }
   };
 
@@ -331,7 +366,15 @@ export default function StepActionScreen() {
                       activeOpacity={0.85}
                       onPress={() => setLightboxIndex(i)}
                     >
-                      <Image source={{ uri: p }} style={styles.photoImg} />
+                      <Image
+                        source={{ uri: isVideoUrl(p) ? videoPoster(p) : p }}
+                        style={styles.photoImg}
+                      />
+                      {isVideoUrl(p) && (
+                        <View style={styles.playOverlay} pointerEvents="none">
+                          <Ionicons name="play" size={20} color="#fff" />
+                        </View>
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity
                       testID={`remove-photo-${i}`}
@@ -342,9 +385,17 @@ export default function StepActionScreen() {
                     </TouchableOpacity>
                   </View>
                 ))}
-                {photos.length === 0 && (
+                {photos.length === 0 && uploadingCount === 0 && (
                   <View style={styles.photoEmpty}>
                     <Text style={styles.photoEmptyText}>No photos added</Text>
+                  </View>
+                )}
+                {uploadingCount > 0 && (
+                  <View style={styles.photoUploading} testID="photo-uploading">
+                    <ActivityIndicator size="small" color={theme.primary} />
+                    <Text style={styles.photoUploadingText}>
+                      Uploading {uploadingCount}…
+                    </Text>
                   </View>
                 )}
               </View>
@@ -354,11 +405,16 @@ export default function StepActionScreen() {
               <TouchableOpacity
                 testID={editMode ? "save-update-button" : "complete-step-button"}
                 onPress={editMode ? handleUpdate : handleComplete}
-                disabled={saving}
-                style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
+                disabled={saving || uploadingCount > 0}
+                style={[
+                  styles.primaryBtn,
+                  (saving || uploadingCount > 0) && { opacity: 0.6 },
+                ]}
               >
                 {saving ? (
                   <ActivityIndicator color="#0A0A0A" />
+                ) : uploadingCount > 0 ? (
+                  <Text style={styles.primaryBtnText}>UPLOADING…</Text>
                 ) : (
                   <Text style={styles.primaryBtnText}>
                     {editMode ? "SAVE UPDATE" : "MARK STEP COMPLETE"}
@@ -522,7 +578,15 @@ export default function StepActionScreen() {
                         onPress={() => setLightboxIndex(i)}
                         style={styles.photoCell}
                       >
-                        <Image source={{ uri: p }} style={styles.photoImg} />
+                        <Image
+                          source={{ uri: isVideoUrl(p) ? videoPoster(p) : p }}
+                          style={styles.photoImg}
+                        />
+                        {isVideoUrl(p) && (
+                          <View style={styles.playOverlay} pointerEvents="none">
+                            <Ionicons name="play" size={20} color="#fff" />
+                          </View>
+                        )}
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -621,9 +685,35 @@ const styles = StyleSheet.create({
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
   photoCell: { width: 84, height: 84, position: "relative" },
   photoImg: { width: 84, height: 84, borderWidth: 1, borderColor: theme.border },
+  playOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
   photoRemove: { position: "absolute", top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.7)", padding: 4 },
   photoEmpty: { width: "100%", padding: spacing.md, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
   photoEmptyText: { color: theme.textMuted, fontSize: 12, textAlign: "center" },
+  photoUploading: {
+    width: 84,
+    height: 84,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.primary,
+    backgroundColor: "rgba(212, 175, 55, 0.08)",
+    gap: 4,
+  },
+  photoUploadingText: {
+    color: theme.primary,
+    fontSize: 9,
+    letterSpacing: 1,
+    fontWeight: "600",
+  },
   errorText: { color: theme.error, fontSize: 12, marginTop: spacing.md },
   primaryBtn: { backgroundColor: theme.primary, paddingVertical: 16, alignItems: "center", marginTop: spacing.xl },
   primaryBtnText: { color: "#0A0A0A", fontSize: 12, fontWeight: "700", letterSpacing: 3 },

@@ -33,6 +33,7 @@ class SignUploadRequest(BaseModel):
     folder: Optional[str] = None
     public_id: Optional[str] = None
     tags: Optional[str] = None
+    resource_type: Optional[str] = "image"  # "image" | "video"
 
 
 @router.post("/uploads/sign")
@@ -47,11 +48,17 @@ async def sign_upload(
             folder=body.folder,
             public_id=body.public_id,
             tags=body.tags,
+            resource_type=(body.resource_type or "image"),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     # Stamp who requested the signature for audit purposes (not returned).
-    logger.info("Cloudinary sign issued to %s (role=%s)", user["email"], user["role"])
+    logger.info(
+        "Cloudinary sign issued to %s (role=%s, resource=%s)",
+        user["email"],
+        user["role"],
+        body.resource_type,
+    )
     return payload
 
 
@@ -60,6 +67,7 @@ class Base64UploadRequest(BaseModel):
     base64_data: str
     folder: Optional[str] = None
     public_id: Optional[str] = None
+    resource_type: Optional[str] = "image"
 
 
 @router.post("/uploads/base64")
@@ -73,6 +81,7 @@ async def upload_base64(
             body.base64_data,
             folder=body.folder,
             public_id=body.public_id,
+            resource_type=(body.resource_type or "image"),
         )
     except Exception as e:
         logger.exception("Cloudinary base64 upload failed for %s", user["email"])
