@@ -155,4 +155,24 @@ export const api = {
   }) => request<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
   deleteUser: (userId: string) =>
     request<any>(`/users/${userId}`, { method: "DELETE" }),
+  fetchDigitalDna: async (orderId: string): Promise<Blob> => {
+    const token = await getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${BASE_URL}/api/orders/${orderId}/digital-dna`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      let detail = "Failed to load Digital DNA";
+      try {
+        const j = await res.json();
+        detail = typeof j.detail === "string" ? j.detail : detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return await res.blob();
+  },
+  digitalDnaUrl: (orderId: string) =>
+    `${BASE_URL}/api/orders/${orderId}/digital-dna`,
 };

@@ -23,6 +23,8 @@ from apscheduler.triggers.cron import CronTrigger
 from _associate_importer import run_import_and_record, get_last_run, SOURCE_TAG
 from _translation import translate as translate_text, language_for_country, COUNTRY_LIST
 from _step_translations import STEP_I18N
+from _digital_dna import build_digital_dna_pdf
+from fastapi.responses import Response
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -755,6 +757,34 @@ async def seed_demo():
         await db.orders.insert_one(order)
         created.append({"order_ref": "SMN-DEMO0001", "status": "created"})
     return {"seeded": created}
+
+@api_router.get("/orders/{order_id}/digital-dna")
+async def order_digital_dna(order_id: str, user=Depends(get_current_user)):
+    """Returns the Digital DNA PDF certificate for an order. Available to every role
+    that can already see the order; manufacturer real name is never included."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    # Same role-based access as get_order
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if user["role"] == "associate" and order["associate_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if user["role"] == "client" and order["client_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    # Always anonymize the workshop in the PDF, regardless of viewer role.
+    masked = dict(order)
+    masked["manufacturer_name"] = order.get("manufacturer_alias") or "Somnio Atelier"
+    masked["progress"] = progress_summary(order["steps"])
+
+    pdf_bytes = build_digital_dna_pdf(masked, user)
+    filename = f"Somnio-DigitalDNA-{order.get('order_ref','order')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 @api_router.get("/")
 async def root():

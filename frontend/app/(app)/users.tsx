@@ -143,6 +143,7 @@ export default function UsersScreen() {
               <View style={{ flex: 1 }}>
                 {u.role === "manufacturer" ? (
                   <>
+                    <Text style={styles.userName}>{u.name}</Text>
                     {editingAliasId === u.id ? (
                       <TextInput
                         testID={`alias-input-${u.id}`}
@@ -160,14 +161,15 @@ export default function UsersScreen() {
                         testID={`alias-edit-${u.id}`}
                         onPress={() => startEditAlias(u)}
                         activeOpacity={0.7}
+                        style={{ marginTop: 2 }}
                       >
                         <View style={styles.aliasRow}>
-                          <Text style={styles.userName}>{u.alias || "—"}</Text>
+                          <Text style={styles.aliasLabel}>Alias · </Text>
+                          <Text style={styles.aliasValue}>{u.alias || "—"}</Text>
                           <Ionicons name="pencil-outline" size={12} color={theme.textMuted} />
                         </View>
                       </TouchableOpacity>
                     )}
-                    <Text style={styles.realName}>Real name · {u.name}</Text>
                     <Text style={styles.userEmail}>{u.email}</Text>
                   </>
                 ) : (
@@ -224,7 +226,9 @@ const styles = StyleSheet.create({
   },
   userName: { color: theme.textPrimary, fontSize: 14 },
   realName: { color: theme.textSecondary, fontSize: 11, marginTop: 2, fontStyle: "italic" },
-  aliasRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  aliasRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  aliasLabel: { color: theme.textMuted, fontSize: 11, letterSpacing: 1 },
+  aliasValue: { color: theme.primary, fontSize: 12, letterSpacing: 1, marginRight: 4 },
   aliasInput: {
     color: theme.primary, fontSize: 14,
     borderBottomWidth: 1, borderBottomColor: theme.primary,

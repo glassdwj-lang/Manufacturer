@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Platform,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -148,6 +150,54 @@ export default function OrderDetail() {
             <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          testID="digital-dna-button"
+          style={styles.dnaBtn}
+          onPress={async () => {
+            try {
+              const blob = await api.fetchDigitalDna(order.id);
+              if (Platform.OS === "web") {
+                const url = URL.createObjectURL(blob);
+                // Anchor-click is the most reliable way to open/save a
+                // blob without tripping pop-up blockers. We open in a
+                // new tab so the user can view the PDF inline.
+                const a = document.createElement("a");
+                a.href = url;
+                a.target = "_blank";
+                a.rel = "noopener,noreferrer";
+                // Setting download lets browsers that can't render inline
+                // PDFs fall back to a save action.
+                a.download = `Somnio-DigitalDNA-${order.order_ref}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } else {
+                // Native: best-effort open via OS handler.
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const dataUrl = reader.result as string;
+                  import("expo-linking").then(({ openURL }) => openURL(dataUrl));
+                };
+                reader.readAsDataURL(blob);
+              }
+            } catch (e) {
+              Alert.alert(
+                "Digital DNA",
+                e instanceof Error ? e.message : "Failed to load certificate"
+              );
+              console.warn("digital dna error", e);
+            }
+          }}
+        >
+          <Ionicons name="document-text-outline" size={18} color="#0A0A0A" />
+          <View style={{ flex: 1, marginLeft: spacing.sm }}>
+            <Text style={styles.dnaTitle}>VIEW DIGITAL DNA</Text>
+            <Text style={styles.dnaSub}>Provenance certificate · PDF</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#0A0A0A" />
+        </TouchableOpacity>
 
         <Eyebrow>26-STEP JOURNEY</Eyebrow>
 
@@ -307,6 +357,15 @@ const styles = StyleSheet.create({
   },
   customsTitle: { color: theme.primary, fontSize: 11, letterSpacing: 2 },
   customsSub: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  dnaBtn: {
+    marginBottom: spacing.lg,
+    backgroundColor: theme.primary,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  dnaTitle: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+  dnaSub: { color: "#0A0A0A", fontSize: 11, marginTop: 2, opacity: 0.7 },
   phaseBlock: { borderWidth: 1, borderColor: theme.border, marginBottom: spacing.md },
   phaseHeader: {
     flexDirection: "row",
