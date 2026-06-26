@@ -9,6 +9,7 @@ import {
   Linking,
   Platform,
   RefreshControl,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import { uploadIgiCertFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { useAuth } from "@/src/context/AuthContext";
+import { cloudinaryPreviewImage } from "@/src/utils/cloudinaryUrl";
 
 // Document types we explicitly recognise for IGI certificates. Backend
 // accepts any extension via Cloudinary raw upload, so we only colour-code
@@ -172,13 +174,28 @@ export default function IgiCertificatesScreen() {
     const known = IGI_EXTS.has(ext);
     const isAdmin = user?.role === "admin";
     const canRemove = isAdmin || item.uploaded_by === user?.id;
+    const thumbUri = cloudinaryPreviewImage(item.secure_url, 220);
     return (
       <View style={styles.row} testID={`igi-row-${item.id}`}>
-        <View style={[styles.extBadge, !known && styles.extBadgeUnknown]}>
-          <Text style={styles.extText} numberOfLines={1}>
-            {ext.toUpperCase().slice(0, 5)}
-          </Text>
-        </View>
+        {thumbUri ? (
+          <TouchableOpacity
+            onPress={() => openFile(item)}
+            style={styles.thumbWrap}
+            testID={`igi-thumb-${item.id}`}
+          >
+            <Image
+              source={{ uri: thumbUri }}
+              style={styles.thumb}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.extBadge, !known && styles.extBadgeUnknown]}>
+            <Text style={styles.extText} numberOfLines={1}>
+              {ext.toUpperCase().slice(0, 5)}
+            </Text>
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Text style={styles.rowName} numberOfLines={2}>
             {item.name}
@@ -338,6 +355,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 1.5,
   },
+  thumbWrap: {
+    width: 56,
+    height: 72,
+    borderWidth: 1,
+    borderColor: theme.border,
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+  },
+  thumb: { width: "100%", height: "100%" },
   rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
   rowMeta: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   iconBtn: {

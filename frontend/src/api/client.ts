@@ -57,6 +57,8 @@ export type Order = {
   created_at_china: string;
   steps: Step[];
   customs?: any;
+  cad_files?: CadFile[];
+  igi_certificates?: CadFile[];
   progress?: { completed_count: number; total: number; current_step: number | null };
 };
 

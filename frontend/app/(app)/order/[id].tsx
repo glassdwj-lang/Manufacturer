@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -23,6 +24,7 @@ import { DigitalDnaModal } from "@/src/components/DigitalDnaModal";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { useI18n } from "@/src/i18n";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { cloudinaryPreviewImage } from "@/src/utils/cloudinaryUrl";
 
 export default function OrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -228,26 +230,97 @@ export default function OrderDetail() {
           </TouchableOpacity>
         )}
 
-        {(user?.role === "admin" || user?.role === "manufacturer") && (
-          <TouchableOpacity
-            testID="igi-certificates-button"
-            style={styles.customsBtn}
-            onPress={() => router.push(`/(app)/igi-certificates/${order.id}`)}
-          >
-            <Ionicons
-              name="ribbon-outline"
-              size={18}
-              color={theme.primary}
-            />
-            <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={styles.customsTitle}>IGI Certificates</Text>
-              <Text style={styles.customsSub}>
-                Attach digital IGI lab reports (PDF, image, any file type)
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+        {(user?.role === "admin" || user?.role === "manufacturer") && (() => {
+          const certs = order.igi_certificates || [];
+          const count = certs.length;
+          // Preview the three most recently uploaded certificates inline so
+          // the operator gets an at-a-glance read of what's attached. The
+          // ordering is reversed (newest first) to match the IGI screen.
+          const previews = certs
+            .slice(-3)
+            .reverse()
+            .map((c) => ({
+              id: c.id,
+              uri: cloudinaryPreviewImage(c.secure_url, 220),
+              name: c.name,
+            }));
+          return (
+            <TouchableOpacity
+              testID="igi-certificates-button"
+              style={[styles.customsBtn, count > 0 && styles.attachedBtn]}
+              onPress={() => router.push(`/(app)/igi-certificates/${order.id}`)}
+            >
+              <View style={styles.igiRow}>
+                <Ionicons
+                  name="ribbon-outline"
+                  size={18}
+                  color={theme.primary}
+                />
+                <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                  <View style={styles.igiTitleRow}>
+                    <Text style={styles.customsTitle}>IGI Certificates</Text>
+                    {count > 0 && (
+                      <View style={styles.attachedBadge} testID="igi-count-badge">
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={11}
+                          color="#0A0A0A"
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={styles.attachedBadgeText}>
+                          {count === 1
+                            ? "1 ATTACHED"
+                            : `${count} ATTACHED`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.customsSub}>
+                    {count === 0
+                      ? "Attach digital IGI lab reports (PDF, image, any file type)"
+                      : "Tap to manage all certificates"}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={theme.textMuted}
+                />
+              </View>
+              {previews.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.thumbStrip}
+                >
+                  {previews.map((p) => (
+                    <View key={p.id} style={styles.thumbCell}>
+                      {p.uri ? (
+                        <Image source={{ uri: p.uri }} style={styles.thumbImg} />
+                      ) : (
+                        <View style={styles.thumbFallback}>
+                          <Ionicons
+                            name="document-text-outline"
+                            size={20}
+                            color={theme.primary}
+                          />
+                        </View>
+                      )}
+                      <Text style={styles.thumbCaption} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                    </View>
+                  ))}
+                  {count > 3 && (
+                    <View style={[styles.thumbCell, styles.thumbMore]}>
+                      <Text style={styles.thumbMoreText}>+{count - 3}</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </TouchableOpacity>
+          );
+        })()}
 
         {(user?.role === "admin" || user?.role === "manufacturer") && (
           <TouchableOpacity
@@ -388,6 +461,77 @@ const styles = StyleSheet.create({
   },
   customsTitle: { color: theme.primary, fontSize: 11, letterSpacing: 2 },
   customsSub: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  // ---- IGI section overrides ---------------------------------------------
+  // The IGI card opens up vertically when certificates are attached: a
+  // header row + a horizontal scroll of preview thumbnails underneath.
+  attachedBtn: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    backgroundColor: "rgba(184, 115, 51, 0.08)",
+  },
+  igiRow: { flexDirection: "row", alignItems: "center" },
+  igiTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  attachedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  attachedBadgeText: {
+    color: "#0A0A0A",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+  },
+  thumbStrip: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+    gap: spacing.sm,
+  },
+  thumbCell: { width: 84, alignItems: "center" },
+  thumbImg: {
+    width: 84,
+    height: 108,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: "#1a1a1a",
+  },
+  thumbFallback: {
+    width: 84,
+    height: 108,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: "#1a1a1a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbCaption: {
+    width: 84,
+    color: theme.textMuted,
+    fontSize: 9,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  thumbMore: {
+    width: 56,
+    height: 108,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbMoreText: {
+    color: theme.primary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
   dnaBtn: {
     marginBottom: spacing.lg,
     backgroundColor: theme.primary,
