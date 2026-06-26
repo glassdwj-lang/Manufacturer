@@ -126,6 +126,30 @@ backend:
           include airway_bill_files[], customs_files[] and airway_bill_text.
           New endpoints:
             POST   /api/orders/{order_id}/customs/files/{kind}  (admin+mfg)
+  - task: "3D CAD preview (glb/gltf/stl)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(app)/cad-files/preview/[id].tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          New screen /(app)/cad-files/preview/[id] backed by
+          /app/frontend/src/components/Model3DViewer.tsx — an iframe (web) /
+          react-native-webview (native) wrapper that loads
+          @google/model-viewer (glb/gltf) or three.js + STLLoader (stl) from
+          CDN. The CAD files list now renders a "cube" preview icon next to
+          each row whose extension matches glb/gltf/stl. Tapping the icon
+          opens the preview screen with the secure_url + filename as params.
+          Verified rendering with the public Astronaut.glb model — orbital
+          camera + auto-rotate + lighting all work on the web preview.
+          Native build will require an APK/IPA to validate the WebView path,
+          but the HTML/JS is identical to the web iframe path.
+
+
             DELETE /api/orders/{order_id}/customs/files/{kind}/{file_id}
                                                                 (admin+mfg, mfg can only delete own)
           GET/PUT /api/orders/{order_id}/customs now allow admin + manufacturer
@@ -163,6 +187,7 @@ test_plan:
   current_focus:
     - "Customs multi-file upload + manufacturer read access"
     - "Customs screen multi-file UI (mfg + admin)"
+    - "3D CAD preview (glb/gltf/stl)"
   stuck_tasks: []
   test_all: false
   test_priority: high_first

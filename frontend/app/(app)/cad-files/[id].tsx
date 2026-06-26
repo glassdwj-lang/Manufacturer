@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 
 import { api, CadFile } from "@/src/api/client";
@@ -20,6 +20,7 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCadFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
+import { isPreviewable } from "@/src/components/Model3DViewer";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
 // strictly limit to these (we accept everything so workshops aren't blocked
@@ -56,6 +57,7 @@ function extOf(file: CadFile): string {
 
 export default function CadFilesScreen() {
   const params = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const orderId = String(params.id || "");
   const safeBack = useSafeBack(`/(app)/order/${orderId}`);
   const [files, setFiles] = useState<CadFile[]>([]);
@@ -158,6 +160,7 @@ export default function CadFilesScreen() {
   const renderRow = ({ item }: { item: CadFile }) => {
     const ext = extOf(item);
     const known = CAD_EXTS.has(ext);
+    const can3D = isPreviewable(item.name);
     return (
       <View style={styles.row} testID={`cad-row-${item.id}`}>
         <View style={[styles.extBadge, !known && styles.extBadgeUnknown]}>
@@ -176,6 +179,24 @@ export default function CadFilesScreen() {
             <Text style={styles.rowMeta}>by {item.uploaded_by_email}</Text>
           ) : null}
         </View>
+        {can3D && (
+          <TouchableOpacity
+            testID={`cad-preview-${item.id}`}
+            onPress={() =>
+              router.push({
+                pathname: "/(app)/cad-files/preview/[id]",
+                params: {
+                  id: orderId,
+                  url: item.secure_url,
+                  name: item.name,
+                },
+              })
+            }
+            style={[styles.iconBtn, styles.iconBtnPrimary]}
+          >
+            <Ionicons name="cube-outline" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           testID={`cad-open-${item.id}`}
           onPress={() => openFile(item)}
@@ -330,6 +351,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
   },
+  iconBtnPrimary: { borderColor: theme.primary },
   emptyText: {
     textAlign: "center",
     color: theme.textMuted,
