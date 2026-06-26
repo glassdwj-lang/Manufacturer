@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 8 — End-to-end verification of multi-file customs flow (airway-bill + customs-document) and admin-only INTERNAL NOTES. BACKEND (20/20 pytest pass, /app/backend/tests/test_customs_multifile.py): GET /api/orders/{id}/customs returns the customs blob with airway_bill_files[] + customs_files[] + airway_bill_text + notes for admin AND owning manufacturer; returns 403 for manufacturer on a foreign order, and 403 for associate + client. PUT /api/orders/{id}/customs honours role gating: admin can write notes + airway_bill_text (persisted, verified via GET); manufacturer can write airway_bill_text but a manufacturer-supplied 'notes' field is correctly IGNORED (the admin-set canonical note is preserved on the server). Manufacturer PUT on a foreign order = 403; associate + client = 403. POST /api/orders/{id}/customs/files/{kind} happy paths for admin (airway-bill) and manufacturer (customs) both 200 and persist the entry with id + uploaded_by + uploaded_by_email; foreign-order POST as mfg = 403; associate + client POST = 403; unknown 'kind' path param = 400. DELETE /api/orders/{id}/customs/files/{kind}/{file_id}: admin can delete any file (verified the airway-bill entry disappears from the array post-delete); manufacturer cannot delete an admin-uploaded file (403); manufacturer can delete a file they themselves uploaded (verified array shrink). DELETE with unknown 'kind' = 400. FRONTEND (mobile 390x844): ADMIN (admin@somnio.co) — /(app)/customs/{orderId} renders AIRWAY BILL + CUSTOMS DOCUMENT sections with UPLOAD buttons + empty-state copy + airway-bill text input + INTERNAL NOTES (ADMIN-ONLY) textarea + SAVE TEXT FIELDS button. SAVE persists airway_bill_text + notes via PUT /customs (HTTP 200). MANUFACTURER (mfg@somnio.co) — CUSTOMS button is visible on the order detail screen for their own orders; tapping navigates to the customs screen. The airway-bill section + airway-bill text input + customs-document section render. The INTERNAL NOTES textarea is NOT in the DOM (data-testid='customs-notes-input' count=0) — confirming admin-only gating. SAVE TEXT FIELDS posts a PUT /customs (HTTP 200). ASSOCIATE (associate@somnio.co) — CUSTOMS button is absent from the order detail screen (testID count=0); manual navigation to /(app)/customs/{orderId} correctly bounces the user back to '/' (the role-bouncer useEffect on the customs screen redirects via router.replace('/(app)')). CLIENT (client@somnio.co) — identical behaviour: no CUSTOMS button on order detail, manual nav to /customs/{orderId} redirects out.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "customs/[orderId].tsx (or one of its render paths)",
+        "issue": "Console warning observed once during associate flow: 'Unexpected text node: . A text node cannot be a child of a <View>.' — likely a stray whitespace literal inside a parent <View>. Cosmetic only; no visual breakage. Reference: customs screen render path. Worth a grep for stray ' ' / '\\n' between JSX siblings."
+      },
+      {
+        "component": "Misc (legacy from iter 7)",
+        "issue": "Recurring console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' — same as previously noted; cosmetic, not user-facing."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_customs_multifile.py",
+    "/app/test_reports/pytest/iteration_8.xml",
+    "/app/test_reports/iteration_8.json"
+  ],
+  "action_items": [
+    "No blocking action items. Multi-file customs flow is fully functional end-to-end across all four roles.",
+    "OPTIONAL (P3, cosmetic): grep customs/[orderId].tsx for stray whitespace/newlines between JSX siblings inside a <View> to silence the 'Unexpected text node' warning. Does not affect functionality."
+  ],
+  "critical_code_review_comments": [
+    "routes/orders.py:584-622 (PUT /customs): manufacturer branch correctly assigns only airway_bill_text to the customs sub-doc and leaves admin-owned fields (notes, airway_bill, customs_document) untouched — a manufacturer cannot smuggle in 'notes' via the PUT body. Clean implementation.",
+    "routes/orders.py:664-712 (POST /customs/files/{kind}): stores uploaded_by + uploaded_by_email + uploaded_at_china + resource_type defaulting to 'raw'; records an order.customs.<kind>.added activity event. Good audit trail.",
+    "routes/orders.py:715-763 (DELETE): the manufacturer-ownership check uses uploaded_by == user['id'] which is exactly the spec ('manufacturer can only remove files they themselves uploaded'). 404 surfaces correctly when the file_id is unknown, before the ownership check, which is the right precedence.",
+    "customs/[orderId].tsx:68-72: role bouncer redirects any non-admin / non-manufacturer user to /(app). Verified end-to-end with associate + client logins.",
+    "customs/[orderId].tsx:305-318: INTERNAL NOTES textarea is wrapped in `user?.role === 'admin' && (...)` and not rendered for manufacturer — verified via Playwright data-testid count=0.",
+    "FileList component (customs/[orderId].tsx:380-450): trash icon visibility is `isAdmin || file.uploaded_by === currentUserId` which mirrors backend permissions. Defence-in-depth — the backend will still 403 a manufacturer trying to delete an admin file, but the UI also hides the button.",
+    "cloudinaryUpload.ts:207-241 (uploadCustomsFile): uses signed upload with resource_type='raw' to the somnio/customs folder — same shape as uploadCadFile, consistent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_customs_multifile.py (new — 20 pytest cases covering GET/PUT/POST/DELETE customs flow + role matrix)"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 pytest cases pass in 4.56s)",
+    "frontend": "100% (all role-based gating + happy-path PUT verified via Playwright at mobile 390x844)"
+  },
+  "seed_data_creation": "No new orders created. Used existing seeded orders: admin picked the first order from /api/orders (SMN-EEE5CE6D, 'TEST_new piece'); manufacturer used their first owned order from /api/orders. Backend tests upload test files prefixed with TEST_ and clean themselves up by exercising the DELETE path. One admin-uploaded file (TEST_admin_awb.pdf) was deleted by admin at end of suite; mfg's TEST_mfg_customs.jpg was deleted by mfg. No persistent test residue beyond text fields ('TEST_admin_notes_xxxxxx' on the order's customs.notes) — admin-only field, does not bleed to other roles.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The customs URL on Expo Router is /(app)/customs/{orderId}. On web preview, parentheses in the route segment are part of the file-system route group convention — direct URL navigation works (verified). The role bouncer is a useEffect inside CustomsScreen that calls router.replace('/(app)') for any role other than admin + manufacturer; on web this lands the user on '/' (the index of (app)). data-testIDs available on the customs screen: 'customs-close', 'airway-upload-button', 'customs-upload-button', 'airway-text-input', 'customs-notes-input' (admin only), 'customs-save-button', 'customs-row-<file_id>', 'customs-open-<file_id>', 'customs-delete-<file_id>'. The notify('Saved') toast on save uses window.alert on web (src/utils/confirm.ts:46-54) — Playwright auto-dismisses alert dialogs so don't assert 'text=Saved' in the DOM; instead listen for page.on('dialog') or just trust the PUT 200 response. Backend test_customs_multifile.py module-scopes the tokens + mfg_order fixtures so it's fast (~4.5s for 20 tests).",
+  "rca_of_issue": "n/a — no bugs found this iteration. Behaviour matches spec on every checked endpoint and screen."
+}

@@ -200,3 +200,42 @@ function extractExt(name: string): string | undefined {
   if (i < 0 || i === name.length - 1) return undefined;
   return name.slice(i + 1).toLowerCase();
 }
+
+/** Upload a customs / airway-bill file (any type) to Cloudinary as a "raw"
+ * asset under the ``somnio/customs`` folder. Mirrors {@link uploadCadFile}
+ * but uses a separate folder so the asset library stays organised. */
+export async function uploadCustomsFile(asset: {
+  uri: string;
+  name: string;
+  size?: number | null;
+  mimeType?: string | null;
+}): Promise<UploadResult & { name: string; bytes?: number; format?: string }> {
+  const sig = await fetchSignature("somnio/customs", "raw");
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(asset.uri)).blob();
+    form.append("file", blob, asset.name);
+  } else {
+    form.append("file", {
+      uri: asset.uri,
+      name: asset.name,
+      type: asset.mimeType || "application/octet-stream",
+    } as unknown as Blob);
+  }
+  form.append("api_key", sig.api_key);
+  form.append("timestamp", String(sig.timestamp));
+  form.append("signature", sig.signature);
+  form.append("folder", sig.folder);
+  if (sig.tags) form.append("tags", sig.tags);
+  const res = await fetch(sig.upload_url, { method: "POST", body: form });
+  const json = await res.json();
+  if (!res.ok || !json.secure_url) {
+    throw new Error(json?.error?.message || "Cloudinary upload failed");
+  }
+  return {
+    secure_url: json.secure_url as string,
+    name: asset.name,
+    bytes: (json.bytes as number) || asset.size || undefined,
+    format: (json.format as string) || extractExt(asset.name),
+  };
+}

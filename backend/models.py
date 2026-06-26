@@ -117,9 +117,27 @@ class AutoForwardToggle(BaseModel):
 
 
 class CustomsDocs(BaseModel):
-    airway_bill: Optional[str] = None  # base64 (admin only)
-    customs_document: Optional[str] = None  # base64
+    # Legacy single-base64 fields (kept for backward compatibility — the new
+    # multi-file flow lives in ``airway_bill_files`` / ``customs_files``).
+    airway_bill: Optional[str] = None  # base64 (admin only) — legacy
+    customs_document: Optional[str] = None  # base64 — legacy
+    # New: optional free-text airway-bill (tracking number, shipper notes,
+    # etc.) that can sit alongside the uploaded files.
+    airway_bill_text: Optional[str] = None
     notes: Optional[str] = ""
+
+
+class CustomsFilePayload(BaseModel):
+    """Payload used after a direct-to-Cloudinary upload completes. The
+    same shape is reused for both Airway Bill and Customs Document file
+    arrays — the ``kind`` is supplied via the URL path."""
+
+    name: str
+    secure_url: str
+    public_id: Optional[str] = None
+    format: Optional[str] = None
+    bytes: Optional[int] = None
+    resource_type: Optional[str] = None
 
 
 class BulkDeletePayload(BaseModel):

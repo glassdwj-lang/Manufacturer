@@ -132,6 +132,20 @@ export type CadFilePayload = {
   resource_type?: string | null;
 };
 
+export type CustomsFile = CadFile;
+
+export type CustomsKind = "airway-bill" | "customs";
+
+export type CustomsBlob = {
+  airway_bill_text?: string | null;
+  airway_bill_files?: CustomsFile[];
+  customs_files?: CustomsFile[];
+  notes?: string | null;
+  airway_bill?: string | null;
+  customs_document?: string | null;
+  updated_at_china?: string | null;
+};
+
 export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
@@ -157,6 +171,7 @@ export const api = {
   },
   activityLogActions: () =>
     request<{ actions: string[] }>("/admin/activity-log/actions"),
+  getDashboard: () => request<any>("/admin/dashboard"),
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
@@ -262,7 +277,21 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  getCustoms: (orderId: string) => request<any>(`/orders/${orderId}/customs`),
+  getCustoms: (orderId: string) => request<CustomsBlob>(`/orders/${orderId}/customs`),
+  addCustomsFile: (
+    orderId: string,
+    kind: CustomsKind,
+    payload: CadFilePayload,
+  ) =>
+    request<CustomsFile>(`/orders/${orderId}/customs/files/${kind}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  removeCustomsFile: (orderId: string, kind: CustomsKind, fileId: string) =>
+    request<{ ok: boolean }>(
+      `/orders/${orderId}/customs/files/${kind}/${fileId}`,
+      { method: "DELETE" },
+    ),
   listCadFiles: (orderId: string) =>
     request<CadFile[]>(`/orders/${orderId}/cad-files`),
   addCadFile: (orderId: string, payload: CadFilePayload) =>

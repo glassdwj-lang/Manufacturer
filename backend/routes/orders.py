@@ -19,7 +19,14 @@ from helpers import (
     progress_summary,
     strip_order_for_role,
 )
-from models import BulkDeletePayload, CustomsDocs, ForwardUpdate, OrderCreate, StepUpdate
+from models import (
+    BulkDeletePayload,
+    CustomsDocs,
+    CustomsFilePayload,
+    ForwardUpdate,
+    OrderCreate,
+    StepUpdate,
+)
 from phases import build_initial_steps
 
 router = APIRouter(tags=["orders"])
@@ -60,7 +67,14 @@ async def create_order(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_at_china": now_china_iso(),
         "steps": build_initial_steps(),
-        "customs": {"airway_bill": None, "customs_document": None, "notes": ""},
+        "customs": {
+            "airway_bill": None,
+            "customs_document": None,
+            "airway_bill_text": "",
+            "airway_bill_files": [],
+            "customs_files": [],
+            "notes": "",
+        },
     }
     await db.orders.insert_one(order)
     return strip_order_for_role(order, user)
@@ -569,18 +583,39 @@ async def translate_step_note(
 
 @router.put("/orders/{order_id}/customs")
 async def update_customs(
-    order_id: str, body: CustomsDocs, user=Depends(require_roles("admin"))
+    order_id: str,
+    body: CustomsDocs,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
 ):
+    """Update the textual fields on the customs block: ``notes`` (admin only)
+    and ``airway_bill_text`` (admin + manufacturer). The legacy single-image
+    fields (``airway_bill`` / ``customs_document``) are also accepted for
+    backward compatibility but the new flow uses the multi-file endpoints
+    below.
+    """
     order = await db.orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    customs = order.get("customs", {})
-    if body.airway_bill is not None:
-        customs["airway_bill"] = body.airway_bill
-    if body.customs_document is not None:
-        customs["customs_document"] = body.customs_document
-    if body.notes is not None:
-        customs["notes"] = body.notes
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    customs = order.get("customs", {}) or {}
+
+    # Manufacturer may only touch the airway-bill text (used for tracking
+    # number / shipper notes); everything else is admin-only.
+    if user["role"] == "manufacturer":
+        if body.airway_bill_text is not None:
+            customs["airway_bill_text"] = body.airway_bill_text
+    else:
+        if body.airway_bill is not None:
+            customs["airway_bill"] = body.airway_bill
+        if body.customs_document is not None:
+            customs["customs_document"] = body.customs_document
+        if body.airway_bill_text is not None:
+            customs["airway_bill_text"] = body.airway_bill_text
+        if body.notes is not None:
+            customs["notes"] = body.notes
     customs["updated_at_china"] = now_china_iso()
     await db.orders.update_one({"id": order_id}, {"$set": {"customs": customs}})
     updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
@@ -588,11 +623,144 @@ async def update_customs(
 
 
 @router.get("/orders/{order_id}/customs")
-async def get_customs(order_id: str, user=Depends(require_roles("admin"))):
+async def get_customs(
+    order_id: str, user=Depends(require_roles("admin", "manufacturer"))
+):
+    """Return the customs block (notes, airway bill text + files, customs
+    document files). Admin sees every order; manufacturer only their own."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order.get("customs", {})
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    customs = order.get("customs", {}) or {}
+    # Ensure the new array fields are always present (empty list default).
+    customs.setdefault("airway_bill_files", [])
+    customs.setdefault("customs_files", [])
+    customs.setdefault("airway_bill_text", "")
+    customs.setdefault("notes", "")
+    return customs
+
+
+# ---- Multi-file customs uploads --------------------------------------------
+# ``kind`` (path param) is either "airway-bill" or "customs". The file list
+# is stored under ``customs.airway_bill_files`` / ``customs.customs_files``
+# inside the order document.
+_CUSTOMS_KIND_MAP = {
+    "airway-bill": "airway_bill_files",
+    "customs": "customs_files",
+}
+
+
+def _customs_kind_field(kind: str) -> str:
+    if kind not in _CUSTOMS_KIND_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail="kind must be 'airway-bill' or 'customs'",
+        )
+    return _CUSTOMS_KIND_MAP[kind]
+
+
+@router.post("/orders/{order_id}/customs/files/{kind}")
+async def add_customs_file(
+    order_id: str,
+    kind: str,
+    body: CustomsFilePayload,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    """Attach a file (already uploaded to Cloudinary) to either the airway-bill
+    or the customs-document roster of an order."""
+    field = _customs_kind_field(kind)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if not body.secure_url or not body.name:
+        raise HTTPException(status_code=400, detail="name and secure_url required")
+    entry = {
+        "id": str(uuid.uuid4()),
+        "name": body.name.strip(),
+        "secure_url": body.secure_url,
+        "public_id": body.public_id,
+        "format": (body.format or "").lower() or None,
+        "bytes": body.bytes,
+        "resource_type": body.resource_type or "raw",
+        "uploaded_at": now_china_iso(),
+        "uploaded_by": user["id"],
+        "uploaded_by_email": user.get("email"),
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$push": {f"customs.{field}": entry}},
+    )
+    await record_event(
+        db,
+        request,
+        f"order.customs.{kind.replace('-', '_')}.added",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_name": entry["name"],
+            "format": entry["format"],
+            "bytes": entry["bytes"],
+            "kind": kind,
+        },
+    )
+    request.state.activity_logged = True
+    return entry
+
+
+@router.delete("/orders/{order_id}/customs/files/{kind}/{file_id}")
+async def remove_customs_file(
+    order_id: str,
+    kind: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    """Detach a file from the airway-bill or customs-document roster. The
+    underlying Cloudinary asset is left in place (mirrors the CAD-files flow).
+    """
+    field = _customs_kind_field(kind)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    files = (order.get("customs", {}) or {}).get(field) or []
+    target = next((f for f in files if f.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Customs file not found")
+    # Manufacturers may only remove a file they themselves uploaded — keeps
+    # the audit trail honest and prevents accidental cross-deletion.
+    if (
+        user["role"] == "manufacturer"
+        and target.get("uploaded_by") != user["id"]
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only remove files you uploaded.",
+        )
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {f"customs.{field}": {"id": file_id}}},
+    )
+    await record_event(
+        db,
+        request,
+        f"order.customs.{kind.replace('-', '_')}.removed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_name": target.get("name"),
+            "file_id": file_id,
+            "kind": kind,
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True}
 
 
 # ----------------------------- CAD files -------------------------------------

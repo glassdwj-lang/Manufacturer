@@ -398,6 +398,15 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
+            testID="dashboard-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/dashboard")}
+          >
+            <Ionicons name="stats-chart-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>Dashboard</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
             testID="recycle-bin-button"
             style={[styles.linkBtn, { marginTop: spacing.sm }]}
             onPress={() => router.push("/(app)/recycle-bin")}

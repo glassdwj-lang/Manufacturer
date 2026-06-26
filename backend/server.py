@@ -23,6 +23,7 @@ from _associate_importer import run_import_and_record
 from deps import client, db
 from routes import (
     admin_router,
+    admin_dashboard_router,
     approvals_router,
     auth_router,
     meta_router,
@@ -44,6 +45,7 @@ api_router.include_router(auth_router)
 api_router.include_router(users_router)
 api_router.include_router(orders_router)
 api_router.include_router(admin_router)
+api_router.include_router(admin_dashboard_router)
 api_router.include_router(meta_router)
 api_router.include_router(uploads_router)
 api_router.include_router(approvals_router)

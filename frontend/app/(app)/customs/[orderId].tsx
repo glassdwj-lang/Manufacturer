@@ -1,34 +1,72 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Image, KeyboardAvoidingView, Platform,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Linking,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import { api } from "@/src/api/client";
+import * as DocumentPicker from "expo-document-picker";
+
+import { api, CustomsBlob, CustomsFile, CustomsKind } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { uploadCustomsFile } from "@/src/api/cloudinaryUpload";
+import { confirmAction, notify } from "@/src/utils/confirm";
+
+function formatBytes(b?: number | null): string {
+  if (b == null) return "—";
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatWhen(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function extOf(file: CustomsFile): string {
+  if (file.format) return file.format.toLowerCase();
+  const i = file.name.lastIndexOf(".");
+  if (i >= 0) return file.name.slice(i + 1).toLowerCase();
+  return "?";
+}
 
 export default function CustomsScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
   const { user } = useAuth();
-  const [airwayBill, setAirwayBill] = useState<string | null>(null);
-  const [customsDoc, setCustomsDoc] = useState<string | null>(null);
+
+  const [blob, setBlob] = useState<CustomsBlob | null>(null);
+  const [airwayText, setAirwayText] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingText, setSavingText] = useState(false);
+  const [uploading, setUploading] = useState<CustomsKind | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Customs and airway-bill data is admin-only. If a non-admin somehow lands
-  // on this route (deep link, history, etc.) bounce them straight home —
-  // they should never see this screen, not even as a "Failed" stub.
+  // Restrict the customs screen to roles that can either upload or view
+  // documents: admin + manufacturer. Everyone else is bounced home.
   useEffect(() => {
-    if (user && user.role !== "admin") {
+    if (user && user.role !== "admin" && user.role !== "manufacturer") {
       router.replace("/(app)");
     }
   }, [user, router]);
@@ -37,53 +75,133 @@ export default function CustomsScreen() {
     if (!orderId) return;
     try {
       const c = await api.getCustoms(orderId);
-      setAirwayBill(c?.airway_bill ?? null);
-      setCustomsDoc(c?.customs_document ?? null);
-      setNotes(c?.notes ?? "");
+      setBlob(c);
+      setAirwayText(c?.airway_bill_text || "");
+      setNotes(c?.notes || "");
     } catch (e: any) {
       setError(e?.message ?? "Failed");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [orderId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const pickFile = async (which: "airway" | "customs") => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      setError("Permission denied.");
+  const pickAndUpload = useCallback(
+    async (kind: CustomsKind) => {
+      try {
+        const res = await DocumentPicker.getDocumentAsync({
+          type: "*/*",
+          multiple: true,
+          copyToCacheDirectory: true,
+        });
+        if (res.canceled || !res.assets || res.assets.length === 0) return;
+        setUploading(kind);
+        const successes: CustomsFile[] = [];
+        for (const asset of res.assets) {
+          try {
+            const up = await uploadCustomsFile({
+              uri: asset.uri,
+              name: asset.name || "document",
+              size: asset.size ?? null,
+              mimeType: asset.mimeType ?? null,
+            });
+            const saved = await api.addCustomsFile(orderId!, kind, {
+              name: up.name,
+              secure_url: up.secure_url,
+              format: up.format || null,
+              bytes: up.bytes || null,
+              resource_type: "raw",
+            });
+            successes.push(saved);
+          } catch (err: any) {
+            notify(
+              "Upload failed",
+              `${asset.name || "file"}: ${err?.message || "Unknown error"}`,
+            );
+          }
+        }
+        if (successes.length) {
+          setBlob((prev) => {
+            const cur = prev || {};
+            const field =
+              kind === "airway-bill" ? "airway_bill_files" : "customs_files";
+            const existing = (cur as any)[field] || [];
+            return { ...cur, [field]: [...successes, ...existing] };
+          });
+          notify(
+            successes.length === 1
+              ? "1 file uploaded"
+              : `${successes.length} files uploaded`,
+          );
+        }
+      } finally {
+        setUploading(null);
+      }
+    },
+    [orderId],
+  );
+
+  const openFile = useCallback((file: CustomsFile) => {
+    if (!file.secure_url) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.open(file.secure_url, "_blank", "noopener");
       return;
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      base64: true,
-      quality: 0.6,
+    Linking.openURL(file.secure_url).catch(() => {
+      notify("Cannot open file", "No app is available to view this document.");
     });
-    if (!res.canceled && res.assets[0]?.base64) {
-      const dataUri = `data:image/jpeg;base64,${res.assets[0].base64}`;
-      if (which === "airway") setAirwayBill(dataUri);
-      else setCustomsDoc(dataUri);
-    }
-  };
+  }, []);
 
-  const save = async () => {
+  const removeFile = useCallback(
+    (kind: CustomsKind, file: CustomsFile) => {
+      confirmAction({
+        title: "Delete document?",
+        message: `Remove ${file.name}? The file stays on Cloudinary but no longer belongs to this commission.`,
+        confirmLabel: "DELETE",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await api.removeCustomsFile(orderId!, kind, file.id);
+            setBlob((prev) => {
+              if (!prev) return prev;
+              const field =
+                kind === "airway-bill" ? "airway_bill_files" : "customs_files";
+              return {
+                ...prev,
+                [field]: ((prev as any)[field] || []).filter(
+                  (f: CustomsFile) => f.id !== file.id,
+                ),
+              };
+            });
+          } catch (e: any) {
+            notify("Delete failed", e?.message || "Could not remove file.");
+          }
+        },
+      });
+    },
+    [orderId],
+  );
+
+  const saveTextFields = useCallback(async () => {
     if (!orderId) return;
-    setSaving(true);
+    setSavingText(true);
     setError(null);
     try {
-      await api.updateCustoms(orderId, {
-        airway_bill: airwayBill,
-        customs_document: customsDoc,
-        notes,
-      });
-      router.back();
+      const payload: any = { airway_bill_text: airwayText };
+      // Notes are admin-only; backend ignores it for manufacturer.
+      if (user?.role === "admin") payload.notes = notes;
+      await api.updateCustoms(orderId, payload);
+      notify("Saved");
     } catch (e: any) {
-      setError(e?.message ?? "Failed");
+      setError(e?.message ?? "Save failed");
     } finally {
-      setSaving(false);
+      setSavingText(false);
     }
-  };
+  }, [orderId, airwayText, notes, user]);
 
   if (loading) {
     return (
@@ -95,11 +213,21 @@ export default function CustomsScreen() {
     );
   }
 
+  const airwayFiles = blob?.airway_bill_files || [];
+  const customsFiles = blob?.customs_files || [];
+
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+      >
         <View style={styles.headerBar}>
-          <TouchableOpacity testID="customs-close" onPress={safeBack} style={{ padding: 4 }}>
+          <TouchableOpacity
+            testID="customs-close"
+            onPress={safeBack}
+            style={{ padding: 4 }}
+          >
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
@@ -108,43 +236,100 @@ export default function CustomsScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
-          <DocSlot
-            label="AIRWAY BILL"
-            uri={airwayBill}
-            onUpload={() => pickFile("airway")}
-            onClear={() => setAirwayBill(null)}
-            testID="airway-bill"
+        <ScrollView
+          contentContainerStyle={{
+            padding: spacing.lg,
+            paddingBottom: spacing.xxl,
+          }}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load();
+              }}
+              tintColor={theme.primary}
+            />
+          }
+        >
+          {/* ---------------------------- AIRWAY BILL ---------------------- */}
+          <SectionHeader
+            title="AIRWAY BILL"
+            count={airwayFiles.length}
+            uploading={uploading === "airway-bill"}
+            onUpload={() => pickAndUpload("airway-bill")}
+            testID="airway"
           />
-          <View style={{ height: spacing.lg }} />
-          <DocSlot
-            label="CUSTOMS DOCUMENT"
-            uri={customsDoc}
-            onUpload={() => pickFile("customs")}
-            onClear={() => setCustomsDoc(null)}
-            testID="customs-doc"
+          <FileList
+            files={airwayFiles}
+            kind="airway-bill"
+            currentUserId={user?.id || ""}
+            isAdmin={user?.role === "admin"}
+            onOpen={openFile}
+            onRemove={removeFile}
+            emptyHint="No airway bills uploaded yet. Tap UPLOAD to attach PDF, image or any document."
           />
 
-          <Text style={styles.formLabel}>INTERNAL NOTES</Text>
+          <Text style={styles.formLabel}>AIRWAY BILL — TEXT / TRACKING NUMBER</Text>
           <TextInput
-            testID="customs-notes-input"
-            value={notes}
-            onChangeText={setNotes}
+            testID="airway-text-input"
+            value={airwayText}
+            onChangeText={setAirwayText}
             multiline
-            placeholder="Tracking number, declared value, route..."
+            placeholder="e.g. SQ-176-12345678, carrier, route, declared value..."
             placeholderTextColor={theme.textMuted}
-            style={[styles.input, { height: 90 }]}
+            style={[styles.input, { height: 80 }]}
           />
 
-          {error && <Text style={styles.error}>{error}</Text>}
+          <View style={{ height: spacing.xl }} />
+
+          {/* ---------------------------- CUSTOMS DOCS --------------------- */}
+          <SectionHeader
+            title="CUSTOMS DOCUMENT"
+            count={customsFiles.length}
+            uploading={uploading === "customs"}
+            onUpload={() => pickAndUpload("customs")}
+            testID="customs"
+          />
+          <FileList
+            files={customsFiles}
+            kind="customs"
+            currentUserId={user?.id || ""}
+            isAdmin={user?.role === "admin"}
+            onOpen={openFile}
+            onRemove={removeFile}
+            emptyHint="No customs documents uploaded yet. Tap UPLOAD to attach declarations, invoices, certificates."
+          />
+
+          {user?.role === "admin" && (
+            <>
+              <Text style={styles.formLabel}>INTERNAL NOTES (ADMIN-ONLY)</Text>
+              <TextInput
+                testID="customs-notes-input"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                placeholder="Tracking number, declared value, route, internal flags..."
+                placeholderTextColor={theme.textMuted}
+                style={[styles.input, { height: 100 }]}
+              />
+            </>
+          )}
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <TouchableOpacity
             testID="customs-save-button"
-            onPress={save}
-            disabled={saving}
-            style={[styles.primaryBtn, saving && { opacity: 0.6 }]}
+            onPress={saveTextFields}
+            disabled={savingText}
+            style={[styles.primaryBtn, savingText && { opacity: 0.6 }]}
           >
-            {saving ? <ActivityIndicator color="#0A0A0A" /> : <Text style={styles.primaryBtnText}>SAVE DOCUMENTS</Text>}
+            {savingText ? (
+              <ActivityIndicator color="#0A0A0A" />
+            ) : (
+              <Text style={styles.primaryBtnText}>SAVE TEXT FIELDS</Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -152,48 +337,216 @@ export default function CustomsScreen() {
   );
 }
 
-function DocSlot({ label, uri, onUpload, onClear, testID }: {
-  label: string; uri: string | null; onUpload: () => void; onClear: () => void; testID: string;
+function SectionHeader({
+  title,
+  count,
+  uploading,
+  onUpload,
+  testID,
+}: {
+  title: string;
+  count: number;
+  uploading: boolean;
+  onUpload: () => void;
+  testID: string;
 }) {
   return (
-    <View>
-      <View style={styles.docHeader}>
-        <Text style={styles.formLabel}>{label}</Text>
-        {uri && (
-          <TouchableOpacity testID={`${testID}-clear`} onPress={onClear}>
-            <Text style={styles.clearText}>REMOVE</Text>
-          </TouchableOpacity>
-        )}
+    <View style={styles.sectionHeader}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.formLabel}>{title}</Text>
+        <Text style={styles.sectionMeta}>
+          {count} file{count === 1 ? "" : "s"} attached
+        </Text>
       </View>
-      {uri ? (
-        <Image testID={`${testID}-preview`} source={{ uri }} style={styles.docPreview} resizeMode="cover" />
-      ) : (
-        <TouchableOpacity testID={`${testID}-upload`} onPress={onUpload} style={styles.docDrop}>
-          <Ionicons name="cloud-upload-outline" size={28} color={theme.primary} />
-          <Text style={styles.docDropText}>TAP TO UPLOAD</Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        testID={`${testID}-upload-button`}
+        disabled={uploading}
+        onPress={onUpload}
+        style={[styles.uploadBtn, uploading && { opacity: 0.6 }]}
+      >
+        {uploading ? (
+          <ActivityIndicator color="#0A0A0A" />
+        ) : (
+          <>
+            <Ionicons name="cloud-upload-outline" size={14} color="#0A0A0A" />
+            <Text style={styles.uploadBtnText}>UPLOAD</Text>
+          </>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function FileList({
+  files,
+  kind,
+  currentUserId,
+  isAdmin,
+  onOpen,
+  onRemove,
+  emptyHint,
+}: {
+  files: CustomsFile[];
+  kind: CustomsKind;
+  currentUserId: string;
+  isAdmin: boolean;
+  onOpen: (f: CustomsFile) => void;
+  onRemove: (kind: CustomsKind, f: CustomsFile) => void;
+  emptyHint: string;
+}) {
+  if (!files.length) {
+    return <Text style={styles.emptyText}>{emptyHint}</Text>;
+  }
+  return (
+    <View style={{ marginTop: spacing.sm }}>
+      {files.map((file) => {
+        const ext = extOf(file).toUpperCase().slice(0, 5);
+        const canRemove = isAdmin || file.uploaded_by === currentUserId;
+        return (
+          <View key={file.id} style={styles.row} testID={`customs-row-${file.id}`}>
+            <View style={styles.extBadge}>
+              <Text style={styles.extText} numberOfLines={1}>
+                {ext}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowName} numberOfLines={2}>
+                {file.name}
+              </Text>
+              <Text style={styles.rowMeta}>
+                {formatBytes(file.bytes)}  ·  {formatWhen(file.uploaded_at)}
+              </Text>
+              {file.uploaded_by_email ? (
+                <Text style={styles.rowMeta} numberOfLines={1}>
+                  by {file.uploaded_by_email}
+                </Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              testID={`customs-open-${file.id}`}
+              onPress={() => onOpen(file)}
+              style={styles.iconBtn}
+            >
+              <Ionicons name="download-outline" size={18} color={theme.primary} />
+            </TouchableOpacity>
+            {canRemove && (
+              <TouchableOpacity
+                testID={`customs-delete-${file.id}`}
+                onPress={() => onRemove(kind, file)}
+                style={styles.iconBtn}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color={theme.error || "#C8553D"}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.bg },
+  safe: { flex: 1, backgroundColor: theme.bg || theme.background },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  headerBar: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderBottomWidth: 1, borderBottomColor: theme.border },
+  headerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
   headerEyebrow: { color: theme.primary, fontSize: 10, letterSpacing: 3 },
   headerTitle: { color: theme.textPrimary, fontSize: 18, marginTop: 2 },
-  formLabel: { color: theme.primary, fontSize: 10, letterSpacing: 3, marginTop: spacing.lg, marginBottom: spacing.sm },
-  docHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
-  clearText: { color: theme.error, fontSize: 10, letterSpacing: 2 },
-  docDrop: {
-    height: 180, borderWidth: 1, borderStyle: "dashed", borderColor: theme.border,
-    alignItems: "center", justifyContent: "center", gap: spacing.sm,
+  formLabel: {
+    color: theme.primary,
+    fontSize: 10,
+    letterSpacing: 3,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
   },
-  docDropText: { color: theme.primary, fontSize: 11, letterSpacing: 3 },
-  docPreview: { width: "100%", height: 220, borderWidth: 1, borderColor: theme.border },
-  input: { color: theme.textPrimary, fontSize: 14, borderWidth: 1, borderColor: theme.border, padding: spacing.md, textAlignVertical: "top" },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  sectionMeta: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  uploadBtn: {
+    backgroundColor: theme.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-end",
+  },
+  uploadBtnText: {
+    color: "#0A0A0A",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 2,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+  },
+  extBadge: {
+    minWidth: 44,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    alignItems: "center",
+  },
+  extText: {
+    color: theme.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
+  rowMeta: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  emptyText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    paddingVertical: spacing.lg,
+    fontStyle: "italic",
+    lineHeight: 16,
+  },
+  input: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: spacing.md,
+    textAlignVertical: "top",
+  },
   error: { color: theme.error, fontSize: 12, marginTop: spacing.md },
-  primaryBtn: { backgroundColor: theme.primary, paddingVertical: 16, alignItems: "center", marginTop: spacing.xl },
-  primaryBtnText: { color: "#0A0A0A", fontSize: 12, fontWeight: "700", letterSpacing: 3 },
+  primaryBtn: {
+    backgroundColor: theme.primary,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: spacing.xl,
+  },
+  primaryBtnText: {
+    color: "#0A0A0A",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
 });

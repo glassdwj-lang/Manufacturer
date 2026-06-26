@@ -226,7 +226,7 @@ export default function OrderDetail() {
           </TouchableOpacity>
         )}
 
-        {user?.role === "admin" && (
+        {(user?.role === "admin" || user?.role === "manufacturer") && (
           <TouchableOpacity
             testID="customs-button"
             style={styles.customsBtn}

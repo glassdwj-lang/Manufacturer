@@ -101,3 +101,86 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Convert the Customs and Airway Bill fields on an order from single base64
+  image inputs to multi-file uploads (any file type, direct-to-Cloudinary as
+  raw assets). Only admin and manufacturer can upload; manufacturer is now
+  also allowed to view the customs screen for their own orders. Airway bill
+  also supports a free-text field for tracking number / carrier notes.
+  Admin retains exclusive ownership of the INTERNAL NOTES field.
+
+backend:
+  - task: "Customs multi-file upload + manufacturer read access"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes/orders.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added CustomsFilePayload model, expanded the customs blob schema to
+          include airway_bill_files[], customs_files[] and airway_bill_text.
+          New endpoints:
+            POST   /api/orders/{order_id}/customs/files/{kind}  (admin+mfg)
+            DELETE /api/orders/{order_id}/customs/files/{kind}/{file_id}
+                                                                (admin+mfg, mfg can only delete own)
+          GET/PUT /api/orders/{order_id}/customs now allow admin + manufacturer
+          (manufacturer scoped to their own orders; manufacturer cannot set
+          notes). Activity log instrumented for add/remove on both kinds.
+
+frontend:
+  - task: "Customs screen multi-file UI (mfg + admin)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(app)/customs/[orderId].tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Rewrote the customs screen to expose two file lists (Airway Bill,
+          Customs Document) using expo-document-picker (multi-select, any
+          file type) and a new uploadCustomsFile() helper that POSTs raw
+          assets to the somnio/customs Cloudinary folder. Added airway-bill
+          text input for tracking numbers. Admin sees the INTERNAL NOTES
+          textarea; manufacturer doesn't. Manufacturer can only remove files
+          they uploaded themselves. Bouncer logic now allows admin + mfg.
+          Order detail screen exposes the CUSTOMS button to manufacturer too.
+
+metadata:
+  created_by: main_agent
+  version: "1.0"
+  test_sequence: 1
+  run_ui: true
+
+test_plan:
+  current_focus:
+    - "Customs multi-file upload + manufacturer read access"
+    - "Customs screen multi-file UI (mfg + admin)"
+  stuck_tasks: []
+  test_all: false
+  test_priority: high_first
+
+agent_communication:
+  - agent: main
+    message: |
+      Please test the new customs/airway-bill multi-file upload flow end-to-end:
+      1. Backend (FastAPI) — verify the new endpoints accept admin AND
+         manufacturer auth, that mfg is scoped to own orders, and that
+         file-add / file-remove / text-update all work. Confirm payload-only
+         (no real Cloudinary call) by POSTing a fake secure_url through the
+         /customs/files/{kind} endpoint.
+      2. Frontend — login as admin@somnio.co (Admin@2026), open any order,
+         tap "CUSTOMS · CONFIDENTIAL", verify both Airway Bill + Customs
+         sections render with UPLOAD buttons + empty states; verify INTERNAL
+         NOTES textarea is visible for admin. Then login as mfg@somnio.co
+         (Mfg@2026), open their own order, tap CUSTOMS, verify they see
+         airway-bill section + airway-bill-text input + customs section but
+         NOT the INTERNAL NOTES textarea.
+      3. Negative — confirm associate/client are bounced off the screen.
