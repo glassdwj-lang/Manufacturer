@@ -23,7 +23,7 @@ import { confirmAction, notify } from "@/src/utils/confirm";
 import { isPreviewable } from "@/src/components/Model3DViewer";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
-import { EmailCadFilesModal } from "@/src/components/EmailCadFilesModal";
+import { EmailFilesModal } from "@/src/components/EmailFilesModal";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
 // strictly limit to these (we accept everything so workshops aren't blocked
@@ -326,11 +326,12 @@ export default function CadFilesScreen() {
         }
       />
 
-      <EmailCadFilesModal
+      <EmailFilesModal
         visible={emailOpen}
-        orderId={orderId}
+        kind="cad"
         files={files}
         jewelryName={jewelryName}
+        send={(payload) => api.emailCadFiles(orderId, payload)}
         onClose={() => setEmailOpen(false)}
       />
     </SafeAreaView>

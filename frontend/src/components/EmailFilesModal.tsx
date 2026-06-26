@@ -1,7 +1,9 @@
 /**
- * EmailCadFilesModal — bottom-sheet style composer that lets admins
- * (and manufacturers, scoped to their own commissions) forward one or
- * more CAD files via email using the backend's Resend integration.
+ * EmailFilesModal — generic chip-recipient composer for forwarding any
+ * Cloudinary-hosted file collection via Resend. Currently powers CAD
+ * files, IGI certificates, and customs / airway-bill docs — the only
+ * thing that varies per surface is the API endpoint and the kind label
+ * shown in the header.
  *
  * UX choices
  * ----------
@@ -35,9 +37,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { api, CadFile } from "@/src/api/client";
+import { CadFile } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { notify } from "@/src/utils/confirm";
+
+/** Minimum file shape needed by the modal. Compatible with `CadFile`,
+ *  `CustomsFile`, and any other Cloudinary-backed record. */
+export type EmailFile = Pick<CadFile, "id" | "name"> & {
+  bytes?: number | null;
+};
 
 // RFC-5322 light: just enough to catch obvious typos. The server
 // re-validates so we never trust this fully.
@@ -51,34 +59,72 @@ function formatBytes(b?: number | null): string {
   return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export interface EmailCadFilesModalProps {
+export type EmailKind = "cad" | "igi" | "customs" | "airway_bill";
+
+export type EmailSendResult = {
+  ok: boolean;
+  recipients: string[];
+  file_count: number;
+  provider_id: string | null;
+};
+
+const KIND_LABELS: Record<EmailKind, { title: string; noun: string; subjectPrefix: string }> = {
+  cad: {
+    title: "EMAIL CAD FILES",
+    noun: "CAD file",
+    subjectPrefix: "CAD files",
+  },
+  igi: {
+    title: "EMAIL IGI CERTIFICATES",
+    noun: "certificate",
+    subjectPrefix: "IGI certificates",
+  },
+  customs: {
+    title: "EMAIL CUSTOMS DOCS",
+    noun: "customs file",
+    subjectPrefix: "Customs documents",
+  },
+  airway_bill: {
+    title: "EMAIL AIRWAY BILL",
+    noun: "airway-bill file",
+    subjectPrefix: "Airway bill",
+  },
+};
+
+export interface EmailFilesModalProps {
   visible: boolean;
-  orderId: string;
-  files: CadFile[];
-  /** Filename prefix used in the subject placeholder. */
+  kind: EmailKind;
+  files: EmailFile[];
+  /** Used for the placeholder subject line, e.g. "Heritage Ring". */
   jewelryName?: string | null;
-  onClose: () => void;
-  onSent?: (info: {
+  /** Concrete API call. Returns the provider response on success. */
+  send: (payload: {
     recipients: string[];
-    fileCount: number;
-    providerId: string | null;
-  }) => void;
+    file_ids: string[];
+    subject: string | null;
+    message: string | null;
+  }) => Promise<EmailSendResult>;
+  onClose: () => void;
+  onSent?: (info: EmailSendResult) => void;
 }
 
-export function EmailCadFilesModal({
+export function EmailFilesModal({
   visible,
-  orderId,
+  kind,
   files,
   jewelryName,
+  send,
   onClose,
   onSent,
-}: EmailCadFilesModalProps) {
+}: EmailFilesModalProps) {
   const [recipients, setRecipients] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+
+  const labels = KIND_LABELS[kind];
 
   // Reset state every time the sheet opens so a previous send doesn't
   // leak into the next.
@@ -94,9 +140,9 @@ export function EmailCadFilesModal({
 
   const allSelected = selectedIds.size === files.length && files.length > 0;
   const subjectPlaceholder = useMemo(() => {
-    if (jewelryName) return `CAD files — ${jewelryName}`;
-    return "Optional subject (defaults to CAD files for commission)";
-  }, [jewelryName]);
+    if (jewelryName) return `${labels.subjectPrefix} — ${jewelryName}`;
+    return `Optional subject (defaults to ${labels.subjectPrefix} for commission)`;
+  }, [jewelryName, labels.subjectPrefix]);
 
   const tryCommitDraft = (value: string): boolean => {
     const v = value.trim().replace(/[,;]+$/, "");
@@ -148,8 +194,6 @@ export function EmailCadFilesModal({
     if (draft.trim()) {
       const committed = tryCommitDraft(draft);
       if (!committed) return;
-      // setRecipients is async; build the list locally so we use the
-      // freshest value below.
       finalRecipients = [...recipients];
       const v = draft.trim().replace(/[,;]+$/, "");
       if (
@@ -165,13 +209,13 @@ export function EmailCadFilesModal({
       return;
     }
     if (selectedIds.size === 0) {
-      notify("Select files", "Pick at least one CAD file to forward.");
+      notify("Select files", `Pick at least one ${labels.noun} to forward.`);
       return;
     }
 
     try {
       setSending(true);
-      const result = await api.emailCadFiles(orderId, {
+      const result = await send({
         recipients: finalRecipients,
         file_ids: Array.from(selectedIds),
         subject: subject.trim() || null,
@@ -179,16 +223,12 @@ export function EmailCadFilesModal({
       });
       notify(
         "Email sent",
-        `Forwarded ${result.file_count} file${result.file_count === 1 ? "" : "s"} to ${result.recipients.length} recipient${result.recipients.length === 1 ? "" : "s"}.`,
+        `Forwarded ${result.file_count} ${labels.noun}${result.file_count === 1 ? "" : "s"} to ${result.recipients.length} recipient${result.recipients.length === 1 ? "" : "s"}.`,
       );
-      onSent?.({
-        recipients: result.recipients,
-        fileCount: result.file_count,
-        providerId: result.provider_id,
-      });
+      onSent?.(result);
       onClose();
     } catch (err: any) {
-      notify("Send failed", err?.message || "Could not forward CAD files.");
+      notify("Send failed", err?.message || "Could not forward files.");
     } finally {
       setSending(false);
     }
@@ -214,7 +254,7 @@ export function EmailCadFilesModal({
             >
               <Ionicons name="close" size={22} color={theme.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>EMAIL CAD FILES</Text>
+            <Text style={styles.headerTitle}>{labels.title}</Text>
             <View style={{ width: 22 }} />
           </View>
 
@@ -339,8 +379,8 @@ export function EmailCadFilesModal({
 
             <Text style={styles.disclaimer}>
               Recipients receive clickable download links pointing to the
-              files on Cloudinary. Nothing is attached, so very large CAD
-              archives forward without issue.
+              files on Cloudinary. Nothing is attached, so very large
+              files forward without issue.
             </Text>
           </ScrollView>
 
@@ -511,4 +551,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default EmailCadFilesModal;
+export default EmailFilesModal;

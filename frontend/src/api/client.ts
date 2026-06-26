@@ -340,6 +340,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  emailIgiCertificates: (
+    orderId: string,
+    payload: {
+      recipients: string[];
+      file_ids: string[];
+      subject?: string | null;
+      message?: string | null;
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      provider_id: string | null;
+    }>(`/orders/${orderId}/igi-certificates/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  emailCustomsFiles: (
+    orderId: string,
+    kind: "airway-bill" | "customs",
+    payload: {
+      recipients: string[];
+      file_ids: string[];
+      subject?: string | null;
+      message?: string | null;
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      provider_id: string | null;
+    }>(`/orders/${orderId}/customs/files/${kind}/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listUsers: (role?: string) =>
     request<User[]>(`/users${role ? `?role=${role}` : ""}`),
   setAutoForward: (userId: string, auto_forward: boolean) =>

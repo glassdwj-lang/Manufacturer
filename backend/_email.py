@@ -68,19 +68,27 @@ def _fmt_bytes(b: Optional[int]) -> str:
     return f"{b / (1024 * 1024 * 1024):.2f} GB"
 
 
-def build_cad_email_html(
+def build_files_email_html(
     *,
     sender_name: Optional[str],
     order_ref: Optional[str],
     jewelry_name: Optional[str],
     message: Optional[str],
     files: Iterable[dict],
+    kind_label: str = "CAD",
+    intro_phrase: Optional[str] = None,
 ) -> str:
-    """Render the HTML body for a CAD-file forwarding email."""
+    """Render the HTML body for a file-forwarding email.
+
+    `kind_label` colors the small subtitle pill in the header.
+    `intro_phrase` overrides the default "has shared X files" sentence
+    so each file type can read naturally (e.g. "has shared certificates"
+    vs "has shared customs documents").
+    """
     safe_message = escape(message.strip()) if message and message.strip() else None
     rows = []
     for f in files:
-        name = escape(str(f.get("name") or "CAD file"))
+        name = escape(str(f.get("name") or f"{kind_label} file"))
         url = escape(str(f.get("secure_url") or ""))
         if not url:
             continue
@@ -102,9 +110,8 @@ def build_cad_email_html(
 
     intro_parts = []
     who = escape(sender_name.strip()) if sender_name and sender_name.strip() else "Somnio Atelier"
-    intro_parts.append(
-        f"{who} has shared CAD files with you for review."
-    )
+    phrase = (intro_phrase or "has shared files with you for review.").strip()
+    intro_parts.append(f"{who} {escape(phrase)}")
     if order_ref or jewelry_name:
         bits = []
         if jewelry_name:
@@ -127,13 +134,14 @@ def build_cad_email_html(
         else ""
     )
 
+    label_safe = escape(kind_label)
     return f"""<!DOCTYPE html>
 <html>
   <body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFF;">
     <div style="max-width:560px;margin:0 auto;">
       <div style="text-align:center;margin-bottom:24px;">
         <h1 style="font-size:18px;letter-spacing:4px;color:#B87333;margin:0;font-weight:600;">SOMNIO.CO</h1>
-        <p style="margin:4px 0 0 0;font-size:11px;letter-spacing:2px;color:#888;text-transform:uppercase;">CAD File Forward</p>
+        <p style="margin:4px 0 0 0;font-size:11px;letter-spacing:2px;color:#888;text-transform:uppercase;">{label_safe} File Forward</p>
       </div>
       {intro_html}
       {message_html}
@@ -151,8 +159,39 @@ def build_cad_email_html(
 </html>"""
 
 
-def send_cad_files_email(
+# Backwards-compatible alias used by the original CAD endpoint.
+build_cad_email_html = build_files_email_html
+
+
+# Per-kind defaults so each surface (CAD / IGI / customs / airway bill)
+# reads naturally without each route re-implementing the same strings.
+_KIND_DEFAULTS = {
+    "cad": {
+        "label": "CAD",
+        "intro": "has shared CAD files with you for review.",
+        "subject_singular": "CAD files",
+    },
+    "igi": {
+        "label": "IGI Certificate",
+        "intro": "has shared IGI certificates with you.",
+        "subject_singular": "IGI certificates",
+    },
+    "customs": {
+        "label": "Customs",
+        "intro": "has shared customs documents with you.",
+        "subject_singular": "Customs documents",
+    },
+    "airway_bill": {
+        "label": "Airway Bill",
+        "intro": "has shared airway-bill documents with you.",
+        "subject_singular": "Airway bill",
+    },
+}
+
+
+def send_files_email(
     *,
+    kind: str,
     recipients: List[str],
     subject: Optional[str],
     message: Optional[str],
@@ -162,10 +201,12 @@ def send_cad_files_email(
     jewelry_name: Optional[str],
     files: List[dict],
 ) -> dict:
-    """Send the CAD-forwarding email. Returns the raw Resend response.
+    """Generic file-forwarding email.
 
-    Raises ValueError for configuration / validation issues so the caller
-    can map them to a sensible HTTP status.
+    `kind` ∈ {"cad", "igi", "customs", "airway_bill"} — controls the
+    subject default and the wording of the intro sentence + header pill.
+    Falls back to the CAD defaults for unknown kinds so callers aren't
+    forced into a strict enum.
     """
     _ensure_resend()
     import resend  # safe — _ensure_resend imported it already
@@ -174,26 +215,30 @@ def send_cad_files_email(
     if not cleaned_recipients:
         raise ValueError("At least one recipient email is required.")
     if not files:
-        raise ValueError("At least one CAD file must be selected.")
+        raise ValueError("At least one file must be selected.")
 
-    html = build_cad_email_html(
+    defaults = _KIND_DEFAULTS.get(kind, _KIND_DEFAULTS["cad"])
+    html = build_files_email_html(
         sender_name=sender_name,
         order_ref=order_ref,
         jewelry_name=jewelry_name,
         message=message,
         files=files,
+        kind_label=defaults["label"],
+        intro_phrase=defaults["intro"],
     )
 
     subj = (subject or "").strip()
     if not subj:
+        base = defaults["subject_singular"]
         if jewelry_name and order_ref:
-            subj = f"CAD files — {jewelry_name} ({order_ref})"
+            subj = f"{base} — {jewelry_name} ({order_ref})"
         elif jewelry_name:
-            subj = f"CAD files — {jewelry_name}"
+            subj = f"{base} — {jewelry_name}"
         elif order_ref:
-            subj = f"CAD files for commission {order_ref}"
+            subj = f"{base} for commission {order_ref}"
         else:
-            subj = "CAD files from Somnio Atelier"
+            subj = f"{base} from Somnio Atelier"
 
     params = {
         "from": RESEND_FROM,
@@ -209,7 +254,8 @@ def send_cad_files_email(
     try:
         response = resend.Emails.send(params)
         logger.info(
-            "Resend email sent | recipients=%s | subject=%s | id=%s",
+            "Resend email sent | kind=%s | recipients=%s | subject=%s | id=%s",
+            kind,
             cleaned_recipients,
             subj,
             (response or {}).get("id") if isinstance(response, dict) else response,
@@ -218,3 +264,9 @@ def send_cad_files_email(
     except Exception as exc:  # noqa: BLE001 — surface upstream details
         logger.exception("Resend send failed: %s", exc)
         raise
+
+
+def send_cad_files_email(**kwargs) -> dict:
+    """Backwards-compatible shim for the original CAD-only entry point."""
+    kwargs.pop("kind", None)
+    return send_files_email(kind="cad", **kwargs)

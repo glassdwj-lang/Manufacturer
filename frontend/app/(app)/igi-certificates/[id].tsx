@@ -23,6 +23,7 @@ import { BrandStrip } from "@/src/components/BrandStrip";
 import { useAuth } from "@/src/context/AuthContext";
 import { cloudinaryPreviewImage } from "@/src/utils/cloudinaryUrl";
 import { CertificateViewerModal } from "@/src/components/CertificateViewerModal";
+import { EmailFilesModal } from "@/src/components/EmailFilesModal";
 
 // Document types we explicitly recognise for IGI certificates. Backend
 // accepts any extension via Cloudinary raw upload, so we only colour-code
@@ -67,6 +68,8 @@ export default function IgiCertificatesScreen() {
   const [uploading, setUploading] = useState(false);
   // Currently-previewed certificate (null = modal hidden).
   const [preview, setPreview] = useState<CadFile | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [jewelryName, setJewelryName] = useState<string | null>(null);
 
   // Same access policy as customs: admin + manufacturer only. Anyone
   // else gets bounced home so they never see a 403.
@@ -92,6 +95,24 @@ export default function IgiCertificatesScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pull the jewelry name once so the email-modal subject line can
+  // default to something useful.
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const order = await api.getOrder(orderId);
+        if (!cancelled) setJewelryName(order?.jewelry_name || null);
+      } catch (e) {
+        console.warn("igi order meta load", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   const pickAndUpload = useCallback(async () => {
     try {
@@ -255,6 +276,19 @@ export default function IgiCertificatesScreen() {
         )}
       </TouchableOpacity>
 
+      {files.length > 0 && (
+        <TouchableOpacity
+          testID="igi-email-button"
+          onPress={() => setEmailOpen(true)}
+          style={styles.emailBtn}
+        >
+          <Ionicons name="mail-outline" size={16} color={theme.primary} />
+          <Text style={styles.emailBtnText}>
+            EMAIL CERTIFICATES ({files.length})
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <FlatList
         data={files}
         renderItem={renderRow}
@@ -292,6 +326,15 @@ export default function IgiCertificatesScreen() {
         url={preview?.secure_url || null}
         title={preview?.name || null}
         onClose={() => setPreview(null)}
+      />
+
+      <EmailFilesModal
+        visible={emailOpen}
+        kind="igi"
+        files={files}
+        jewelryName={jewelryName}
+        send={(payload) => api.emailIgiCertificates(orderId, payload)}
+        onClose={() => setEmailOpen(false)}
       />
     </SafeAreaView>
   );
@@ -334,6 +377,23 @@ const styles = StyleSheet.create({
   uploadBtnDim: { opacity: 0.6 },
   uploadBtnText: {
     color: "#0A0A0A",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
+  emailBtn: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emailBtnText: {
+    color: theme.primary,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 3,

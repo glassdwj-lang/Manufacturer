@@ -24,6 +24,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCustomsFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { EmailFilesModal, EmailKind } from "@/src/components/EmailFilesModal";
 
 function formatBytes(b?: number | null): string {
   if (b == null) return "—";
@@ -63,6 +64,9 @@ export default function CustomsScreen() {
   const [uploading, setUploading] = useState<CustomsKind | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which Email-files sheet is open. `null` keeps the modal hidden.
+  const [emailKind, setEmailKind] = useState<EmailKind | null>(null);
+  const [jewelryName, setJewelryName] = useState<string | null>(null);
 
   // Restrict the customs screen to roles that can either upload or view
   // documents: admin + manufacturer. Everyone else is bounced home.
@@ -90,6 +94,24 @@ export default function CustomsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Fetch the jewelry name once so the email-modal subject line can
+  // default to something useful (e.g. "Customs documents — Heritage Ring").
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const order = await api.getOrder(orderId);
+        if (!cancelled) setJewelryName(order?.jewelry_name || null);
+      } catch (e) {
+        console.warn("customs order meta load", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   const pickAndUpload = useCallback(
     async (kind: CustomsKind) => {
@@ -273,6 +295,19 @@ export default function CustomsScreen() {
             emptyHint="No airway bills uploaded yet. Tap UPLOAD to attach PDF, image or any document."
           />
 
+          {airwayFiles.length > 0 && (
+            <TouchableOpacity
+              testID="airway-email-button"
+              onPress={() => setEmailKind("airway_bill")}
+              style={styles.emailBtn}
+            >
+              <Ionicons name="mail-outline" size={16} color={theme.primary} />
+              <Text style={styles.emailBtnText}>
+                EMAIL AIRWAY BILL ({airwayFiles.length})
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <Text style={styles.formLabel}>AIRWAY BILL — TEXT / TRACKING NUMBER</Text>
           <TextInput
             testID="airway-text-input"
@@ -303,6 +338,19 @@ export default function CustomsScreen() {
             onRemove={removeFile}
             emptyHint="No customs documents uploaded yet. Tap UPLOAD to attach declarations, invoices, certificates."
           />
+
+          {customsFiles.length > 0 && (
+            <TouchableOpacity
+              testID="customs-email-button"
+              onPress={() => setEmailKind("customs")}
+              style={styles.emailBtn}
+            >
+              <Ionicons name="mail-outline" size={16} color={theme.primary} />
+              <Text style={styles.emailBtnText}>
+                EMAIL CUSTOMS DOCS ({customsFiles.length})
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {user?.role === "admin" && (
             <>
@@ -335,6 +383,23 @@ export default function CustomsScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <EmailFilesModal
+        visible={emailKind !== null}
+        kind={emailKind || "customs"}
+        files={
+          emailKind === "airway_bill" ? airwayFiles : customsFiles
+        }
+        jewelryName={jewelryName}
+        send={(payload) =>
+          api.emailCustomsFiles(
+            orderId!,
+            emailKind === "airway_bill" ? "airway-bill" : "customs",
+            payload,
+          )
+        }
+        onClose={() => setEmailKind(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -548,6 +613,23 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: "#0A0A0A",
     fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
+  emailBtn: {
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
+  emailBtnText: {
+    color: theme.primary,
+    fontSize: 11,
     fontWeight: "700",
     letterSpacing: 3,
   },

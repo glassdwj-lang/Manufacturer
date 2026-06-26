@@ -763,6 +763,113 @@ async def remove_customs_file(
     return {"ok": True}
 
 
+# ---- Customs / airway-bill forwarding via email ---------------------------
+# Reuses the same payload shape (recipients / file_ids / subject / message)
+# as the CAD-files email flow. ``kind`` ∈ {"airway-bill", "customs"}.
+
+
+class CustomsEmailPayload(BaseModel):
+    recipients: list[str]
+    file_ids: list[str]
+    subject: str | None = None
+    message: str | None = None
+
+
+@router.post("/orders/{order_id}/customs/files/{kind}/email")
+async def email_customs_files(
+    order_id: str,
+    kind: str,
+    body: CustomsEmailPayload,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    from _email import send_files_email
+
+    field = _customs_kind_field(kind)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    cleaned = _sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+
+    all_files = (order.get("customs", {}) or {}).get(field) or []
+    pretty = "airway-bill" if kind == "airway-bill" else "customs"
+    if not all_files:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This commission has no {pretty} files.",
+        )
+    if body.file_ids:
+        selected = [f for f in all_files if f.get("id") in set(body.file_ids)]
+    else:
+        selected = list(all_files)
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"None of the selected {pretty} files were found.",
+        )
+
+    email_kind = "airway_bill" if kind == "airway-bill" else "customs"
+    try:
+        provider_response = send_files_email(
+            kind=email_kind,
+            recipients=cleaned,
+            subject=body.subject,
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    await record_event(
+        db,
+        request,
+        f"order.customs.{email_kind}.emailed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "kind": kind,
+            "recipients": cleaned,
+            "file_ids": [f.get("id") for f in selected],
+            "file_count": len(selected),
+            "provider_id": (
+                provider_response.get("id")
+                if isinstance(provider_response, dict)
+                else None
+            ),
+        },
+    )
+    request.state.activity_logged = True
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
+
+
 # ----------------------------- CAD files -------------------------------------
 # Per-order roster of uploaded CAD files (stored on Cloudinary as "raw"
 # assets). Admins can attach any number of files; the front-end uses the
@@ -897,26 +1004,11 @@ class CadEmailPayload(BaseModel):
     message: str | None = None
 
 
-@router.post("/orders/{order_id}/cad-files/email")
-async def email_cad_files(
-    order_id: str,
-    body: CadEmailPayload,
-    request: Request,
-    user=Depends(require_roles("admin", "manufacturer")),
-):
-    from _email import send_cad_files_email  # local import: lazy + cycle-safe
-
-    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
-        raise HTTPException(status_code=403)
-
-    # Recipient sanity check — we trust the frontend's basic regex but
-    # do a server-side guard too. Strip + dedupe.
+def _sanitize_recipients(values: list[str] | None) -> list[str]:
+    """Strip + dedupe + lightly validate email recipients."""
     cleaned: list[str] = []
     seen: set[str] = set()
-    for r in body.recipients or []:
+    for r in values or []:
         v = (r or "").strip()
         if not v or "@" not in v or "." not in v.split("@", 1)[1]:
             continue
@@ -925,6 +1017,25 @@ async def email_cad_files(
             continue
         seen.add(key)
         cleaned.append(v)
+    return cleaned
+
+
+@router.post("/orders/{order_id}/cad-files/email")
+async def email_cad_files(
+    order_id: str,
+    body: CadEmailPayload,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    from _email import send_files_email  # local import: lazy + cycle-safe
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    cleaned = _sanitize_recipients(body.recipients)
     if not cleaned:
         raise HTTPException(
             status_code=400, detail="Add at least one valid recipient email."
@@ -951,7 +1062,8 @@ async def email_cad_files(
         )
 
     try:
-        provider_response = send_cad_files_email(
+        provider_response = send_files_email(
+            kind="cad",
             recipients=cleaned,
             subject=body.subject,
             message=body.message,
@@ -1117,6 +1229,100 @@ async def remove_igi_certificate(
     )
     request.state.activity_logged = True
     return {"ok": True}
+
+
+# ---- IGI Certificate forwarding via email ---------------------------------
+# Same shape as the CAD-files email flow, but pulls from
+# ``order.igi_certificates`` and uses the IGI subject defaults.
+
+
+@router.post("/orders/{order_id}/igi-certificates/email")
+async def email_igi_certificates(
+    order_id: str,
+    body: CadEmailPayload,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    from _email import send_files_email
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    cleaned = _sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+
+    all_files = order.get("igi_certificates") or []
+    if not all_files:
+        raise HTTPException(
+            status_code=400, detail="This commission has no IGI certificates."
+        )
+    if body.file_ids:
+        selected = [f for f in all_files if f.get("id") in set(body.file_ids)]
+    else:
+        selected = list(all_files)
+    if not selected:
+        raise HTTPException(
+            status_code=400, detail="None of the selected certificates were found.",
+        )
+
+    try:
+        provider_response = send_files_email(
+            kind="igi",
+            recipients=cleaned,
+            subject=body.subject,
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    await record_event(
+        db,
+        request,
+        "order.igi_certificate.emailed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "recipients": cleaned,
+            "file_ids": [f.get("id") for f in selected],
+            "file_count": len(selected),
+            "provider_id": (
+                provider_response.get("id")
+                if isinstance(provider_response, dict)
+                else None
+            ),
+        },
+    )
+    request.state.activity_logged = True
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
+
 
 
 
