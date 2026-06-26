@@ -165,10 +165,19 @@ export default function DashboardScreen() {
                     {m.email}
                   </Text>
                 </View>
-                <View style={styles.workshopCountBox}>
+                <TouchableOpacity
+                  testID={`workshop-active-${m.id}`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(app)",
+                      params: { mfg: m.id },
+                    })
+                  }
+                  style={styles.workshopCountBox}
+                >
                   <Text style={styles.workshopCount}>{m.active_count}</Text>
                   <Text style={styles.workshopCountLabel}>ACTIVE</Text>
-                </View>
+                </TouchableOpacity>
               </View>
             ))
           )}
