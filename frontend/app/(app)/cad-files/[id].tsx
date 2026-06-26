@@ -21,6 +21,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCadFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { isPreviewable } from "@/src/components/Model3DViewer";
+import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
@@ -61,10 +62,19 @@ export default function CadFilesScreen() {
   const router = useRouter();
   const orderId = String(params.id || "");
   const safeBack = useSafeBack(`/(app)/order/${orderId}`);
+  const { user } = useAuth();
   const [files, setFiles] = useState<CadFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // CAD upload is open to admin + manufacturer (mfg scoped to own order
+  // server-side). Bounce other roles back home so they never see a 403.
+  useEffect(() => {
+    if (user && user.role !== "admin" && user.role !== "manufacturer") {
+      router.replace("/(app)");
+    }
+  }, [user, router]);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -162,6 +172,8 @@ export default function CadFilesScreen() {
     const ext = extOf(item);
     const known = CAD_EXTS.has(ext);
     const can3D = isPreviewable(item.name);
+    const isAdmin = user?.role === "admin";
+    const canRemove = isAdmin || item.uploaded_by === user?.id;
     return (
       <View style={styles.row} testID={`cad-row-${item.id}`}>
         <View style={[styles.extBadge, !known && styles.extBadgeUnknown]}>
@@ -205,13 +217,15 @@ export default function CadFilesScreen() {
         >
           <Ionicons name="download-outline" size={18} color={theme.primary} />
         </TouchableOpacity>
-        <TouchableOpacity
-          testID={`cad-delete-${item.id}`}
-          onPress={() => deleteFile(item)}
-          style={styles.iconBtn}
-        >
-          <Ionicons name="trash-outline" size={18} color={theme.error || "#C8553D"} />
-        </TouchableOpacity>
+        {canRemove && (
+          <TouchableOpacity
+            testID={`cad-delete-${item.id}`}
+            onPress={() => deleteFile(item)}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="trash-outline" size={18} color={theme.error || "#C8553D"} />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };

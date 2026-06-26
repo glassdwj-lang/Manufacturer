@@ -777,10 +777,14 @@ class CadFilePayload(BaseModel):
 
 
 @router.get("/orders/{order_id}/cad-files")
-async def list_cad_files(order_id: str, user=Depends(require_roles("admin"))):
+async def list_cad_files(
+    order_id: str, user=Depends(require_roles("admin", "manufacturer"))
+):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
     return order.get("cad_files", [])
 
 
@@ -789,14 +793,17 @@ async def add_cad_file(
     order_id: str,
     body: CadFilePayload,
     request: Request,
-    user=Depends(require_roles("admin")),
+    user=Depends(require_roles("admin", "manufacturer")),
 ):
     """Register a CAD file *after* it has been uploaded directly to Cloudinary
     via the signed-upload flow. Stores the metadata on the order so the
-    front-end can render the file list / handle deletes."""
+    front-end can render the file list / handle deletes. Admin can manage
+    every order; manufacturer is scoped to their own commissions."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
     if not body.secure_url or not body.name:
         raise HTTPException(status_code=400, detail="name and secure_url required")
     entry = {
@@ -836,15 +843,27 @@ async def remove_cad_file(
     order_id: str,
     file_id: str,
     request: Request,
-    user=Depends(require_roles("admin")),
+    user=Depends(require_roles("admin", "manufacturer")),
 ):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
     files = order.get("cad_files") or []
     target = next((f for f in files if f.get("id") == file_id), None)
     if not target:
         raise HTTPException(status_code=404, detail="CAD file not found")
+    # Manufacturers can only remove files they uploaded themselves so the
+    # audit trail stays honest. Admin retains full delete power.
+    if (
+        user["role"] == "manufacturer"
+        and target.get("uploaded_by") != user["id"]
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only remove CAD files you uploaded.",
+        )
     await db.orders.update_one(
         {"id": order_id},
         {"$pull": {"cad_files": {"id": file_id}}},

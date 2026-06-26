@@ -23,6 +23,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
+import { ReorderPhotosModal } from "@/src/components/ReorderPhotosModal";
 import { useI18n } from "@/src/i18n";
 import { BrandStrip } from "@/src/components/BrandStrip";
 
@@ -66,6 +67,7 @@ export default function StepActionScreen() {
   const [notes, setNotes] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -378,10 +380,22 @@ export default function StepActionScreen() {
 
               <View style={styles.photosHeader}>
                 <Text style={styles.formLabel}>PHOTOS</Text>
-                <TouchableOpacity testID="add-photo-button" onPress={pickImage} style={styles.addPhotoBtn}>
-                  <Ionicons name="camera-outline" size={16} color={theme.primary} />
-                  <Text style={styles.addPhotoText}>ADD</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {photos.length > 1 && (
+                    <TouchableOpacity
+                      testID="reorder-photos-button"
+                      onPress={() => setReorderOpen(true)}
+                      style={styles.addPhotoBtn}
+                    >
+                      <Ionicons name="swap-vertical" size={16} color={theme.primary} />
+                      <Text style={styles.addPhotoText}>REORDER</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity testID="add-photo-button" onPress={pickImage} style={styles.addPhotoBtn}>
+                    <Ionicons name="camera-outline" size={16} color={theme.primary} />
+                    <Text style={styles.addPhotoText}>ADD</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <View style={styles.photoGrid}>
                 {photos.map((p, i) => (
@@ -676,6 +690,15 @@ export default function StepActionScreen() {
         visible={lightboxIndex !== null}
         initialIndex={lightboxIndex ?? 0}
         onClose={() => setLightboxIndex(null)}
+      />
+      <ReorderPhotosModal
+        visible={reorderOpen}
+        photos={photos}
+        onCancel={() => setReorderOpen(false)}
+        onConfirm={(ordered) => {
+          setPhotos(ordered);
+          setReorderOpen(false);
+        }}
       />
     </SafeAreaView>
   );

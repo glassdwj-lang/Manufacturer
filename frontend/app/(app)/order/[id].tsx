@@ -211,7 +211,7 @@ export default function OrderDetail() {
           </View>
         </View>
 
-        {user?.role === "admin" && (() => {
+        {(user?.role === "admin" || user?.role === "manufacturer") && (() => {
           const cadCount = order.cad_files?.length || 0;
           return (
             <TouchableOpacity
