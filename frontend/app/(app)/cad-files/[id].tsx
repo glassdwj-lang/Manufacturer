@@ -23,6 +23,7 @@ import { confirmAction, notify } from "@/src/utils/confirm";
 import { isPreviewable } from "@/src/components/Model3DViewer";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { EmailCadFilesModal } from "@/src/components/EmailCadFilesModal";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
 // strictly limit to these (we accept everything so workshops aren't blocked
@@ -67,6 +68,8 @@ export default function CadFilesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [jewelryName, setJewelryName] = useState<string | null>(null);
 
   // CAD upload is open to admin + manufacturer (mfg scoped to own order
   // server-side). Bounce other roles back home so they never see a 403.
@@ -92,6 +95,24 @@ export default function CadFilesScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pull the jewelry name once so the email-modal subject line can
+  // default to something useful.
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const order = await api.getOrder(orderId);
+        if (!cancelled) setJewelryName(order?.jewelry_name || null);
+      } catch (e) {
+        console.warn("cad order meta load", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   const pickAndUpload = useCallback(async () => {
     try {
@@ -261,6 +282,21 @@ export default function CadFilesScreen() {
         )}
       </TouchableOpacity>
 
+      {/* Email-forward — only meaningful when there are files attached
+          and the current user is allowed to send (admin / mfg-of-order). */}
+      {files.length > 0 && (
+        <TouchableOpacity
+          testID="cad-email-button"
+          onPress={() => setEmailOpen(true)}
+          style={styles.emailBtn}
+        >
+          <Ionicons name="mail-outline" size={16} color={theme.primary} />
+          <Text style={styles.emailBtnText}>
+            EMAIL CAD FILES ({files.length})
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <FlatList
         data={files}
         renderItem={renderRow}
@@ -288,6 +324,14 @@ export default function CadFilesScreen() {
             </Text>
           )
         }
+      />
+
+      <EmailCadFilesModal
+        visible={emailOpen}
+        orderId={orderId}
+        files={files}
+        jewelryName={jewelryName}
+        onClose={() => setEmailOpen(false)}
       />
     </SafeAreaView>
   );
@@ -330,6 +374,23 @@ const styles = StyleSheet.create({
   uploadBtnDim: { opacity: 0.6 },
   uploadBtnText: {
     color: "#0A0A0A",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
+  emailBtn: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emailBtnText: {
+    color: theme.primary,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 3,

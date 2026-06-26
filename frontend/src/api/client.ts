@@ -322,6 +322,24 @@ export const api = {
     request<{ ok: boolean }>(`/orders/${orderId}/cad-files/${fileId}`, {
       method: "DELETE",
     }),
+  emailCadFiles: (
+    orderId: string,
+    payload: {
+      recipients: string[];
+      file_ids: string[];
+      subject?: string | null;
+      message?: string | null;
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      provider_id: string | null;
+    }>(`/orders/${orderId}/cad-files/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listUsers: (role?: string) =>
     request<User[]>(`/users${role ? `?role=${role}` : ""}`),
   setAutoForward: (userId: string, auto_forward: boolean) =>

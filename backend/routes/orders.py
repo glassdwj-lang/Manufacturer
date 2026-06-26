@@ -883,6 +883,121 @@ async def remove_cad_file(
     return {"ok": True}
 
 
+# ---- CAD file forwarding via email (Resend) -------------------------------
+# Admin + manufacturer (scoped to their own commission) can forward a
+# subset of CAD files to one or more external email addresses. The email
+# body contains clickable Cloudinary download links — no attachments, so
+# we never bump against Resend's 40 MB attachment ceiling.
+
+
+class CadEmailPayload(BaseModel):
+    recipients: list[str]
+    file_ids: list[str]
+    subject: str | None = None
+    message: str | None = None
+
+
+@router.post("/orders/{order_id}/cad-files/email")
+async def email_cad_files(
+    order_id: str,
+    body: CadEmailPayload,
+    request: Request,
+    user=Depends(require_roles("admin", "manufacturer")),
+):
+    from _email import send_cad_files_email  # local import: lazy + cycle-safe
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+
+    # Recipient sanity check — we trust the frontend's basic regex but
+    # do a server-side guard too. Strip + dedupe.
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for r in body.recipients or []:
+        v = (r or "").strip()
+        if not v or "@" not in v or "." not in v.split("@", 1)[1]:
+            continue
+        key = v.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(v)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        # Resend's per-call recipient ceiling — surface a friendly error
+        # rather than letting Resend reject the whole payload.
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+
+    all_files = order.get("cad_files") or []
+    if not all_files:
+        raise HTTPException(
+            status_code=400, detail="This commission has no CAD files."
+        )
+    if body.file_ids:
+        selected = [f for f in all_files if f.get("id") in set(body.file_ids)]
+    else:
+        selected = list(all_files)
+    if not selected:
+        raise HTTPException(
+            status_code=400, detail="None of the selected CAD files were found."
+        )
+
+    try:
+        provider_response = send_cad_files_email(
+            recipients=cleaned,
+            subject=body.subject,
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — provider failures bubble as 502
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    await record_event(
+        db,
+        request,
+        "order.cad_file.emailed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "recipients": cleaned,
+            "file_ids": [f.get("id") for f in selected],
+            "file_count": len(selected),
+            "provider_id": (
+                provider_response.get("id")
+                if isinstance(provider_response, dict)
+                else None
+            ),
+        },
+    )
+    request.state.activity_logged = True
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
+
+
 # ---- IGI Certificates ------------------------------------------------------
 # Same data shape and audit pattern as CAD files. Stored under
 # ``order.igi_certificates``; admin + manufacturer (scoped to their own order)
