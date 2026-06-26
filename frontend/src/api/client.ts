@@ -92,7 +92,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const j = await res.json();
       detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
     } catch {}
-    throw new Error(detail);
+    // Attach the HTTP status to the thrown error so callers can branch on
+    // 401 vs 403 without resorting to message-string sniffing.
+    const err = new Error(detail) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
