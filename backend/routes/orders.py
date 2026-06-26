@@ -4,9 +4,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
+from pydantic import BaseModel
 
+from _activity_log import record_event
 from _digital_dna import build_digital_dna_pdf
 from _notes_translation import ensure_translations_for_viewer
 from _translation import language_for_country, translate as translate_text
@@ -591,6 +593,107 @@ async def get_customs(order_id: str, user=Depends(require_roles("admin"))):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order.get("customs", {})
+
+
+# ----------------------------- CAD files -------------------------------------
+# Per-order roster of uploaded CAD files (stored on Cloudinary as "raw"
+# assets). Admins can attach any number of files; the front-end uses the
+# secure_url to deep-link / download.
+class CadFilePayload(BaseModel):
+    name: str
+    secure_url: str
+    public_id: str | None = None
+    format: str | None = None  # cloudinary's reported file extension
+    bytes: int | None = None
+    resource_type: str | None = None
+
+
+@router.get("/orders/{order_id}/cad-files")
+async def list_cad_files(order_id: str, user=Depends(require_roles("admin"))):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order.get("cad_files", [])
+
+
+@router.post("/orders/{order_id}/cad-files")
+async def add_cad_file(
+    order_id: str,
+    body: CadFilePayload,
+    request: Request,
+    user=Depends(require_roles("admin")),
+):
+    """Register a CAD file *after* it has been uploaded directly to Cloudinary
+    via the signed-upload flow. Stores the metadata on the order so the
+    front-end can render the file list / handle deletes."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not body.secure_url or not body.name:
+        raise HTTPException(status_code=400, detail="name and secure_url required")
+    entry = {
+        "id": str(uuid.uuid4()),
+        "name": body.name.strip(),
+        "secure_url": body.secure_url,
+        "public_id": body.public_id,
+        "format": (body.format or "").lower() or None,
+        "bytes": body.bytes,
+        "resource_type": body.resource_type or "raw",
+        "uploaded_at": now_china_iso(),
+        "uploaded_by": user["id"],
+        "uploaded_by_email": user.get("email"),
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$push": {"cad_files": entry}},
+    )
+    await record_event(
+        db,
+        request,
+        "order.cad_file.added",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_name": entry["name"],
+            "format": entry["format"],
+            "bytes": entry["bytes"],
+        },
+    )
+    request.state.activity_logged = True
+    return entry
+
+
+@router.delete("/orders/{order_id}/cad-files/{file_id}")
+async def remove_cad_file(
+    order_id: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin")),
+):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    files = order.get("cad_files") or []
+    target = next((f for f in files if f.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="CAD file not found")
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {"cad_files": {"id": file_id}}},
+    )
+    await record_event(
+        db,
+        request,
+        "order.cad_file.removed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_name": target.get("name"),
+            "file_id": file_id,
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True}
 
 
 @router.get("/orders/{order_id}/digital-dna")

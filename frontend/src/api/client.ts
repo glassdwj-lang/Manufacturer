@@ -110,6 +110,28 @@ export type ManufacturerContact = {
   email?: string | null;
 };
 
+export type CadFile = {
+  id: string;
+  name: string;
+  secure_url: string;
+  public_id?: string | null;
+  format?: string | null;
+  bytes?: number | null;
+  resource_type?: string | null;
+  uploaded_at?: string | null;
+  uploaded_by?: string | null;
+  uploaded_by_email?: string | null;
+};
+
+export type CadFilePayload = {
+  name: string;
+  secure_url: string;
+  public_id?: string | null;
+  format?: string | null;
+  bytes?: number | null;
+  resource_type?: string | null;
+};
+
 export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
@@ -241,6 +263,17 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getCustoms: (orderId: string) => request<any>(`/orders/${orderId}/customs`),
+  listCadFiles: (orderId: string) =>
+    request<CadFile[]>(`/orders/${orderId}/cad-files`),
+  addCadFile: (orderId: string, payload: CadFilePayload) =>
+    request<CadFile>(`/orders/${orderId}/cad-files`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  removeCadFile: (orderId: string, fileId: string) =>
+    request<{ ok: boolean }>(`/orders/${orderId}/cad-files/${fileId}`, {
+      method: "DELETE",
+    }),
   listUsers: (role?: string) =>
     request<User[]>(`/users${role ? `?role=${role}` : ""}`),
   setAutoForward: (userId: string, auto_forward: boolean) =>

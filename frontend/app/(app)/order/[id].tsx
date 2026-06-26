@@ -211,6 +211,23 @@ export default function OrderDetail() {
 
         {user?.role === "admin" && (
           <TouchableOpacity
+            testID="cad-files-button"
+            style={styles.customsBtn}
+            onPress={() => router.push(`/(app)/cad-files/${order.id}`)}
+          >
+            <Ionicons name="cube-outline" size={18} color={theme.primary} />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text style={styles.customsTitle}>CAD Files</Text>
+              <Text style={styles.customsSub}>
+                Upload .stl / .step / .3dm and other workshop files
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+          </TouchableOpacity>
+        )}
+
+        {user?.role === "admin" && (
+          <TouchableOpacity
             testID="customs-button"
             style={styles.customsBtn}
             onPress={() => router.push(`/(app)/customs/${order.id}`)}

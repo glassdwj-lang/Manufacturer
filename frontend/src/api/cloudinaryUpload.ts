@@ -147,3 +147,56 @@ export async function uploadStepMedia(asset: {
   }
   return uploadLocalImage(asset.uri);
 }
+
+/** Upload a CAD file (any extension) to Cloudinary as a "raw" asset.
+ *
+ * Cloudinary's "raw" resource_type stores the bytes verbatim — no
+ * transcoding — so the secure_url we return can be downloaded with the
+ * original extension intact. We thread the local filename through to the
+ * Cloudinary upload form so the public_id reflects the source name
+ * (e.g. "engagement-ring-v3.stl" instead of a random uuid).
+ */
+export async function uploadCadFile(asset: {
+  uri: string;
+  name: string;
+  size?: number | null;
+  mimeType?: string | null;
+}): Promise<UploadResult & { name: string; bytes?: number; format?: string }> {
+  const sig = await fetchSignature("somnio/cad", "raw");
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(asset.uri)).blob();
+    form.append("file", blob, asset.name);
+  } else {
+    form.append("file", {
+      uri: asset.uri,
+      name: asset.name,
+      type: asset.mimeType || "application/octet-stream",
+    } as unknown as Blob);
+  }
+  form.append("api_key", sig.api_key);
+  form.append("timestamp", String(sig.timestamp));
+  form.append("signature", sig.signature);
+  form.append("folder", sig.folder);
+  if (sig.tags) form.append("tags", sig.tags);
+  const res = await fetch(sig.upload_url, { method: "POST", body: form });
+  const json = await res.json();
+  if (!res.ok || !json.secure_url) {
+    throw new Error(json?.error?.message || "Cloudinary upload failed");
+  }
+  // Cloudinary returns the original filename in ``original_filename`` (lower
+  // case, no extension), and the format in ``format``. We prefer the name we
+  // captured locally because it preserves casing + extension.
+  return {
+    secure_url: json.secure_url as string,
+    name: asset.name,
+    bytes: (json.bytes as number) || asset.size || undefined,
+    format: (json.format as string) || extractExt(asset.name),
+  };
+}
+
+function extractExt(name: string): string | undefined {
+  const i = name.lastIndexOf(".");
+  if (i < 0 || i === name.length - 1) return undefined;
+  return name.slice(i + 1).toLowerCase();
+}

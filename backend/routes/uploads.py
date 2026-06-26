@@ -33,7 +33,10 @@ class SignUploadRequest(BaseModel):
     folder: Optional[str] = None
     public_id: Optional[str] = None
     tags: Optional[str] = None
-    resource_type: Optional[str] = "image"  # "image" | "video"
+    resource_type: Optional[str] = "image"  # "image" | "video" | "raw"
+
+
+_VALID_RESOURCE_TYPES = {"image", "video", "raw"}
 
 
 @router.post("/uploads/sign")
@@ -43,12 +46,18 @@ async def sign_upload(
 ):
     """Return a single-use Cloudinary upload signature for the caller."""
     body = body or SignUploadRequest()
+    rt = (body.resource_type or "image").lower()
+    if rt not in _VALID_RESOURCE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"resource_type must be one of {sorted(_VALID_RESOURCE_TYPES)}",
+        )
     try:
         payload = generate_signed_upload_payload(
             folder=body.folder,
             public_id=body.public_id,
             tags=body.tags,
-            resource_type=(body.resource_type or "image"),
+            resource_type=rt,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -57,7 +66,7 @@ async def sign_upload(
         "Cloudinary sign issued to %s (role=%s, resource=%s)",
         user["email"],
         user["role"],
-        body.resource_type,
+        rt,
     )
     return payload
 
