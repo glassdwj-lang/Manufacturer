@@ -39,8 +39,9 @@ function VideoLightboxPage({
   onPress: () => void;
 }) {
   const player = useVideoPlayer(uri, (p) => {
-    // Cloudinary delivers progressive mp4; default mute false but loop off.
-    p.loop = false;
+    // Cloudinary delivers progressive mp4; loop so jewellery clips replay
+    // continuously while the user lingers on the page.
+    p.loop = true;
   });
   // Auto-play when the page becomes active; pause when we swipe away.
   useEffect(() => {
