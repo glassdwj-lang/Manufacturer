@@ -177,6 +177,29 @@ export default function StepActionScreen() {
     setPhotos((p) => p.filter((_, i) => i !== idx));
   };
 
+  /**
+   * Swap a photo/video between two positions in the array. Admin and
+   * manufacturer use the chevron arrows on each tile to rearrange the
+   * gallery; the new order is persisted on the next SAVE / COMPLETE call.
+   */
+  const movePhoto = (from: number, to: number) => {
+    setPhotos((current) => {
+      if (
+        from === to ||
+        from < 0 ||
+        to < 0 ||
+        from >= current.length ||
+        to >= current.length
+      ) {
+        return current;
+      }
+      const next = current.slice();
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
   const handleComplete = async () => {
     if (!orderId) return;
     setSaving(true);
@@ -378,6 +401,33 @@ export default function StepActionScreen() {
                         </View>
                       )}
                     </TouchableOpacity>
+                    {/* Reorder arrows — only visible when there is room to
+                        move in that direction. Tapping nudges the asset
+                        one slot left/right in the photos array; the
+                        existing SAVE/COMPLETE button persists the new
+                        order through the normal flow. */}
+                    {photos.length > 1 && i > 0 && (
+                      <TouchableOpacity
+                        testID={`move-left-${i}`}
+                        onPress={() => movePhoto(i, i - 1)}
+                        style={[styles.photoArrow, styles.photoArrowLeft]}
+                        accessibilityLabel="Move earlier"
+                        hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                      >
+                        <Ionicons name="chevron-back" size={14} color="#fff" />
+                      </TouchableOpacity>
+                    )}
+                    {photos.length > 1 && i < photos.length - 1 && (
+                      <TouchableOpacity
+                        testID={`move-right-${i}`}
+                        onPress={() => movePhoto(i, i + 1)}
+                        style={[styles.photoArrow, styles.photoArrowRight]}
+                        accessibilityLabel="Move later"
+                        hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                      >
+                        <Ionicons name="chevron-forward" size={14} color="#fff" />
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       testID={`remove-photo-${i}`}
                       onPress={() => removePhoto(i)}
@@ -698,6 +748,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
   photoRemove: { position: "absolute", top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.7)", padding: 4 },
+  photoArrow: {
+    position: "absolute",
+    top: "50%",
+    width: 24,
+    height: 24,
+    marginTop: -12,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  photoArrowLeft: { left: 4 },
+  photoArrowRight: { right: 4 },
   photoEmpty: { width: "100%", padding: spacing.md, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
   photoEmptyText: { color: theme.textMuted, fontSize: 12, textAlign: "center" },
   photoUploading: {
