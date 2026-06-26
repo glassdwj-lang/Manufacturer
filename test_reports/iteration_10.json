@@ -1,0 +1,39 @@
+{
+  "summary": "Backend smoke test of routes/orders/ package refactor (8 sub-modules replacing the 1377-line orders.py monolith). Created /app/backend/tests/test_orders_refactor.py covering all 8 feature buckets requested: auth, order CRUD, step routes, CAD files, IGI certificates, customs sub-document + multi-file, Digital DNA PDF, and admin recycle-bin. 19/19 tests passed in 11.73s. All routes preserve their pre-refactor URL, method, payload, auth gate and response shape. Resend email paths (CAD, IGI, customs) return 200 with provider_id when sending to delivered@resend.dev. The Digital DNA endpoint returns application/pdf with a valid %PDF magic header. The pre-existing /steps/{n}/forward decorator bug was intentionally NOT tested (preserved as zero-behaviour-change per the request).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_orders_refactor.py",
+    "/app/test_reports/pytest/iteration_10.xml"
+  ],
+  "action_items": [
+    "Optional follow-up (pre-existing bug, not a regression): /orders/{id}/steps/{n}/forward in routes/orders/steps.py is missing its @router.post(...) decorator and 404s. The refactor preserved this intentionally. Add the decorator and write a test when ready."
+  ],
+  "critical_code_review_comments": [
+    "routes/orders/__init__.py cleanly re-exports a single `router` symbol so server.py needs no changes — refactor is structurally correct.",
+    "_shared.py centralises every cross-cutting import + the FileEmailPayload / sanitize_recipients / customs_kind_field helpers; no duplication observed across sub-modules.",
+    "All sub-modules correctly project away MongoDB _id via {'_id': 0} in find queries — no ObjectId serialization risk.",
+    "Email recipient sanitization (sanitize_recipients) + Resend 50-recipient ceiling enforcement preserved consistently across CAD / IGI / customs.",
+    "Manufacturer authorization gates (order.manufacturer_id != user.id) applied uniformly on every multi-tenant route."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_orders_refactor.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "not tested (backend-only per request)"
+  },
+  "seed_data_creation": "Each destructive test creates a TEST_REFACTOR_<hex> throwaway order (using seed order's client+manufacturer FKs) and cleans up via soft-delete + purge in a module-scoped fixture teardown. The TestRecycleBin class creates an additional isolated TEST_RECYCLE_<hex> order and fully purges it inside the test. Seed order 165af6bb-89dd-4837-864c-967e4f09d4f6 was only read (never mutated).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Refactor verified. Reuse /app/backend/tests/test_orders_refactor.py as regression suite for any future change to the orders sub-package. The fixtures auto-clean throwaway orders. Resend sandbox only accepts delivered@resend.dev and dean@somnioblinds.com — other recipients yield 502.",
+  "rca_of_issue": "N/A — no regressions found. Refactor is behaviour-equivalent."
+}
