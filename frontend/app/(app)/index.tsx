@@ -11,7 +11,7 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Order, User } from "@/src/api/client";
@@ -27,6 +27,17 @@ export default function HomeScreen() {
   const { user, signOut, languageVersion } = useAuth();
   const { t } = useI18n();
   const router = useRouter();
+  // Filters live in the URL so a refresh (and shareable links) keep the same
+  // view. We accept any of the supported keys on entry; everything else is
+  // ignored.
+  const urlParams = useLocalSearchParams<{
+    client?: string;
+    mfg?: string;
+    assoc?: string;
+    q?: string;
+    from?: string;
+    to?: string;
+  }>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,14 +52,28 @@ export default function HomeScreen() {
   // jewelry-type search, and a date window. Filter state lives in this
   // component (not URL) so a refresh resets cleanly.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterClient, setFilterClient] = useState<string>("");
-  const [filterManufacturer, setFilterManufacturer] = useState<string>("");
-  const [filterAssociate, setFilterAssociate] = useState<string>("");
-  const [filterQuery, setFilterQuery] = useState("");
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterClient, setFilterClient] = useState<string>(
+    typeof urlParams.client === "string" ? urlParams.client : "",
+  );
+  const [filterManufacturer, setFilterManufacturer] = useState<string>(
+    typeof urlParams.mfg === "string" ? urlParams.mfg : "",
+  );
+  const [filterAssociate, setFilterAssociate] = useState<string>(
+    typeof urlParams.assoc === "string" ? urlParams.assoc : "",
+  );
+  const [filterQuery, setFilterQuery] = useState(
+    typeof urlParams.q === "string" ? urlParams.q : "",
+  );
+  const [filterDateFrom, setFilterDateFrom] = useState(
+    typeof urlParams.from === "string" ? urlParams.from : "",
+  );
+  const [filterDateTo, setFilterDateTo] = useState(
+    typeof urlParams.to === "string" ? urlParams.to : "",
+  );
   // Debounced copy of the search query so we don't hit the API on every key.
-  const [searchSubmitted, setSearchSubmitted] = useState("");
+  const [searchSubmitted, setSearchSubmitted] = useState(
+    typeof urlParams.q === "string" ? urlParams.q : "",
+  );
   // Lookup tables for the dropdowns.
   const [clientOptions, setClientOptions] = useState<User[]>([]);
   const [mfgOptions, setMfgOptions] = useState<User[]>([]);
@@ -76,6 +101,67 @@ export default function HomeScreen() {
     setFilterDateFrom("");
     setFilterDateTo("");
   }, []);
+
+  // Mirror filter state into the URL so a refresh restores the same view
+  // (and the URL becomes a shareable bookmark of the current report).
+  useEffect(() => {
+    if (!showFilters) return;
+    const params: Record<string, string> = {};
+    if (filterClient) params.client = filterClient;
+    if (filterManufacturer) params.mfg = filterManufacturer;
+    if (filterAssociate) params.assoc = filterAssociate;
+    if (searchSubmitted) params.q = searchSubmitted;
+    if (filterDateFrom) params.from = filterDateFrom;
+    if (filterDateTo) params.to = filterDateTo;
+    try {
+      router.setParams(params as any);
+    } catch {
+      /* setParams isn't critical for functionality */
+    }
+  }, [
+    showFilters,
+    filterClient,
+    filterManufacturer,
+    filterAssociate,
+    searchSubmitted,
+    filterDateFrom,
+    filterDateTo,
+    router,
+  ]);
+
+  // Helpers to render human-readable chip labels.
+  const userLabel = useCallback(
+    (list: User[], id: string, fallback = "?") => {
+      if (!id) return fallback;
+      const hit = list.find((u) => u.id === id);
+      if (!hit) return fallback;
+      return hit.alias || hit.name || hit.email;
+    },
+    [],
+  );
+  const formatDateRangeChip = useCallback(
+    (from: string, to: string): string => {
+      const fmt = (iso: string): string => {
+        if (!iso) return "";
+        try {
+          const [y, m, d] = iso.split("-").map(Number);
+          const dt = new Date(y, (m || 1) - 1, d || 1);
+          return dt.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year:
+              new Date().getFullYear() === y ? undefined : "numeric",
+          });
+        } catch {
+          return iso;
+        }
+      };
+      if (from && to) return `${fmt(from)} → ${fmt(to)}`;
+      if (from) return `From ${fmt(from)}`;
+      return `Until ${fmt(to)}`;
+    },
+    [],
+  );
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -324,39 +410,94 @@ export default function HomeScreen() {
 
       {showFilters && (
         <View style={styles.filterBar}>
-          <TouchableOpacity
-            testID="toggle-commission-filters"
-            onPress={() => setFiltersOpen((v) => !v)}
-            style={styles.filterToggle}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterBarRow}
           >
-            <Ionicons
-              name={filtersOpen ? "funnel" : "funnel-outline"}
-              size={14}
-              color={activeFilterCount > 0 ? theme.primary : theme.textMuted}
-            />
-            <Text
-              style={[
-                styles.filterToggleText,
-                activeFilterCount > 0 && { color: theme.primary },
-              ]}
-            >
-              FILTERS
-            </Text>
-            {activeFilterCount > 0 && (
-              <View style={styles.filterCount}>
-                <Text style={styles.filterCountText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          {activeFilterCount > 0 && (
             <TouchableOpacity
-              testID="clear-commission-filters"
-              onPress={clearFilters}
-              style={styles.filterClear}
+              testID="toggle-commission-filters"
+              onPress={() => setFiltersOpen((v) => !v)}
+              style={styles.filterToggle}
             >
-              <Text style={styles.filterClearText}>CLEAR</Text>
+              <Ionicons
+                name={filtersOpen ? "funnel" : "funnel-outline"}
+                size={14}
+                color={activeFilterCount > 0 ? theme.primary : theme.textMuted}
+              />
+              <Text
+                style={[
+                  styles.filterToggleText,
+                  activeFilterCount > 0 && { color: theme.primary },
+                ]}
+              >
+                FILTERS
+              </Text>
+              {activeFilterCount > 0 && (
+                <View style={styles.filterCount}>
+                  <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+                </View>
+              )}
             </TouchableOpacity>
-          )}
+
+            {/* Active-filter chips — each tap on ✕ removes only that filter. */}
+            {searchSubmitted ? (
+              <ActiveChip
+                testID="active-chip-query"
+                icon="search"
+                label={`"${searchSubmitted}"`}
+                onClear={() => {
+                  setFilterQuery("");
+                  setSearchSubmitted("");
+                }}
+              />
+            ) : null}
+            {(filterDateFrom || filterDateTo) && (
+              <ActiveChip
+                testID="active-chip-date"
+                icon="calendar-outline"
+                label={formatDateRangeChip(filterDateFrom, filterDateTo)}
+                onClear={() => {
+                  setFilterDateFrom("");
+                  setFilterDateTo("");
+                }}
+              />
+            )}
+            {filterManufacturer ? (
+              <ActiveChip
+                testID="active-chip-mfg"
+                icon="business-outline"
+                label={userLabel(mfgOptions, filterManufacturer, "Workshop")}
+                onClear={() => setFilterManufacturer("")}
+              />
+            ) : null}
+            {filterAssociate ? (
+              <ActiveChip
+                testID="active-chip-assoc"
+                icon="person-circle-outline"
+                label={userLabel(assocOptions, filterAssociate, "Associate")}
+                onClear={() => setFilterAssociate("")}
+              />
+            ) : null}
+            {filterClient ? (
+              <ActiveChip
+                testID="active-chip-client"
+                icon="person-outline"
+                label={userLabel(clientOptions, filterClient, "Client")}
+                onClear={() => setFilterClient("")}
+              />
+            ) : null}
+
+            {activeFilterCount > 0 && (
+              <TouchableOpacity
+                testID="clear-commission-filters"
+                onPress={clearFilters}
+                style={styles.filterClear}
+              >
+                <Text style={styles.filterClearText}>CLEAR ALL</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
         </View>
       )}
 
@@ -786,12 +927,30 @@ const styles = StyleSheet.create({
   bulkDeleteText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
   // ---- Commission filters --------------------------------------------------
   filterBar: {
+    paddingTop: 4,
+    paddingBottom: spacing.sm,
+  },
+  filterBarRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.lg,
-    paddingTop: 4,
-    paddingBottom: spacing.sm,
     gap: spacing.sm,
+  },
+  activeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.primary,
+    backgroundColor: "rgba(218,165,32,0.10)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+    maxWidth: 220,
+  },
+  activeChipText: {
+    color: theme.textPrimary,
+    fontSize: 11,
+    flexShrink: 1,
   },
   filterToggle: {
     flexDirection: "row",
@@ -993,5 +1152,37 @@ function PeoplePicker({
         </ScrollView>
       )}
     </>
+  );
+}
+
+/**
+ * Tiny pill rendered in the filter bar for each active filter. Shows an
+ * icon + label and an inline ✕ that removes only that filter.
+ */
+function ActiveChip({
+  testID,
+  icon,
+  label,
+  onClear,
+}: {
+  testID?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onClear: () => void;
+}) {
+  return (
+    <View style={styles.activeChip} testID={testID}>
+      <Ionicons name={icon} size={12} color={theme.primary} />
+      <Text style={styles.activeChipText} numberOfLines={1}>
+        {label}
+      </Text>
+      <TouchableOpacity
+        onPress={onClear}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        testID={testID ? `${testID}-clear` : undefined}
+      >
+        <Ionicons name="close" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+    </View>
   );
 }
