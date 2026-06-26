@@ -3,8 +3,8 @@ export const theme = {
   bg: "#0A0A0A",
   surface: "#1A1A1A",
   surfaceElevated: "#242424",
-  primary: "#D4AF37", // champagne gold
-  primaryDim: "#8B7128",
+  primary: "#B76E79", // rose gold — site-wide preview (swap back to "#D4AF37" to restore champagne gold)
+  primaryDim: "#7E4C53",
   roseGold: "#B76E79", // rose gold — used by the SOMNIO wordmark in headers
   roseGoldDim: "#7E4C53",
   secondary: "#A67C52",

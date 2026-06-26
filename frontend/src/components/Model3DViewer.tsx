@@ -29,7 +29,7 @@ const VIEWER_HTML = `<!doctype html>
     text-align: center;
     line-height: 1.5;
   }
-  .fallback strong { color: #D4AF37; letter-spacing: 2px; font-size: 11px; display: block; margin-bottom: 8px; }
+  .fallback strong { color: #B76E79; letter-spacing: 2px; font-size: 11px; display: block; margin-bottom: 8px; }
   .err { color: #C8553D; padding: 16px; font-family: sans-serif; font-size: 12px; }
 </style>
 </head>
@@ -123,9 +123,9 @@ const VIEWER_HTML = `<!doctype html>
             geometry.computeBoundingSphere();
             var radius = geometry.boundingSphere ? geometry.boundingSphere.radius : 50;
             var material = new THREE.MeshStandardMaterial({
-              color: 0xD4AF37,
-              metalness: 0.65,
-              roughness: 0.35,
+              color: 0xB76E79,
+              metalness: 0.6,
+              roughness: 0.4,
             });
             var mesh = new THREE.Mesh(geometry, material);
             mesh.rotation.x = -Math.PI / 2;
