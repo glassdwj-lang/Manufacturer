@@ -85,7 +85,11 @@ const VIEWER_HTML = `<!doctype html>
       });
   } else if (e === "stl") {
     // Three.js + STLLoader pipeline for binary/ASCII STL files.
-    var THREE_VER = "0.160.0";
+    // We pin to 0.144.0 - the last version that still ships the legacy
+    // examples/js/ (UMD) loaders. From 0.150+ those files are gone and
+    // only ES-module variants under examples/jsm/ remain, which can't
+    // be loaded via a plain <script> tag.
+    var THREE_VER = "0.144.0";
     load("https://cdn.jsdelivr.net/npm/three@" + THREE_VER + "/build/three.min.js")
       .then(function () {
         return load("https://cdn.jsdelivr.net/npm/three@" + THREE_VER + "/examples/js/loaders/STLLoader.js");

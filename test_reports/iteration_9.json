@@ -1,0 +1,32 @@
+{
+  "summary": "CAD STL preview fix verified end-to-end after fixing a second parse-time regression introduced by E1's change. (1) E1's three.js pin to 0.144 (via VIEWER_HTML template) actually broke the WHOLE Model3DViewer.tsx module at parse time, because the new comment used double backticks ('``examples/js/``') INSIDE the outer template literal — that prematurely closes the template, the next '``' opens an empty tagged-template, and JS evaluates the giant HTML string as if it were a function -> 'TypeError: \"<!doctype html>...\" is not a function'. This crashed /cad-files/<id> and /cad-files/preview/<id> with an Uncaught Error red screen. (2) I replaced the backticks in the comment with plain text and re-tested. After the fix: T1 public STL (threejs.org colored.stl) -> real gold mesh paints inside the iframe canvas (canvas 390x705), no banner. T2 Astronaut.glb -> model-viewer loads (mv.loaded=true), Astronaut visible. T3 tap cube on the seeded engagement-ring-v3.stl row -> three.js+STLLoader load successfully and STLLoader emits its own 'Failed to load STL: ... 404' banner because the seeded secure_url points to https://res.cloudinary.com/demo/raw/upload/v123/engagement-ring-v3.stl which 404s (pre-existing fixture issue, not this bug). The original 'Failed to load STL viewer: [object Event]' banner is gone — script-load step no longer fails (jsdelivr 3.0.144 build/three.min.js, examples/js/loaders/STLLoader.js and examples/js/controls/OrbitControls.js all 200 OK, verified via curl).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/T1_stl.png",
+    "/tmp/T2_glb.png",
+    "/tmp/T3_stl_existing.png"
+  ],
+  "action_items": [
+    "OPTIONAL (seed data): Replace the demo CAD seed URL https://res.cloudinary.com/demo/raw/upload/v123/engagement-ring-v3.stl (returns 404) with a real working STL, e.g. https://threejs.org/examples/models/stl/binary/colored.stl, so the existing test order shows a rendered model on tap. The viewer itself is fine — this is a stale fixture in the order seeder.",
+    "REMINDER: Any future edit to VIEWER_HTML must avoid backticks anywhere inside the outer template literal (they end it). If backticks are needed in the HTML, escape with \\` ."
+  ],
+  "critical_code_review_comments": [
+    "Model3DViewer.tsx defines VIEWER_HTML as a top-level template literal that embeds JS source as a string. ANY backtick inside that string terminates the literal silently. The fix used '``examples/js/``' which broke the entire module at parse time and crashed every screen that imports Model3DViewer (incl. /cad-files/<id> because it imports isPreviewable from the same module).",
+    "The previous-iteration auth playbook compliance is unrelated to this bug, no auth deviation observed."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/Model3DViewer.tsx (replaced '``examples/js/``' / '``examples/jsm/``' double-backticks in the inner JS comment with plain text to keep the outer template literal intact)"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "STL preview path: jsdelivr three@0.144.0 build/three.min.js + examples/js/loaders/STLLoader.js + examples/js/controls/OrbitControls.js. GLB path: jsdelivr @google/model-viewer@3.5.0. To validate in UI: login as admin@somnio.co/Admin@2026, hit /cad-files/preview/<orderId>?url=<encoded>&name=test.stl (use https://threejs.org/examples/models/stl/binary/colored.stl) and wait ~5s. Inspect iframe.contentDocument for '.err' banner — should be absent — and 'canvas' element — should exist with non-zero width. For GLB: model-viewer.loaded becomes true.",
+  "rca_of_issue": "Root cause of original bug (E1's diagnosis correct): three@0.160 dropped examples/js/, so /loaders/STLLoader.js and /controls/OrbitControls.js 404'd from the iframe, the Promise.catch fired 'Failed to load STL viewer: [object Event]'. Fix (pin to 0.144) is correct. SECONDARY BUG E1 introduced and I fixed: the comment in the new fix used '``examples/js/``' double-backticks INSIDE the outer JavaScript template literal `VIEWER_HTML = `...``, which silently closed the template literal and turned the rest into a tagged-template invocation -> TypeError at module-load, red-screen on every /cad-files screen. Reproduction: navigate to /cad-files/<orderId> as admin -> 'Uncaught Error' overlay pointing at Model3DViewer.tsx:89:9. Mitigation: replace inner double-backticks with plain text (committed)."
+}
