@@ -211,58 +211,80 @@ export default function OrderDetail() {
           </View>
         </View>
 
-        {user?.role === "admin" && (
-          <TouchableOpacity
-            testID="cad-files-button"
-            style={styles.customsBtn}
-            onPress={() => router.push(`/(app)/cad-files/${order.id}`)}
-          >
-            <Ionicons name="cube-outline" size={18} color={theme.primary} />
-            <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={styles.customsTitle}>CAD Files</Text>
-              <Text style={styles.customsSub}>
-                Upload .stl / .step / .3dm and other workshop files
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+        {user?.role === "admin" && (() => {
+          const cadCount = order.cad_files?.length || 0;
+          return (
+            <TouchableOpacity
+              testID="cad-files-button"
+              style={styles.customsBtn}
+              onPress={() => router.push(`/(app)/cad-files/${order.id}`)}
+            >
+              <Ionicons name="cube-outline" size={18} color={theme.primary} />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={styles.customsTitle}>
+                  CAD Files{cadCount > 0 ? ` (${cadCount})` : ""}
+                </Text>
+                <Text style={styles.customsSub}>
+                  Upload .stl / .step / .3dm and other workshop files
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
 
-        {(user?.role === "admin" || user?.role === "manufacturer") && (
-          <TouchableOpacity
-            testID="igi-certificates-button"
-            style={styles.customsBtn}
-            onPress={() => router.push(`/(app)/igi-certificates/${order.id}`)}
-          >
-            <Ionicons
-              name="ribbon-outline"
-              size={18}
-              color={theme.primary}
-            />
-            <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={styles.customsTitle}>IGI Certificates</Text>
-              <Text style={styles.customsSub}>
-                Attach digital IGI lab reports (PDF, image, any file type)
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+        {(user?.role === "admin" || user?.role === "manufacturer") && (() => {
+          const igiCount = order.igi_certificates?.length || 0;
+          return (
+            <TouchableOpacity
+              testID="igi-certificates-button"
+              style={styles.customsBtn}
+              onPress={() => router.push(`/(app)/igi-certificates/${order.id}`)}
+            >
+              <Ionicons
+                name="ribbon-outline"
+                size={18}
+                color={theme.primary}
+              />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={styles.customsTitle}>
+                  IGI Certificates{igiCount > 0 ? ` (${igiCount})` : ""}
+                </Text>
+                <Text style={styles.customsSub}>
+                  Attach digital IGI lab reports (PDF, image, any file type)
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
 
-        {(user?.role === "admin" || user?.role === "manufacturer") && (
-          <TouchableOpacity
-            testID="customs-button"
-            style={styles.customsBtn}
-            onPress={() => router.push(`/(app)/customs/${order.id}`)}
-          >
-            <Ionicons name="document-lock-outline" size={18} color={theme.primary} />
-            <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={styles.customsTitle}>{t("order.customs.title")}</Text>
-              <Text style={styles.customsSub}>{t("order.customs.sub")}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+        {(user?.role === "admin" || user?.role === "manufacturer") && (() => {
+          // Customs card counts the combined airway-bill + customs-document
+          // file rosters (the new multi-file flow). The legacy single base64
+          // fields aren't part of the new uploader and so don't count.
+          const c = order.customs || {};
+          const customsCount =
+            (c.airway_bill_files?.length || 0) +
+            (c.customs_files?.length || 0);
+          return (
+            <TouchableOpacity
+              testID="customs-button"
+              style={styles.customsBtn}
+              onPress={() => router.push(`/(app)/customs/${order.id}`)}
+            >
+              <Ionicons name="document-lock-outline" size={18} color={theme.primary} />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={styles.customsTitle}>
+                  {t("order.customs.title")}
+                  {customsCount > 0 ? ` (${customsCount})` : ""}
+                </Text>
+                <Text style={styles.customsSub}>{t("order.customs.sub")}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
 
         <TouchableOpacity
           testID="digital-dna-button"
