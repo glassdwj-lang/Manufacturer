@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from _associate_importer import get_last_run, run_import_and_record
 from _translation import COUNTRY_LIST, language_for_country, translate as translate_text
 from deps import CHINA_TZ, db, require_roles
-from helpers import _next_manufacturer_alias, hash_password, now_china_iso
+from helpers import _next_manufacturer_alias, hash_password, now_china_iso, sanitize_manufacturer_contacts
 from phases import build_initial_steps
 from pydantic import BaseModel
 
@@ -673,4 +673,119 @@ async def admin_email_cross_order_cad_files(
             if isinstance(provider_response, dict)
             else None
         ),
+    }
+
+
+# ---- Seed: CAD & Render vendors -------------------------------------------
+# Idempotent — running this multiple times will not duplicate vendors. Useful
+# from the Atelier Debug screen to spin up a demo directory quickly.
+@router.post("/seed-cad-renderers")
+async def seed_cad_renderers(user=Depends(require_roles("admin"))):
+    """Seeds 4 production-grade CAD/Render vendor accounts with realistic
+    aliases, country, contacts roster and the standard temporary password
+    ``Cad@2026``. Returns the list of created/existing vendor IDs."""
+    AT = chr(64)
+    DOMAIN = AT + "somnio.co"
+    vendors = [
+        {
+            "email": "atelier3d-geneva" + DOMAIN,
+            "name": "Atelier 3D Geneva",
+            "alias": "Somnio.Co Render Studio I",
+            "country": "CH",
+            "phone_dial_code": "+41",
+            "phone_number": "22 555 0184",
+            "city": "Geneva",
+            "address_line1": "Rue du Rhône 65",
+            "contacts": [
+                {"name": "Claire Moreau", "role": "Lead Render Artist", "email": "claire" + AT + "atelier3d.ch", "phone": "+41 22 555 0184"},
+                {"name": "Henri Dubois", "role": "CAD Engineer", "email": "henri" + AT + "atelier3d.ch", "phone": "+41 22 555 0185"},
+                {"name": "", "role": "", "email": "", "phone": ""},
+            ],
+        },
+        {
+            "email": "lumiere-paris" + DOMAIN,
+            "name": "Lumière Render Studio",
+            "alias": "Somnio.Co Render Studio II",
+            "country": "FR",
+            "phone_dial_code": "+33",
+            "phone_number": "1 42 78 0149",
+            "city": "Paris",
+            "address_line1": "8 Rue Saint-Honoré",
+            "contacts": [
+                {"name": "Élodie Laurent", "role": "Creative Director", "email": "elodie" + AT + "lumiere.fr", "phone": "+33 1 42 78 0149"},
+                {"name": "Antoine Garnier", "role": "Senior CAD Modeller", "email": "antoine" + AT + "lumiere.fr", "phone": "+33 1 42 78 0150"},
+                {"name": "Camille Roux", "role": "Render Specialist", "email": "camille" + AT + "lumiere.fr", "phone": "+33 1 42 78 0151"},
+            ],
+        },
+        {
+            "email": "hyperrender-tokyo" + DOMAIN,
+            "name": "Hyper-Render Studio Tokyo",
+            "alias": "Somnio.Co Render Studio III",
+            "country": "JP",
+            "phone_dial_code": "+81",
+            "phone_number": "3 5413 7220",
+            "city": "Tokyo",
+            "address_line1": "Ginza 7-12-15, Chuo",
+            "contacts": [
+                {"name": "Yuki Tanaka", "role": "Lead Artist", "email": "yuki" + AT + "hyperrender.jp", "phone": "+81 3 5413 7220"},
+                {"name": "Kenji Nakamura", "role": "STL/CAD Engineer", "email": "kenji" + AT + "hyperrender.jp", "phone": "+81 3 5413 7221"},
+                {"name": "", "role": "", "email": "", "phone": ""},
+            ],
+        },
+        {
+            "email": "vector-nyc" + DOMAIN,
+            "name": "Vector Studio NYC",
+            "alias": "Somnio.Co Render Studio IV",
+            "country": "US",
+            "phone_dial_code": "+1",
+            "phone_number": "212 555 0188",
+            "city": "New York",
+            "state": "NY",
+            "address_line1": "47 W 47th St, Suite 1108",
+            "contacts": [
+                {"name": "Sasha Reilly", "role": "Studio Lead", "email": "sasha" + AT + "vector-nyc.com", "phone": "+1 212 555 0188"},
+                {"name": "Marcus Lee", "role": "Senior CAD Designer", "email": "marcus" + AT + "vector-nyc.com", "phone": "+1 212 555 0189"},
+                {"name": "Priya Kapoor", "role": "Render Artist", "email": "priya" + AT + "vector-nyc.com", "phone": "+1 212 555 0190"},
+            ],
+        },
+    ]
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+    pwd_hash = hash_password("Cad" + AT + "2026")
+    for spec in vendors:
+        existing = await db.users.find_one({"email": spec["email"]})
+        if existing:
+            skipped.append({"id": existing["id"], "email": spec["email"], "name": existing.get("name")})
+            continue
+        contacts = sanitize_manufacturer_contacts(spec["contacts"])
+        user_id = str(uuid.uuid4())
+        await db.users.insert_one(
+            {
+                "id": user_id,
+                "email": spec["email"],
+                "hashed_password": pwd_hash,
+                "name": spec["name"],
+                "role": "cad_renderer",
+                "associate_id": None,
+                "auto_forward": False,
+                "alias": spec["alias"],
+                "country": spec.get("country"),
+                "phone_dial_code": spec.get("phone_dial_code"),
+                "phone_number": spec.get("phone_number"),
+                "city": spec.get("city"),
+                "state": spec.get("state"),
+                "address_line1": spec.get("address_line1"),
+                "contacts": contacts,
+                "primary_contact_id": contacts[0]["id"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        created.append({"id": user_id, "email": spec["email"], "name": spec["name"]})
+
+    return {
+        "ok": True,
+        "created": created,
+        "skipped": skipped,
+        "total": len(created) + len(skipped),
     }
