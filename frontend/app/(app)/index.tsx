@@ -52,28 +52,26 @@ export default function HomeScreen() {
   // jewelry-type search, and a date window. Filter state lives in this
   // component (not URL) so a refresh resets cleanly.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filterClient, setFilterClient] = useState<string>(
-    typeof urlParams.client === "string" ? urlParams.client : "",
-  );
-  const [filterManufacturer, setFilterManufacturer] = useState<string>(
-    typeof urlParams.mfg === "string" ? urlParams.mfg : "",
-  );
-  const [filterAssociate, setFilterAssociate] = useState<string>(
-    typeof urlParams.assoc === "string" ? urlParams.assoc : "",
-  );
-  const [filterQuery, setFilterQuery] = useState(
-    typeof urlParams.q === "string" ? urlParams.q : "",
-  );
-  const [filterDateFrom, setFilterDateFrom] = useState(
-    typeof urlParams.from === "string" ? urlParams.from : "",
-  );
-  const [filterDateTo, setFilterDateTo] = useState(
-    typeof urlParams.to === "string" ? urlParams.to : "",
-  );
-  // Debounced copy of the search query so we don't hit the API on every key.
-  const [searchSubmitted, setSearchSubmitted] = useState(
-    typeof urlParams.q === "string" ? urlParams.q : "",
-  );
+  // ---- Filter state model ------------------------------------------------
+  // "Applied" filters are what's actually being sent to the API and shown in
+  // the chip strip / URL. "Draft" filters mirror the form controls inside
+  // the panel and only commit to applied when the admin taps GO. This
+  // prevents the list from flickering on every dropdown tap.
+  const initialApplied = {
+    client: typeof urlParams.client === "string" ? urlParams.client : "",
+    mfg: typeof urlParams.mfg === "string" ? urlParams.mfg : "",
+    assoc: typeof urlParams.assoc === "string" ? urlParams.assoc : "",
+    q: typeof urlParams.q === "string" ? urlParams.q : "",
+    from: typeof urlParams.from === "string" ? urlParams.from : "",
+    to: typeof urlParams.to === "string" ? urlParams.to : "",
+  };
+  const [appliedFilters, setAppliedFilters] = useState(initialApplied);
+  const [filterClient, setFilterClient] = useState<string>(initialApplied.client);
+  const [filterManufacturer, setFilterManufacturer] = useState<string>(initialApplied.mfg);
+  const [filterAssociate, setFilterAssociate] = useState<string>(initialApplied.assoc);
+  const [filterQuery, setFilterQuery] = useState(initialApplied.q);
+  const [filterDateFrom, setFilterDateFrom] = useState(initialApplied.from);
+  const [filterDateTo, setFilterDateTo] = useState(initialApplied.to);
   // Lookup tables for the dropdowns.
   const [clientOptions, setClientOptions] = useState<User[]>([]);
   const [mfgOptions, setMfgOptions] = useState<User[]>([]);
@@ -83,23 +81,74 @@ export default function HomeScreen() {
   const showFilters = user?.role === "admin" || user?.role === "associate";
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (filterClient) n += 1;
-    if (filterManufacturer) n += 1;
-    if (filterAssociate) n += 1;
-    if (searchSubmitted) n += 1;
-    if (filterDateFrom) n += 1;
-    if (filterDateTo) n += 1;
+    if (appliedFilters.client) n += 1;
+    if (appliedFilters.mfg) n += 1;
+    if (appliedFilters.assoc) n += 1;
+    if (appliedFilters.q) n += 1;
+    if (appliedFilters.from) n += 1;
+    if (appliedFilters.to) n += 1;
     return n;
-  }, [filterClient, filterManufacturer, filterAssociate, searchSubmitted, filterDateFrom, filterDateTo]);
+  }, [appliedFilters]);
+
+  /** Commit the draft form into ``appliedFilters`` (the source of truth that
+   * drives the API + URL + chip strip). Triggered by the GO button or by
+   * pressing return in the search field. */
+  const applyDraft = useCallback(() => {
+    setAppliedFilters({
+      client: filterClient,
+      mfg: filterManufacturer,
+      assoc: filterAssociate,
+      q: filterQuery.trim(),
+      from: filterDateFrom,
+      to: filterDateTo,
+    });
+    setFiltersOpen(false);
+  }, [
+    filterClient,
+    filterManufacturer,
+    filterAssociate,
+    filterQuery,
+    filterDateFrom,
+    filterDateTo,
+  ]);
+
+  const draftHasChanges = useMemo(() => {
+    return (
+      filterClient !== appliedFilters.client ||
+      filterManufacturer !== appliedFilters.mfg ||
+      filterAssociate !== appliedFilters.assoc ||
+      filterQuery.trim() !== appliedFilters.q ||
+      filterDateFrom !== appliedFilters.from ||
+      filterDateTo !== appliedFilters.to
+    );
+  }, [
+    appliedFilters,
+    filterClient,
+    filterManufacturer,
+    filterAssociate,
+    filterQuery,
+    filterDateFrom,
+    filterDateTo,
+  ]);
 
   const clearFilters = useCallback(() => {
     setFilterClient("");
     setFilterManufacturer("");
     setFilterAssociate("");
     setFilterQuery("");
-    setSearchSubmitted("");
     setFilterDateFrom("");
     setFilterDateTo("");
+    setAppliedFilters({ client: "", mfg: "", assoc: "", q: "", from: "", to: "" });
+  }, []);
+
+  const clearOne = useCallback((key: keyof typeof appliedFilters) => {
+    if (key === "client") setFilterClient("");
+    if (key === "mfg") setFilterManufacturer("");
+    if (key === "assoc") setFilterAssociate("");
+    if (key === "q") setFilterQuery("");
+    if (key === "from") setFilterDateFrom("");
+    if (key === "to") setFilterDateTo("");
+    setAppliedFilters((p) => ({ ...p, [key]: "" }));
   }, []);
 
   // Mirror filter state into the URL so a refresh restores the same view
@@ -107,27 +156,18 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!showFilters) return;
     const params: Record<string, string> = {};
-    if (filterClient) params.client = filterClient;
-    if (filterManufacturer) params.mfg = filterManufacturer;
-    if (filterAssociate) params.assoc = filterAssociate;
-    if (searchSubmitted) params.q = searchSubmitted;
-    if (filterDateFrom) params.from = filterDateFrom;
-    if (filterDateTo) params.to = filterDateTo;
+    if (appliedFilters.client) params.client = appliedFilters.client;
+    if (appliedFilters.mfg) params.mfg = appliedFilters.mfg;
+    if (appliedFilters.assoc) params.assoc = appliedFilters.assoc;
+    if (appliedFilters.q) params.q = appliedFilters.q;
+    if (appliedFilters.from) params.from = appliedFilters.from;
+    if (appliedFilters.to) params.to = appliedFilters.to;
     try {
       router.setParams(params as any);
     } catch {
       /* setParams isn't critical for functionality */
     }
-  }, [
-    showFilters,
-    filterClient,
-    filterManufacturer,
-    filterAssociate,
-    searchSubmitted,
-    filterDateFrom,
-    filterDateTo,
-    router,
-  ]);
+  }, [showFilters, appliedFilters, router]);
 
   // Helpers to render human-readable chip labels.
   const userLabel = useCallback(
@@ -180,12 +220,12 @@ export default function HomeScreen() {
   const load = useCallback(async () => {
     try {
       const list = await api.listOrders({
-        client_id: filterClient || undefined,
-        manufacturer_id: filterManufacturer || undefined,
-        associate_id: filterAssociate || undefined,
-        q: searchSubmitted || undefined,
-        date_from: filterDateFrom || undefined,
-        date_to: filterDateTo || undefined,
+        client_id: appliedFilters.client || undefined,
+        manufacturer_id: appliedFilters.mfg || undefined,
+        associate_id: appliedFilters.assoc || undefined,
+        q: appliedFilters.q || undefined,
+        date_from: appliedFilters.from || undefined,
+        date_to: appliedFilters.to || undefined,
       });
       setOrders(list);
       if (user && (user.role === "admin" || user.role === "associate")) {
@@ -204,15 +244,7 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [
-    user,
-    filterClient,
-    filterManufacturer,
-    filterAssociate,
-    searchSubmitted,
-    filterDateFrom,
-    filterDateTo,
-  ]);
+  }, [user, appliedFilters]);
 
   const bulkDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -441,50 +473,47 @@ export default function HomeScreen() {
             </TouchableOpacity>
 
             {/* Active-filter chips — each tap on ✕ removes only that filter. */}
-            {searchSubmitted ? (
+            {appliedFilters.q ? (
               <ActiveChip
                 testID="active-chip-query"
                 icon="search"
-                label={`"${searchSubmitted}"`}
-                onClear={() => {
-                  setFilterQuery("");
-                  setSearchSubmitted("");
-                }}
+                label={`"${appliedFilters.q}"`}
+                onClear={() => clearOne("q")}
               />
             ) : null}
-            {(filterDateFrom || filterDateTo) && (
+            {(appliedFilters.from || appliedFilters.to) && (
               <ActiveChip
                 testID="active-chip-date"
                 icon="calendar-outline"
-                label={formatDateRangeChip(filterDateFrom, filterDateTo)}
+                label={formatDateRangeChip(appliedFilters.from, appliedFilters.to)}
                 onClear={() => {
-                  setFilterDateFrom("");
-                  setFilterDateTo("");
+                  clearOne("from");
+                  clearOne("to");
                 }}
               />
             )}
-            {filterManufacturer ? (
+            {appliedFilters.mfg ? (
               <ActiveChip
                 testID="active-chip-mfg"
                 icon="business-outline"
-                label={userLabel(mfgOptions, filterManufacturer, "Workshop")}
-                onClear={() => setFilterManufacturer("")}
+                label={userLabel(mfgOptions, appliedFilters.mfg, "Workshop")}
+                onClear={() => clearOne("mfg")}
               />
             ) : null}
-            {filterAssociate ? (
+            {appliedFilters.assoc ? (
               <ActiveChip
                 testID="active-chip-assoc"
                 icon="person-circle-outline"
-                label={userLabel(assocOptions, filterAssociate, "Associate")}
-                onClear={() => setFilterAssociate("")}
+                label={userLabel(assocOptions, appliedFilters.assoc, "Associate")}
+                onClear={() => clearOne("assoc")}
               />
             ) : null}
-            {filterClient ? (
+            {appliedFilters.client ? (
               <ActiveChip
                 testID="active-chip-client"
                 icon="person-outline"
-                label={userLabel(clientOptions, filterClient, "Client")}
-                onClear={() => setFilterClient("")}
+                label={userLabel(clientOptions, appliedFilters.client, "Client")}
+                onClear={() => clearOne("client")}
               />
             ) : null}
 
@@ -504,26 +533,17 @@ export default function HomeScreen() {
       {showFilters && filtersOpen && (
         <View style={styles.filterPanel}>
           <Text style={styles.filterLabel}>SEARCH JEWELRY TYPE / NAME</Text>
-          <View style={styles.searchRow}>
-            <TextInput
-              testID="filter-search-input"
-              value={filterQuery}
-              onChangeText={setFilterQuery}
-              onSubmitEditing={() => setSearchSubmitted(filterQuery.trim())}
-              returnKeyType="search"
-              placeholder="e.g. ring, earring, necklace…"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              style={styles.searchInput}
-            />
-            <TouchableOpacity
-              testID="filter-search-apply"
-              onPress={() => setSearchSubmitted(filterQuery.trim())}
-              style={styles.searchBtn}
-            >
-              <Ionicons name="search" size={14} color="#0A0A0A" />
-            </TouchableOpacity>
-          </View>
+          <TextInput
+            testID="filter-search-input"
+            value={filterQuery}
+            onChangeText={setFilterQuery}
+            onSubmitEditing={applyDraft}
+            returnKeyType="search"
+            placeholder="e.g. ring, earring, necklace…"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            style={styles.searchInput}
+          />
 
           <Text style={styles.filterLabel}>DATE RANGE</Text>
           <View style={styles.dateRow}>
@@ -595,6 +615,34 @@ export default function HomeScreen() {
             renderLabel={(u) => u.name}
             renderSub={(u) => u.email}
           />
+
+          {/* GO + cancel row — filters only commit when GO is tapped. */}
+          <View style={styles.goRow}>
+            <TouchableOpacity
+              testID="filter-cancel"
+              onPress={() => {
+                // Discard any draft changes and close.
+                setFilterClient(appliedFilters.client);
+                setFilterManufacturer(appliedFilters.mfg);
+                setFilterAssociate(appliedFilters.assoc);
+                setFilterQuery(appliedFilters.q);
+                setFilterDateFrom(appliedFilters.from);
+                setFilterDateTo(appliedFilters.to);
+                setFiltersOpen(false);
+              }}
+              style={styles.goCancelBtn}
+            >
+              <Text style={styles.goCancelText}>CANCEL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="filter-go"
+              onPress={applyDraft}
+              style={[styles.goBtn, !draftHasChanges && styles.goBtnDim]}
+            >
+              <Ionicons name="checkmark" size={14} color="#0A0A0A" />
+              <Text style={styles.goBtnText}>GO</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -1055,6 +1103,38 @@ const styles = StyleSheet.create({
   pickerRowSel: { backgroundColor: "rgba(218,165,32,0.08)" },
   pickerRowName: { color: theme.textPrimary, fontSize: 13 },
   pickerRowSub: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  goRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+    marginTop: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  goCancelBtn: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  goCancelText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: "600",
+  },
+  goBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: theme.primary,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+  },
+  goBtnDim: { opacity: 0.55 },
+  goBtnText: { color: "#0A0A0A", fontSize: 12, fontWeight: "700", letterSpacing: 3 },
 });
 
 // Inline single-select people picker reused for client / manufacturer /
