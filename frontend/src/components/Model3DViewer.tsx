@@ -123,7 +123,7 @@ const VIEWER_HTML = `<!doctype html>
             geometry.computeBoundingSphere();
             var radius = geometry.boundingSphere ? geometry.boundingSphere.radius : 50;
             var material = new THREE.MeshStandardMaterial({
-              color: 0xB87333,
+              color: 0xA05A2A,
               metalness: 0.6,
               roughness: 0.4,
             });

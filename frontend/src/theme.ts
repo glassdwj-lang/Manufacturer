@@ -4,10 +4,10 @@ export const theme = {
   bg: "#0A0A0A",
   surface: "#1A1A1A",
   surfaceElevated: "#242424",
-  primary: "#B87333", // copper — used for buttons, eyebrows, icons & logo
-  primaryDim: "#6E461F",
-  roseGold: "#B87333", // alias so the logo stays in sync with primary
-  roseGoldDim: "#6E461F",
+  primary: "#A05A2A", // copper — deeper burnt-copper hue
+  primaryDim: "#5E351A",
+  roseGold: "#A05A2A",
+  roseGoldDim: "#5E351A",
   secondary: "#A67C52",
   // Neutral whites for body text — high contrast on the dark surfaces.
   textPrimary: "#F5F5F5",
