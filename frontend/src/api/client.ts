@@ -97,6 +97,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+export type ManufacturerContact = {
+  id?: string;
+  name?: string | null;
+  company_title?: string | null;
+  country?: string | null;
+  mobile_number?: string | null;
+  whatsapp_number?: string | null;
+  wechat_id?: string | null;
+  other_label?: string | null;
+  other_value?: string | null;
+  email?: string | null;
+};
+
 export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
@@ -274,6 +287,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ password }),
     }),
+  setManufacturerContacts: (
+    userId: string,
+    payload: { contacts: ManufacturerContact[]; primary_contact_id: string | null },
+  ) =>
+    request<{ ok: boolean; contacts: ManufacturerContact[]; primary_contact_id: string | null }>(
+      `/users/${userId}/contacts`,
+      { method: "PUT", body: JSON.stringify(payload) },
+    ),
   // ---- Soft-delete / recycle bin ----
   softDeleteOrder: (orderId: string) =>
     request<{ ok: boolean; deleted_at?: string }>(`/orders/${orderId}`, {

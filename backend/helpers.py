@@ -144,7 +144,7 @@ def language_for_user(user: dict) -> tuple[str, str]:
 def user_to_public(u: dict) -> dict:
     country = u.get("country") or "AU"
     lang_tag, lang_name = language_for_country(country)
-    return {
+    pub = {
         "id": u["id"],
         "email": u["email"],
         "name": u["name"],
@@ -158,6 +158,67 @@ def user_to_public(u: dict) -> dict:
         "language_name": lang_name,
         "preferred_language": u.get("preferred_language") or None,
     }
+    if u.get("role") == "manufacturer":
+        pub["contacts"] = sanitize_manufacturer_contacts(u.get("contacts"))
+        pub["primary_contact_id"] = u.get("primary_contact_id")
+    return pub
+
+
+# ---- Manufacturer contacts --------------------------------------------------
+# Each manufacturer maintains exactly 3 contact slots. Missing entries are
+# padded with empty placeholders so the front-end can render a stable grid.
+import uuid as _uuid_lib  # noqa: E402
+
+CONTACT_FIELDS = (
+    "name",
+    "company_title",
+    "country",
+    "mobile_number",
+    "whatsapp_number",
+    "wechat_id",
+    "other_label",
+    "other_value",
+    "email",
+)
+
+
+def _empty_contact() -> dict:
+    row = {"id": str(_uuid_lib.uuid4())}
+    for f in CONTACT_FIELDS:
+        row[f] = None
+    return row
+
+
+def sanitize_manufacturer_contacts(raw) -> list[dict]:
+    """Coerce whatever's on disk into exactly 3 valid contact rows."""
+    out: list[dict] = []
+    if isinstance(raw, list):
+        for entry in raw[:3]:
+            if not isinstance(entry, dict):
+                continue
+            row = {"id": entry.get("id") or str(_uuid_lib.uuid4())}
+            for f in CONTACT_FIELDS:
+                v = entry.get(f)
+                if isinstance(v, str):
+                    v = v.strip() or None
+                row[f] = v
+            out.append(row)
+    while len(out) < 3:
+        out.append(_empty_contact())
+    return out
+
+
+def normalize_primary_contact_id(contacts: list[dict], primary_id: str | None) -> str | None:
+    if not contacts:
+        return None
+    ids = [c.get("id") for c in contacts]
+    if primary_id and primary_id in ids:
+        return primary_id
+    # Default to the first contact that has a name (otherwise the first slot).
+    for c in contacts:
+        if c.get("name"):
+            return c.get("id")
+    return ids[0]
 
 
 def strip_order_for_role(order: dict, user: dict) -> dict:

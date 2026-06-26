@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from _activity_log import record_event
 from _associate_importer import SOURCE_TAG
 from deps import db, get_current_user, require_roles
-from helpers import _next_manufacturer_alias, hash_password, user_to_public, SUPPORTED_MANUAL_LANGS
-from models import AutoForwardToggle, LanguagePreference, UserAliasUpdate, UserCountryUpdate, UserCreate, UserPasswordUpdate, UserProfileUpdate
+from helpers import _next_manufacturer_alias, hash_password, normalize_primary_contact_id, sanitize_manufacturer_contacts, user_to_public, SUPPORTED_MANUAL_LANGS
+from models import AutoForwardToggle, LanguagePreference, ManufacturerContactsUpdate, UserAliasUpdate, UserCountryUpdate, UserCreate, UserPasswordUpdate, UserProfileUpdate
 
 router = APIRouter(tags=["users"])
 
@@ -63,6 +63,10 @@ async def admin_create_user(data: UserCreate, request: Request, user=Depends(req
     }
     if data.role == "manufacturer":
         user_doc["alias"] = await _next_manufacturer_alias()
+        # Seed three empty contact slots so the manufacturer always has a stable
+        # roster shape downstream.
+        user_doc["contacts"] = sanitize_manufacturer_contacts(None)
+        user_doc["primary_contact_id"] = user_doc["contacts"][0]["id"]
     await db.users.insert_one(user_doc)
     return user_to_public(user_doc)
 
@@ -89,6 +93,12 @@ async def admin_get_user(
         "address_line2",
     ):
         pub[k] = target.get(k)
+    if target.get("role") == "manufacturer":
+        # ``user_to_public`` already adds contacts; ensure they're present even
+        # for legacy manufacturers that pre-date the contacts feature.
+        if not pub.get("contacts"):
+            pub["contacts"] = sanitize_manufacturer_contacts(None)
+            pub["primary_contact_id"] = pub["contacts"][0]["id"]
     return pub
 
 
@@ -132,6 +142,48 @@ async def admin_update_user(
     )
     request.state.activity_logged = True
     return user_to_public(fresh)
+
+
+@router.put("/users/{user_id}/contacts")
+async def admin_update_manufacturer_contacts(
+    user_id: str,
+    body: ManufacturerContactsUpdate,
+    request: Request,
+    user=Depends(require_roles("admin")),
+):
+    """Replace the manufacturer's contact roster wholesale and (optionally)
+    designate one of the contacts as the primary. The roster is always
+    persisted as exactly 3 slots — extras are dropped, missing slots are
+    padded with empty placeholders."""
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") != "manufacturer":
+        raise HTTPException(
+            status_code=400, detail="Contacts are only used for manufacturers."
+        )
+    raw = [c.model_dump() for c in (body.contacts or [])]
+    contacts = sanitize_manufacturer_contacts(raw)
+    primary = normalize_primary_contact_id(contacts, body.primary_contact_id)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"contacts": contacts, "primary_contact_id": primary}},
+    )
+    filled = sum(1 for c in contacts if any(c.get(f) for f in ("name", "email", "mobile_number")))
+    await record_event(
+        db,
+        request,
+        "manufacturer.contacts.updated",
+        user=user,
+        meta={
+            "target_user_id": user_id,
+            "target_email": target.get("email"),
+            "filled_slots": filled,
+            "primary_contact_id": primary,
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True, "contacts": contacts, "primary_contact_id": primary}
 
 
 @router.put("/users/{user_id}/password")

@@ -196,6 +196,44 @@ export default function UsersScreen() {
                       </TouchableOpacity>
                     )}
                     <Text style={styles.userEmail}>{u.email}</Text>
+                    {(() => {
+                      // Surface the primary contact (name + title) right under
+                      // the workshop email so admins can see *who* to call
+                      // without opening the edit screen. Falls back to the
+                      // first contact with a name if no primary is flagged.
+                      const list = (u as any).contacts as
+                        | {
+                            id?: string;
+                            name?: string | null;
+                            company_title?: string | null;
+                          }[]
+                        | undefined;
+                      if (!list || list.length === 0) return null;
+                      const primaryId = (u as any).primary_contact_id as
+                        | string
+                        | null
+                        | undefined;
+                      const primary =
+                        list.find((c) => c.id === primaryId) ||
+                        list.find((c) => (c.name || "").trim()) ||
+                        null;
+                      if (!primary || !(primary.name || "").trim()) return null;
+                      const subtitle = primary.company_title
+                        ? `${primary.name}  ·  ${primary.company_title}`
+                        : primary.name;
+                      return (
+                        <View style={styles.contactRow}>
+                          <Ionicons
+                            name="person-outline"
+                            size={11}
+                            color={theme.textMuted}
+                          />
+                          <Text style={styles.contactText} numberOfLines={1}>
+                            {subtitle}
+                          </Text>
+                        </View>
+                      );
+                    })()}
                   </>
                 ) : (
                   <>
@@ -269,6 +307,13 @@ const styles = StyleSheet.create({
   },
   userName: { color: theme.textPrimary, fontSize: 14 },
   realName: { color: theme.textSecondary, fontSize: 11, marginTop: 2, fontStyle: "italic" },
+  contactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  contactText: { color: theme.textSecondary, fontSize: 11, flexShrink: 1 },
   aliasRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   aliasLabel: { color: theme.textMuted, fontSize: 11, letterSpacing: 1 },
   aliasValue: { color: theme.primary, fontSize: 12, letterSpacing: 1, marginRight: 4 },

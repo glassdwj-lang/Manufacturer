@@ -124,3 +124,24 @@ class CustomsDocs(BaseModel):
 
 class BulkDeletePayload(BaseModel):
     ids: List[str]
+
+
+# ---- Manufacturer contact roster --------------------------------------------
+# Every manufacturer keeps a roster of up to 3 contact people; any one of
+# them can be designated the primary contact.
+class ManufacturerContact(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    company_title: Optional[str] = None
+    country: Optional[str] = None  # optional per-contact override (defaults to manufacturer's country)
+    mobile_number: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    wechat_id: Optional[str] = None
+    other_label: Optional[str] = None
+    other_value: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ManufacturerContactsUpdate(BaseModel):
+    contacts: List[ManufacturerContact] = []
+    primary_contact_id: Optional[str] = None

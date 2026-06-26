@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
-import { api, Role, User } from "@/src/api/client";
+import { api, ManufacturerContact, Role, User } from "@/src/api/client";
 import { ROLE_LABELS, spacing, theme } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { notify } from "@/src/utils/confirm";
@@ -72,6 +72,29 @@ export default function CreateUserScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Manufacturer-only: 3 contact people + primary selector.
+  // We seed three empty slots so the UI is rendered identically whether
+  // creating a new manufacturer or editing an existing one.
+  const emptyContact = (): ManufacturerContact => ({
+    id: `tmp-${Math.random().toString(36).slice(2, 10)}`,
+    name: "",
+    company_title: "",
+    country: "",
+    mobile_number: "",
+    whatsapp_number: "",
+    wechat_id: "",
+    other_label: "",
+    other_value: "",
+    email: "",
+  });
+  const [contacts, setContacts] = useState<ManufacturerContact[]>(() => [
+    emptyContact(),
+    emptyContact(),
+    emptyContact(),
+  ]);
+  const [primaryContactId, setPrimaryContactId] = useState<string | null>(null);
+  const [expandedContactIdx, setExpandedContactIdx] = useState<number>(0);
+
   useEffect(() => {
     (async () => {
       try {
@@ -96,6 +119,14 @@ export default function CreateUserScreen() {
           if (u.role === "client" && u.associate_id) {
             const owner = a.find((x: User) => x.id === u.associate_id);
             if (owner) setSelectedAssociate(owner);
+          }
+          // Hydrate the contacts roster for manufacturers. The backend always
+          // returns three slots — we just trust it.
+          if (u.role === "manufacturer" && Array.isArray(u.contacts)) {
+            const padded: ManufacturerContact[] = [...u.contacts];
+            while (padded.length < 3) padded.push(emptyContact());
+            setContacts(padded.slice(0, 3));
+            setPrimaryContactId(u.primary_contact_id || padded[0]?.id || null);
           }
         }
       } catch {
@@ -149,6 +180,63 @@ export default function CreateUserScreen() {
     setPhoneNumber(formatAsYouType(next, country));
   };
 
+  // Helpers for the manufacturer contact roster -------------------------------
+  const updateContact = (
+    idx: number,
+    patch: Partial<ManufacturerContact>,
+  ): void => {
+    setContacts((prev) =>
+      prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)),
+    );
+  };
+
+  /** Apply phone-format reformatting using the contact's own country (or the
+   * manufacturer's country as fallback) so each row's mobile / WhatsApp
+   * display obeys libphonenumber's rules without overwriting the digits. */
+  const contactPhoneCountry = (c: ManufacturerContact): string =>
+    (c.country && c.country.trim()) || country;
+
+  const handleContactPhone = (
+    idx: number,
+    field: "mobile_number" | "whatsapp_number",
+    value: string,
+  ) => {
+    const cc = contactPhoneCountry(contacts[idx]);
+    updateContact(idx, { [field]: formatAsYouType(value, cc) } as any);
+  };
+
+  const persistContacts = async (uid: string) => {
+    // Strip the throw-away ``tmp-…`` ids we used to keep React happy so the
+    // backend assigns real uuids on first save.
+    const cleaned: ManufacturerContact[] = contacts.map((c) => ({
+      id: c.id && !String(c.id).startsWith("tmp-") ? c.id : undefined,
+      name: c.name || null,
+      company_title: c.company_title || null,
+      country: c.country || null,
+      mobile_number: c.mobile_number || null,
+      whatsapp_number: c.whatsapp_number || null,
+      wechat_id: c.wechat_id || null,
+      other_label: c.other_label || null,
+      other_value: c.other_value || null,
+      email: c.email || null,
+    }));
+    // Map the local primary id to the resolved id (post backend sanitization
+    // it'll be either the original uuid or a freshly generated one).
+    const primaryIdx = contacts.findIndex((c) => c.id === primaryContactId);
+    let primaryToSend: string | null = null;
+    if (primaryIdx >= 0 && cleaned[primaryIdx]?.id) {
+      primaryToSend = cleaned[primaryIdx]!.id!;
+    }
+    const res = await api.setManufacturerContacts(uid, {
+      contacts: cleaned,
+      primary_contact_id: primaryToSend,
+    });
+    // Keep our local copy in sync with the server's canonical (id-assigned)
+    // form so subsequent saves work even on fresh creates.
+    setContacts(res.contacts);
+    setPrimaryContactId(res.primary_contact_id);
+  };
+
   const submit = async () => {
     if (!name.trim() || !email.trim()) {
       setError("Name and email are required.");
@@ -185,6 +273,9 @@ export default function CreateUserScreen() {
         if (showPasswordReset && password.trim()) {
           await api.setUserPassword(userId, password);
         }
+        if (role === "manufacturer") {
+          await persistContacts(userId);
+        }
         notify(
           "User updated",
           showPasswordReset && password.trim()
@@ -207,6 +298,19 @@ export default function CreateUserScreen() {
           address_line1: addressLine1.trim() || null,
           address_line2: addressLine2.trim() || null,
         } as any);
+        // For a freshly created manufacturer, re-fetch by email to get the
+        // server-assigned id and then write the contacts.
+        if (role === "manufacturer") {
+          try {
+            const all = await api.listUsers("manufacturer");
+            const just = all.find(
+              (u: User) => u.email.toLowerCase() === email.trim().toLowerCase(),
+            );
+            if (just) await persistContacts(just.id);
+          } catch {
+            /* contacts will be empty until the admin re-opens the edit screen */
+          }
+        }
         notify(
           `${role === "manufacturer" ? "Workshop" : "Client"} created`,
           `${name.trim()} has been added.`,
@@ -567,6 +671,179 @@ export default function CreateUserScreen() {
             </>
           )}
 
+          {role === "manufacturer" && (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: spacing.xl }]}>
+                CONTACT PEOPLE
+              </Text>
+              <Text style={styles.sectionHint}>
+                Add up to 3 contacts at the workshop. Tap the star to choose
+                which one is the primary contact for orders & escalations.
+              </Text>
+              {contacts.map((c, idx) => {
+                const open = expandedContactIdx === idx;
+                const isPrimary = primaryContactId === c.id;
+                const previewName = c.name?.trim() || `Contact ${idx + 1}`;
+                const previewTitle = c.company_title?.trim() || "—";
+                const cc = contactPhoneCountry(c);
+                return (
+                  <View key={c.id || idx} style={styles.contactCard}>
+                    <TouchableOpacity
+                      style={styles.contactHeader}
+                      onPress={() => setExpandedContactIdx(open ? -1 : idx)}
+                      testID={`contact-toggle-${idx}`}
+                    >
+                      <TouchableOpacity
+                        onPress={() => setPrimaryContactId(c.id || null)}
+                        testID={`contact-primary-${idx}`}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.primaryStar}
+                      >
+                        <Ionicons
+                          name={isPrimary ? "star" : "star-outline"}
+                          size={18}
+                          color={isPrimary ? theme.primary : theme.textMuted}
+                        />
+                      </TouchableOpacity>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.contactName} numberOfLines={1}>
+                          {previewName}
+                        </Text>
+                        <Text style={styles.contactTitle} numberOfLines={1}>
+                          {previewTitle}
+                          {isPrimary ? "  ·  PRIMARY" : ""}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={open ? "chevron-up" : "chevron-down"}
+                        size={16}
+                        color={theme.textMuted}
+                      />
+                    </TouchableOpacity>
+                    {open && (
+                      <View style={styles.contactBody}>
+                        <Text style={styles.formLabel}>NAME</Text>
+                        <TextInput
+                          testID={`contact-name-${idx}`}
+                          value={c.name || ""}
+                          onChangeText={(v) => updateContact(idx, { name: v })}
+                          placeholder="Full name"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>COMPANY TITLE</Text>
+                        <TextInput
+                          testID={`contact-title-${idx}`}
+                          value={c.company_title || ""}
+                          onChangeText={(v) =>
+                            updateContact(idx, { company_title: v })
+                          }
+                          placeholder="e.g. Production Manager"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>COUNTRY OVERRIDE (OPTIONAL)</Text>
+                        <Text style={styles.contactInlineHint}>
+                          Leave blank to use the workshop&apos;s country ({country}).
+                        </Text>
+                        <TextInput
+                          testID={`contact-country-${idx}`}
+                          value={c.country || ""}
+                          onChangeText={(v) =>
+                            updateContact(idx, {
+                              country: v.toUpperCase().slice(0, 2),
+                            })
+                          }
+                          autoCapitalize="characters"
+                          maxLength={2}
+                          placeholder={country}
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>
+                          MOBILE NUMBER ({dialCodeFor(cc) || "+?"})
+                        </Text>
+                        <TextInput
+                          testID={`contact-mobile-${idx}`}
+                          value={c.mobile_number || ""}
+                          onChangeText={(v) =>
+                            handleContactPhone(idx, "mobile_number", v)
+                          }
+                          keyboardType="phone-pad"
+                          placeholder="Mobile number"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>WHATSAPP NUMBER</Text>
+                        <TextInput
+                          testID={`contact-whatsapp-${idx}`}
+                          value={c.whatsapp_number || ""}
+                          onChangeText={(v) =>
+                            handleContactPhone(idx, "whatsapp_number", v)
+                          }
+                          keyboardType="phone-pad"
+                          placeholder="WhatsApp number"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>WECHAT ID</Text>
+                        <TextInput
+                          testID={`contact-wechat-${idx}`}
+                          value={c.wechat_id || ""}
+                          onChangeText={(v) => updateContact(idx, { wechat_id: v })}
+                          autoCapitalize="none"
+                          placeholder="e.g. anna_atelier_88"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <Text style={styles.formLabel}>EMAIL</Text>
+                        <TextInput
+                          testID={`contact-email-${idx}`}
+                          value={c.email || ""}
+                          onChangeText={(v) => updateContact(idx, { email: v })}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                          placeholder="name@workshop.com"
+                          placeholderTextColor={theme.textMuted}
+                          style={styles.input}
+                        />
+                        <View style={styles.contactOtherRow}>
+                          <View style={{ flex: 1, marginRight: 6 }}>
+                            <Text style={styles.formLabel}>OTHER LABEL</Text>
+                            <TextInput
+                              testID={`contact-other-label-${idx}`}
+                              value={c.other_label || ""}
+                              onChangeText={(v) =>
+                                updateContact(idx, { other_label: v })
+                              }
+                              placeholder="LinkedIn"
+                              placeholderTextColor={theme.textMuted}
+                              style={styles.input}
+                            />
+                          </View>
+                          <View style={{ flex: 1, marginLeft: 6 }}>
+                            <Text style={styles.formLabel}>OTHER VALUE</Text>
+                            <TextInput
+                              testID={`contact-other-value-${idx}`}
+                              value={c.other_value || ""}
+                              onChangeText={(v) =>
+                                updateContact(idx, { other_value: v })
+                              }
+                              placeholder="linkedin.com/in/…"
+                              placeholderTextColor={theme.textMuted}
+                              autoCapitalize="none"
+                              style={styles.input}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </>
+          )}
+
           {error && <Text style={styles.error}>{error}</Text>}
 
           <View style={styles.actionRow}>
@@ -678,6 +955,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   primaryBtnText: { color: "#0A0A0A", fontSize: 12, fontWeight: "700", letterSpacing: 3 },
+  sectionTitle: {
+    color: theme.primary,
+    fontSize: 12,
+    letterSpacing: 4,
+    marginBottom: spacing.sm,
+  },
+  sectionHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginBottom: spacing.md,
+    fontStyle: "italic",
+  },
+  contactCard: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    marginBottom: spacing.md,
+  },
+  contactHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    gap: spacing.sm,
+  },
+  primaryStar: { paddingRight: 4 },
+  contactName: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
+  contactTitle: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  contactBody: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  contactOtherRow: { flexDirection: "row", justifyContent: "space-between" },
+  contactInlineHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    marginBottom: 6,
+    fontStyle: "italic",
+  },
   pwdToggleRow: {
     flexDirection: "row",
     alignItems: "center",
