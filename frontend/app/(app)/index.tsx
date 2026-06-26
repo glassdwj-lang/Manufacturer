@@ -324,9 +324,9 @@ export default function HomeScreen() {
 
   const renderHeader = () => (
     <View style={styles.header}>
-      <BrandStrip />
+      <BrandStrip size={32} />
       <View style={styles.headerTop}>
-        <View>
+        <View style={styles.brandText}>
           <Text style={styles.brandMark}>{t("home.brand_mark")}</Text>
           <Text style={styles.welcome}>{roleLabel} · {user.name}</Text>
         </View>
@@ -860,6 +860,8 @@ const styles = StyleSheet.create({
   centerFull: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { marginBottom: spacing.lg },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
+  brandText: { flexShrink: 1 },
   brandMark: { color: theme.primary, fontSize: 10, letterSpacing: 3 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   welcome: { color: theme.textPrimary, fontSize: 22, marginTop: 4, fontWeight: "400" },

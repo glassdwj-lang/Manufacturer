@@ -66,8 +66,8 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.brandBlock}>
-              <View style={{ alignItems: "flex-start", marginBottom: spacing.sm }}>
-                <HeaderLogo size={20} tag="ATELIER" />
+              <View style={{ alignItems: "center", marginBottom: spacing.sm }}>
+                <HeaderLogo size={36} />
               </View>
               <Text style={styles.brandTitle}>Digital DNA{"\n"}for every Maison piece.</Text>
               <Text style={styles.brandSub}>
