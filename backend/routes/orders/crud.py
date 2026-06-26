@@ -112,6 +112,12 @@ async def list_orders(
         role_filter["associate_id"] = user["id"]
     elif user["role"] == "client":
         role_filter["client_id"] = user["id"]
+    elif user["role"] == "cad_renderer":
+        # CAD/Render vendors only see commissions they've been explicitly
+        # assigned to. Until Phase 3 introduces the assignment mechanism the
+        # `cad_renderer_id` field is never set, so this guarantees a vendor
+        # never sees an order they shouldn't.
+        role_filter["cad_renderer_id"] = user["id"]
 
     extra: dict = {}
     if user["role"] == "admin":
@@ -279,6 +285,8 @@ async def get_order(order_id: str, user=Depends(get_current_user)):
     if user["role"] == "associate" and order["associate_id"] != user["id"]:
         raise HTTPException(status_code=403)
     if user["role"] == "client" and order["client_id"] != user["id"]:
+        raise HTTPException(status_code=403)
+    if user["role"] == "cad_renderer" and order.get("cad_renderer_id") != user["id"]:
         raise HTTPException(status_code=403)
     # Translate every step's notes + associate review note into the viewer's
     # preferred language (cached per language on the step). Skips for English.

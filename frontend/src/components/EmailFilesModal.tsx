@@ -37,7 +37,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { CadFile } from "@/src/api/client";
+import { api, CadFile, User } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { notify } from "@/src/utils/confirm";
 
@@ -123,6 +123,11 @@ export function EmailFilesModal({
   const [message, setMessage] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  // Directory picker state — lazy-loaded the first time the sheet opens.
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [directoryUsers, setDirectoryUsers] = useState<User[] | null>(null);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryQuery, setDirectoryQuery] = useState("");
 
   const labels = KIND_LABELS[kind];
 
@@ -136,7 +141,61 @@ export function EmailFilesModal({
     setMessage("");
     setSelectedIds(new Set(files.map((f) => f.id)));
     setSending(false);
+    setDirectoryOpen(false);
+    setDirectoryQuery("");
   }, [visible, files]);
+
+  // ---- Directory picker -----------------------------------------------------
+  // Lazy-fetch the vendor roster (manufacturers + CAD/render vendors) the
+  // first time the picker opens. Cached for the lifetime of the modal.
+  const openDirectory = async () => {
+    setDirectoryOpen(true);
+    if (directoryUsers) return;
+    try {
+      setDirectoryLoading(true);
+      const [mfg, cad] = await Promise.all([
+        api.listUsers("manufacturer"),
+        api.listUsers("cad_renderer"),
+      ]);
+      // Sort by role-then-name so workshops + vendors are visually grouped.
+      const merged = [...mfg, ...cad].sort((a, b) =>
+        a.role === b.role
+          ? (a.name || a.email).localeCompare(b.name || b.email)
+          : a.role.localeCompare(b.role),
+      );
+      setDirectoryUsers(merged);
+    } catch (err: any) {
+      notify("Directory error", err?.message || "Could not load directory.");
+      setDirectoryOpen(false);
+    } finally {
+      setDirectoryLoading(false);
+    }
+  };
+
+  const addEmailsFromUser = (u: User) => {
+    // Pull the primary email plus any contact-roster emails (Phase 1 vendor
+    // records keep the same 3-slot contacts roster as workshops).
+    const candidates: string[] = [u.email];
+    const contacts = (u as any).contacts as
+      | { email?: string | null }[]
+      | undefined;
+    if (Array.isArray(contacts)) {
+      for (const c of contacts) {
+        const e = (c.email || "").trim();
+        if (e) candidates.push(e);
+      }
+    }
+    setRecipients((prev) => {
+      const next = [...prev];
+      for (const raw of candidates) {
+        const v = raw.trim();
+        if (!v || !EMAIL_RE.test(v)) continue;
+        if (next.some((r) => r.toLowerCase() === v.toLowerCase())) continue;
+        next.push(v);
+      }
+      return next;
+    });
+  };
 
   const allSelected = selectedIds.size === files.length && files.length > 0;
   const subjectPlaceholder = useMemo(() => {
@@ -303,6 +362,16 @@ export function EmailFilesModal({
             <Text style={styles.helper}>
               Tap a chip to remove. Press Enter, space or comma to add another.
             </Text>
+            <TouchableOpacity
+              testID="email-directory-picker"
+              onPress={openDirectory}
+              style={styles.directoryBtn}
+            >
+              <Ionicons name="book-outline" size={14} color={theme.primary} />
+              <Text style={styles.directoryBtnText}>
+                PICK FROM DIRECTORY
+              </Text>
+            </TouchableOpacity>
 
             {/* Subject */}
             <Text style={[styles.label, { marginTop: spacing.lg }]}>
@@ -403,6 +472,110 @@ export function EmailFilesModal({
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* Directory picker sub-modal — shows manufacturers + CAD/render
+          vendors. Tap a row to add the user's primary email (and any
+          contact-roster emails) to the chips above. */}
+      <Modal
+        visible={directoryOpen}
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setDirectoryOpen(false)}
+      >
+        <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => setDirectoryOpen(false)}>
+              <Ionicons name="close" size={22} color={theme.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>DIRECTORY</Text>
+            <View style={{ width: 22 }} />
+          </View>
+          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+            <TextInput
+              value={directoryQuery}
+              onChangeText={setDirectoryQuery}
+              placeholder="Search by name, alias, or email…"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.input}
+              testID="directory-search"
+            />
+          </View>
+          <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+            {directoryLoading ? (
+              <View style={{ paddingVertical: spacing.xxl }}>
+                <ActivityIndicator color={theme.primary} />
+              </View>
+            ) : (
+              (directoryUsers || [])
+                .filter((u) => {
+                  const q = directoryQuery.trim().toLowerCase();
+                  if (!q) return true;
+                  const alias = ((u as any).alias as string | undefined) || "";
+                  return (
+                    (u.name || "").toLowerCase().includes(q) ||
+                    u.email.toLowerCase().includes(q) ||
+                    alias.toLowerCase().includes(q)
+                  );
+                })
+                .map((u) => {
+                  const alias = ((u as any).alias as string | undefined) || "";
+                  const contactCount = Array.isArray((u as any).contacts)
+                    ? ((u as any).contacts as { email?: string | null }[]).filter(
+                        (c) => (c.email || "").trim().length > 0,
+                      ).length
+                    : 0;
+                  return (
+                    <Pressable
+                      key={u.id}
+                      style={styles.dirRow}
+                      onPress={() => {
+                        addEmailsFromUser(u);
+                        setDirectoryOpen(false);
+                      }}
+                      testID={`directory-user-${u.id}`}
+                    >
+                      <View
+                        style={[
+                          styles.dirRoleBadge,
+                          u.role === "cad_renderer" && styles.dirRoleBadgeAlt,
+                        ]}
+                      >
+                        <Text style={styles.dirRoleBadgeText}>
+                          {u.role === "cad_renderer" ? "CAD" : "WS"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.dirName} numberOfLines={1}>
+                          {u.name || u.email}
+                        </Text>
+                        <Text style={styles.dirMeta} numberOfLines={1}>
+                          {alias ? `${alias} • ` : ""}
+                          {u.email}
+                          {contactCount > 0
+                            ? ` • +${contactCount} contact${contactCount === 1 ? "" : "s"}`
+                            : ""}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="add-circle-outline"
+                        size={20}
+                        color={theme.primary}
+                      />
+                    </Pressable>
+                  );
+                })
+            )}
+            {!directoryLoading && (directoryUsers || []).length === 0 && (
+              <Text style={styles.emptyDir}>
+                No workshops or CAD/Render vendors found yet. Create them from
+                Admin → Users.
+              </Text>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </Modal>
   );
 }
@@ -471,6 +644,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 6,
     lineHeight: 16,
+  },
+  directoryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: theme.primary,
+  },
+  directoryBtnText: {
+    color: theme.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 2,
+  },
+  dirRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  dirRoleBadge: {
+    width: 36,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dirRoleBadgeAlt: {
+    borderColor: "#9BB0FF",
+  },
+  dirRoleBadgeText: {
+    color: theme.primary,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  dirName: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dirMeta: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  emptyDir: {
+    color: theme.textMuted,
+    fontSize: 12,
+    textAlign: "center",
+    paddingVertical: spacing.xxl,
+    lineHeight: 18,
   },
   input: {
     borderWidth: 1,

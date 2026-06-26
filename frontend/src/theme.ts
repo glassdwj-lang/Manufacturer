@@ -45,4 +45,5 @@ export const ROLE_LABELS: Record<string, string> = {
   manufacturer: "Workshop",
   associate: "Associate",
   client: "Maison Client",
+  cad_renderer: "CAD & Renderer",
 };

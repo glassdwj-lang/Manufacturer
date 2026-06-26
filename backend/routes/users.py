@@ -61,10 +61,11 @@ async def admin_create_user(data: UserCreate, request: Request, user=Depends(req
         "address_line1": (data.address_line1 or "").strip() or None,
         "address_line2": (data.address_line2 or "").strip() or None,
     }
-    if data.role == "manufacturer":
-        user_doc["alias"] = await _next_manufacturer_alias()
-        # Seed three empty contact slots so the manufacturer always has a stable
-        # roster shape downstream.
+    if data.role == "manufacturer" or data.role == "cad_renderer":
+        if data.role == "manufacturer":
+            user_doc["alias"] = await _next_manufacturer_alias()
+        # Seed three empty contact slots so the vendor always has a stable
+        # roster shape downstream (manufacturer and cad_renderer share it).
         user_doc["contacts"] = sanitize_manufacturer_contacts(None)
         user_doc["primary_contact_id"] = user_doc["contacts"][0]["id"]
     await db.users.insert_one(user_doc)
@@ -93,9 +94,9 @@ async def admin_get_user(
         "address_line2",
     ):
         pub[k] = target.get(k)
-    if target.get("role") == "manufacturer":
+    if target.get("role") == "manufacturer" or target.get("role") == "cad_renderer":
         # ``user_to_public`` already adds contacts; ensure they're present even
-        # for legacy manufacturers that pre-date the contacts feature.
+        # for legacy records that pre-date the contacts feature.
         if not pub.get("contacts"):
             pub["contacts"] = sanitize_manufacturer_contacts(None)
             pub["primary_contact_id"] = pub["contacts"][0]["id"]
@@ -158,9 +159,10 @@ async def admin_update_manufacturer_contacts(
     target = await db.users.find_one({"id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.get("role") != "manufacturer":
+    if target.get("role") not in ("manufacturer", "cad_renderer"):
         raise HTTPException(
-            status_code=400, detail="Contacts are only used for manufacturers."
+            status_code=400,
+            detail="Contacts roster is only used for workshops and CAD/Render vendors.",
         )
     raw = [c.model_dump() for c in (body.contacts or [])]
     contacts = sanitize_manufacturer_contacts(raw)
@@ -223,8 +225,11 @@ async def admin_set_alias(
     target = await db.users.find_one({"id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if target["role"] != "manufacturer":
-        raise HTTPException(status_code=400, detail="Alias is only used for manufacturers.")
+    if target["role"] not in ("manufacturer", "cad_renderer"):
+        raise HTTPException(
+            status_code=400,
+            detail="Alias is only used for workshops and CAD/Render vendors.",
+        )
     alias = (body.alias or "").strip()
     if not alias:
         raise HTTPException(status_code=400, detail="Alias cannot be empty")

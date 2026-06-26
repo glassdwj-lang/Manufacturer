@@ -4,7 +4,7 @@ import { storage } from "@/src/utils/storage";
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const TOKEN_KEY = "somnio_token";
 
-export type Role = "admin" | "manufacturer" | "associate" | "client";
+export type Role = "admin" | "manufacturer" | "associate" | "client" | "cad_renderer";
 
 export type User = {
   id: string;

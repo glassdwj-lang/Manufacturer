@@ -21,7 +21,7 @@ import { notify } from "@/src/utils/confirm";
 import { dialCodeFor, formatAsYouType, formatStored } from "@/src/utils/phone";
 import { BrandStrip } from "@/src/components/BrandStrip";
 
-const ROLE_OPTIONS: Role[] = ["manufacturer", "client"];
+const ROLE_OPTIONS: Role[] = ["manufacturer", "cad_renderer", "client"];
 
 type StateEntry = { code: string; name: string };
 
@@ -121,9 +121,10 @@ export default function CreateUserScreen() {
             const owner = a.find((x: User) => x.id === u.associate_id);
             if (owner) setSelectedAssociate(owner);
           }
-          // Hydrate the contacts roster for manufacturers. The backend always
+          // Hydrate the contacts roster for vendor-type users (manufacturer
+          // and cad_renderer share the same 3-slot roster). The backend always
           // returns three slots — we just trust it.
-          if (u.role === "manufacturer" && Array.isArray(u.contacts)) {
+          if ((u.role === "manufacturer" || u.role === "cad_renderer") && Array.isArray(u.contacts)) {
             const padded: ManufacturerContact[] = [...u.contacts];
             while (padded.length < 3) padded.push(emptyContact());
             setContacts(padded.slice(0, 3));
@@ -274,7 +275,7 @@ export default function CreateUserScreen() {
         if (showPasswordReset && password.trim()) {
           await api.setUserPassword(userId, password);
         }
-        if (role === "manufacturer") {
+        if (role === "manufacturer" || role === "cad_renderer") {
           await persistContacts(userId);
         }
         notify(
@@ -299,11 +300,11 @@ export default function CreateUserScreen() {
           address_line1: addressLine1.trim() || null,
           address_line2: addressLine2.trim() || null,
         } as any);
-        // For a freshly created manufacturer, re-fetch by email to get the
-        // server-assigned id and then write the contacts.
-        if (role === "manufacturer") {
+        // For a freshly created manufacturer / CAD-renderer, re-fetch by
+        // email to get the server-assigned id and then write the contacts.
+        if (role === "manufacturer" || role === "cad_renderer") {
           try {
-            const all = await api.listUsers("manufacturer");
+            const all = await api.listUsers(role);
             const just = all.find(
               (u: User) => u.email.toLowerCase() === email.trim().toLowerCase(),
             );
@@ -313,7 +314,7 @@ export default function CreateUserScreen() {
           }
         }
         notify(
-          `${role === "manufacturer" ? "Workshop" : "Client"} created`,
+          `${role === "manufacturer" ? "Workshop" : role === "cad_renderer" ? "CAD & Render vendor" : "Client"} created`,
           `${name.trim()} has been added.`,
         );
       }
@@ -369,7 +370,11 @@ export default function CreateUserScreen() {
           </View>
 
           <Text style={styles.formLabel}>
-            {role === "manufacturer" ? "BUSINESS NAME" : "FULL NAME"}
+            {role === "manufacturer"
+              ? "BUSINESS NAME"
+              : role === "cad_renderer"
+              ? "STUDIO / VENDOR NAME"
+              : "FULL NAME"}
           </Text>
           <TextInput
             testID="user-name-input"
@@ -378,6 +383,8 @@ export default function CreateUserScreen() {
             placeholder={
               role === "manufacturer"
                 ? "e.g. Atelier Aubert Pte. Ltd."
+                : role === "cad_renderer"
+                ? "e.g. Lumière Render Studio"
                 : "e.g. Marc Aubert"
             }
             placeholderTextColor={theme.textMuted}
@@ -679,13 +686,13 @@ export default function CreateUserScreen() {
             </>
           )}
 
-          {role === "manufacturer" && (
+          {(role === "manufacturer" || role === "cad_renderer") && (
             <>
               <Text style={[styles.sectionTitle, { marginTop: spacing.xl }]}>
                 CONTACT PEOPLE
               </Text>
               <Text style={styles.sectionHint}>
-                Add up to 3 contacts at the workshop. Tap the star to choose
+                Add up to 3 contacts at the {role === "manufacturer" ? "workshop" : "studio"}. Tap the star to choose
                 which one is the primary contact for orders & escalations.
               </Text>
               {contacts.map((c, idx) => {

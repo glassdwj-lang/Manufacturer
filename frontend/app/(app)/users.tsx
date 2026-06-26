@@ -15,6 +15,7 @@ import { BrandStrip } from "@/src/components/BrandStrip";
 
 const ROLE_FILTERS: { key: string; label: string }[] = [
   { key: "manufacturer", label: "WORKSHOPS" },
+  { key: "cad_renderer", label: "CAD & RENDERS" },
   { key: "associate", label: "ASSOCIATES" },
   { key: "client", label: "CLIENTS" },
   { key: "admin", label: "ATELIER" },
@@ -49,11 +50,11 @@ export default function UsersScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { load(); }, [load]);
 
-  /** A manufacturer is "missing contacts" when no slot has a name filled in.
+  /** A manufacturer (or CAD/Render vendor) is "missing contacts" when no slot has a name filled in.
    * (Empty 3-slot rosters are auto-seeded by the backend, so a brand new
    * workshop also counts as missing — which is exactly what we want to surface.) */
   const isMissingContacts = (u: User): boolean => {
-    if (u.role !== "manufacturer") return false;
+    if (u.role !== "manufacturer" && u.role !== "cad_renderer") return false;
     const list = (u as any).contacts as { name?: string | null }[] | undefined;
     if (!list || list.length === 0) return true;
     return !list.some((c) => (c.name || "").trim().length > 0);
@@ -61,11 +62,11 @@ export default function UsersScreen() {
 
   const filteredRaw = users.filter((u) => u.role === filter);
   const filtered =
-    filter === "manufacturer" && onlyMissingContacts
+    (filter === "manufacturer" || filter === "cad_renderer") && onlyMissingContacts
       ? filteredRaw.filter(isMissingContacts)
       : filteredRaw;
   const missingCount =
-    filter === "manufacturer"
+    filter === "manufacturer" || filter === "cad_renderer"
       ? filteredRaw.filter(isMissingContacts).length
       : 0;
 
@@ -170,8 +171,9 @@ export default function UsersScreen() {
         </ScrollView>
       </View>
 
-      {/* Sub-filter strip — only relevant while the Workshops tab is active */}
-      {filter === "manufacturer" && (
+      {/* Sub-filter strip — relevant for Workshops and CAD/Renders (both
+          use the 3-slot contact roster). */}
+      {(filter === "manufacturer" || filter === "cad_renderer") && (
         <View style={styles.subFilterRow}>
           <TouchableOpacity
             testID="filter-missing-contacts"
@@ -239,7 +241,7 @@ export default function UsersScreen() {
           filtered.map((u) => (
             <View key={u.id} testID={`user-row-${u.id}`} style={styles.userRow}>
               <View style={{ flex: 1 }}>
-                {u.role === "manufacturer" ? (
+                {u.role === "manufacturer" || u.role === "cad_renderer" ? (
                   <>
                     <Text style={styles.userName}>{u.name}</Text>
                     {editingAliasId === u.id ? (
@@ -328,7 +330,7 @@ export default function UsersScreen() {
                   />
                 </View>
               )}
-              {me?.role === "admin" && (u.role === "client" || u.role === "manufacturer") && (
+              {me?.role === "admin" && (u.role === "client" || u.role === "manufacturer" || u.role === "cad_renderer") && (
                 <View style={styles.actionsCol}>
                   <TouchableOpacity
                     testID={`edit-user-${u.id}`}
