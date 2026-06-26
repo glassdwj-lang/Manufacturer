@@ -51,6 +51,14 @@ async def admin_create_user(data: UserCreate, user=Depends(require_roles("admin"
         "source": "local",
         "country": (data.country or "AU").upper(),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        # Extended profile (manufacturer + client).
+        "phone_dial_code": (data.phone_dial_code or "").strip() or None,
+        "phone_number": (data.phone_number or "").strip() or None,
+        "birthday": (data.birthday or "").strip() or None,
+        "city": (data.city or "").strip() or None,
+        "state": (data.state or "").strip() or None,
+        "address_line1": (data.address_line1 or "").strip() or None,
+        "address_line2": (data.address_line2 or "").strip() or None,
     }
     if data.role == "manufacturer":
         user_doc["alias"] = await _next_manufacturer_alias()

@@ -15,6 +15,15 @@ class UserCreate(BaseModel):
     role: Role
     associate_id: Optional[str] = None  # for clients: which associate manages them
     country: Optional[str] = "AU"  # ISO 3166-1 alpha-2 (clients only)
+    # Extended profile fields (manufacturer + client). All optional so the
+    # existing minimal-create flow still works.
+    phone_dial_code: Optional[str] = None  # e.g. "+61"
+    phone_number: Optional[str] = None
+    birthday: Optional[str] = None  # YYYY-MM-DD
+    city: Optional[str] = None
+    state: Optional[str] = None  # state / territory / region
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
 
 
 class UserCountryUpdate(BaseModel):
