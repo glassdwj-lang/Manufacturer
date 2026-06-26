@@ -296,6 +296,19 @@ export const api = {
       `/orders/${orderId}/customs/files/${kind}/${fileId}`,
       { method: "DELETE" },
     ),
+  // ---- IGI Certificates ----------------------------------------------------
+  listIgiCertificates: (orderId: string) =>
+    request<CadFile[]>(`/orders/${orderId}/igi-certificates`),
+  addIgiCertificate: (orderId: string, payload: CadFilePayload) =>
+    request<CadFile>(`/orders/${orderId}/igi-certificates`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  removeIgiCertificate: (orderId: string, fileId: string) =>
+    request<{ ok: boolean }>(
+      `/orders/${orderId}/igi-certificates/${fileId}`,
+      { method: "DELETE" },
+    ),
   listCadFiles: (orderId: string) =>
     request<CadFile[]>(`/orders/${orderId}/cad-files`),
   addCadFile: (orderId: string, payload: CadFilePayload) =>

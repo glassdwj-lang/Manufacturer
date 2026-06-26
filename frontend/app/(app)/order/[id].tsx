@@ -230,6 +230,27 @@ export default function OrderDetail() {
 
         {(user?.role === "admin" || user?.role === "manufacturer") && (
           <TouchableOpacity
+            testID="igi-certificates-button"
+            style={styles.customsBtn}
+            onPress={() => router.push(`/(app)/igi-certificates/${order.id}`)}
+          >
+            <Ionicons
+              name="ribbon-outline"
+              size={18}
+              color={theme.primary}
+            />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text style={styles.customsTitle}>IGI Certificates</Text>
+              <Text style={styles.customsSub}>
+                Attach digital IGI lab reports (PDF, image, any file type)
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+          </TouchableOpacity>
+        )}
+
+        {(user?.role === "admin" || user?.role === "manufacturer") && (
+          <TouchableOpacity
             testID="customs-button"
             style={styles.customsBtn}
             onPress={() => router.push(`/(app)/customs/${order.id}`)}
