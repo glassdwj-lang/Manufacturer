@@ -20,6 +20,7 @@ import { Eyebrow, ProgressBar, PhaseBadge, CompletedBadge } from "@/src/componen
 import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { DateField } from "@/src/components/DateField";
 import { useI18n } from "@/src/i18n";
 
 export default function HomeScreen() {
@@ -387,26 +388,22 @@ export default function HomeScreen() {
           <View style={styles.dateRow}>
             <View style={{ flex: 1, marginRight: 6 }}>
               <Text style={styles.filterSubLabel}>FROM</Text>
-              <TextInput
+              <DateField
                 testID="filter-date-from"
                 value={filterDateFrom}
-                onChangeText={setFilterDateFrom}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={theme.textMuted}
-                autoCapitalize="none"
-                style={styles.searchInput}
+                onChange={setFilterDateFrom}
+                placeholder="Any start date"
+                maximumDate={filterDateTo ? new Date(filterDateTo) : undefined}
               />
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
               <Text style={styles.filterSubLabel}>TO</Text>
-              <TextInput
+              <DateField
                 testID="filter-date-to"
                 value={filterDateTo}
-                onChangeText={setFilterDateTo}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={theme.textMuted}
-                autoCapitalize="none"
-                style={styles.searchInput}
+                onChange={setFilterDateTo}
+                placeholder="Any end date"
+                minimumDate={filterDateFrom ? new Date(filterDateFrom) : undefined}
               />
             </View>
           </View>
