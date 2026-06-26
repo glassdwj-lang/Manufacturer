@@ -6,8 +6,6 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  Linking,
-  Platform,
   RefreshControl,
   Image,
 } from "react-native";
@@ -24,6 +22,7 @@ import { confirmAction, notify } from "@/src/utils/confirm";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { useAuth } from "@/src/context/AuthContext";
 import { cloudinaryPreviewImage } from "@/src/utils/cloudinaryUrl";
+import { CertificateViewerModal } from "@/src/components/CertificateViewerModal";
 
 // Document types we explicitly recognise for IGI certificates. Backend
 // accepts any extension via Cloudinary raw upload, so we only colour-code
@@ -66,6 +65,8 @@ export default function IgiCertificatesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Currently-previewed certificate (null = modal hidden).
+  const [preview, setPreview] = useState<CadFile | null>(null);
 
   // Same access policy as customs: admin + manufacturer only. Anyone
   // else gets bounced home so they never see a 403.
@@ -139,14 +140,10 @@ export default function IgiCertificatesScreen() {
   }, [orderId]);
 
   const openFile = useCallback((file: CadFile) => {
-    if (!file.secure_url) return;
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.open(file.secure_url, "_blank", "noopener");
-      return;
-    }
-    Linking.openURL(file.secure_url).catch(() => {
-      notify("Cannot open file", "No app is available to view this certificate on the device.");
-    });
+    // Replace the "open in new window" behaviour with an in-app
+    // CertificateViewerModal so the user never leaves the commission.
+    if (!file?.secure_url) return;
+    setPreview(file);
   }, []);
 
   const deleteFile = useCallback(
@@ -286,6 +283,15 @@ export default function IgiCertificatesScreen() {
             </Text>
           )
         }
+      />
+
+      {/* In-app full-screen preview — mirrors the photo lightbox so
+          users have one consistent close affordance across the app. */}
+      <CertificateViewerModal
+        visible={!!preview}
+        url={preview?.secure_url || null}
+        title={preview?.name || null}
+        onClose={() => setPreview(null)}
       />
     </SafeAreaView>
   );
