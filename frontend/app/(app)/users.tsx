@@ -11,6 +11,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction, notify } from "@/src/utils/confirm";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 const ROLE_FILTERS: { key: string; label: string }[] = [
   { key: "manufacturer", label: "WORKSHOPS" },
@@ -132,6 +133,7 @@ export default function UsersScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="users-back" onPress={safeBack} style={{ padding: 4 }}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />

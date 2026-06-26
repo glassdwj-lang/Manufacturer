@@ -17,6 +17,7 @@ import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 type Lang = { language: string; language_name: string };
 
@@ -93,6 +94,7 @@ export default function TestTranslateScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      <BrandStrip />
       <View style={styles.headerBar}>
         <TouchableOpacity testID="back-button" onPress={safeBack} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />

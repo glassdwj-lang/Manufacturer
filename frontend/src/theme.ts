@@ -5,6 +5,8 @@ export const theme = {
   surfaceElevated: "#242424",
   primary: "#D4AF37", // champagne gold
   primaryDim: "#8B7128",
+  roseGold: "#B76E79", // rose gold — used by the SOMNIO wordmark in headers
+  roseGoldDim: "#7E4C53",
   secondary: "#A67C52",
   textPrimary: "#F5F5F5",
   textSecondary: "#A3A3A3",

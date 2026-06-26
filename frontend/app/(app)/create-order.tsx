@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, User } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 export default function CreateOrderScreen() {
   const router = useRouter();
@@ -72,7 +73,8 @@ export default function CreateOrderScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <View style={styles.headerBar}>
+        <BrandStrip />
+      <View style={styles.headerBar}>
           <TouchableOpacity testID="create-order-close" onPress={safeBack}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>

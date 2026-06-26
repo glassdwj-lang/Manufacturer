@@ -24,6 +24,7 @@ import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import { useI18n } from "@/src/i18n";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 // Map manual-pick code → BCP47 tag + display name used when calling the
 // /translate endpoint. Mirrors backend SUPPORTED_MANUAL_LANGS.
@@ -305,7 +306,8 @@ export default function StepActionScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
-        <View style={styles.headerBar}>
+        <BrandStrip />
+      <View style={styles.headerBar}>
           <TouchableOpacity onPress={safeBack} testID="step-close" style={styles.iconBtn}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>

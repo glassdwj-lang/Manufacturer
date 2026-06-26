@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
+import { HeaderLogo } from "@/src/components/HeaderLogo";
 
 const LOGIN_BG =
   "https://images.pexels.com/photos/6263069/pexels-photo-6263069.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
@@ -65,7 +66,9 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.brandBlock}>
-              <Text style={styles.eyebrow}>SOMNIO.CO · ATELIER</Text>
+              <View style={{ alignItems: "flex-start", marginBottom: spacing.sm }}>
+                <HeaderLogo size={20} tag="ATELIER" />
+              </View>
               <Text style={styles.brandTitle}>Digital DNA{"\n"}for every Maison piece.</Text>
               <Text style={styles.brandSub}>
                 A 26-step traceable journey, from origin to ownership.

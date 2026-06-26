@@ -17,6 +17,7 @@ import { useFocusEffect } from "expo-router";
 import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 type Row = {
   id: string;
@@ -199,6 +200,7 @@ export default function ActivityLogScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="activity-back" onPress={safeBack}>
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />

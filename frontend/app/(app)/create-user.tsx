@@ -19,6 +19,7 @@ import { ROLE_LABELS, spacing, theme } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { notify } from "@/src/utils/confirm";
 import { dialCodeFor, formatAsYouType, formatStored } from "@/src/utils/phone";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 const ROLE_OPTIONS: Role[] = ["manufacturer", "client"];
 
@@ -330,7 +331,8 @@ export default function CreateUserScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
-        <View style={styles.header}>
+        <BrandStrip />
+      <View style={styles.header}>
           <TouchableOpacity testID="create-user-close" onPress={safeBack}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>

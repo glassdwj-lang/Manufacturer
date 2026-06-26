@@ -10,6 +10,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { flags } from "@/src/flags";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 type ResultRow = { tone: "ok" | "err"; text: string };
 type LoadingKey = "base" | "extended" | "wipe" | "import" | null;
@@ -110,6 +111,7 @@ export default function DebugScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="debug-back" onPress={safeBack} style={{ padding: 4 }}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />

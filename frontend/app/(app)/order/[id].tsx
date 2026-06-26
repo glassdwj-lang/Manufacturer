@@ -22,6 +22,7 @@ import { PhaseSection } from "@/src/components/order/PhaseSection";
 import { DigitalDnaModal } from "@/src/components/DigitalDnaModal";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { useI18n } from "@/src/i18n";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 export default function OrderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -100,6 +101,7 @@ export default function OrderDetail() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      <BrandStrip />
       <View style={styles.headerBar}>
         <TouchableOpacity
           testID="back-button"

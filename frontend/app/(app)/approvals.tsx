@@ -22,6 +22,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { theme, spacing } from "@/src/theme";
 import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 type QueueItem = {
   order_id: string;
@@ -280,7 +281,8 @@ export default function ApprovalsScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.header}>
+        <BrandStrip />
+      <View style={styles.header}>
           <TouchableOpacity onPress={safeBack} hitSlop={12} testID="approvals-back">
             <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>

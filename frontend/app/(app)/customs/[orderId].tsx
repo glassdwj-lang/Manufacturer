@@ -23,6 +23,7 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCustomsFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 function formatBytes(b?: number | null): string {
   if (b == null) return "—";
@@ -222,7 +223,8 @@ export default function CustomsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
-        <View style={styles.headerBar}>
+        <BrandStrip />
+      <View style={styles.headerBar}>
           <TouchableOpacity
             testID="customs-close"
             onPress={safeBack}

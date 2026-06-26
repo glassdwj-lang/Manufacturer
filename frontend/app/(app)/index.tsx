@@ -20,6 +20,7 @@ import { Eyebrow, ProgressBar, PhaseBadge, CompletedBadge } from "@/src/componen
 import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { BrandStrip } from "@/src/components/BrandStrip";
 import { DateField } from "@/src/components/DateField";
 import { useI18n } from "@/src/i18n";
 
@@ -323,6 +324,7 @@ export default function HomeScreen() {
 
   const renderHeader = () => (
     <View style={styles.header}>
+      <BrandStrip />
       <View style={styles.headerTop}>
         <View>
           <Text style={styles.brandMark}>{t("home.brand_mark")}</Text>

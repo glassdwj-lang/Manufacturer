@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 type Dashboard = {
   commissions: { total: number; active: number; completed: number; by_phase: Record<string, number> };
@@ -92,6 +93,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="dashboard-back" onPress={safeBack}>
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />

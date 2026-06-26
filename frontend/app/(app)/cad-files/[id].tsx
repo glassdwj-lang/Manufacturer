@@ -21,6 +21,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCadFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { isPreviewable } from "@/src/components/Model3DViewer";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
 // strictly limit to these (we accept everything so workshops aren't blocked
@@ -217,6 +218,7 @@ export default function CadFilesScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="cad-back" onPress={safeBack}>
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />

@@ -18,6 +18,7 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { formatChinaTime } from "@/src/utils/format";
 import { confirmAction } from "@/src/utils/confirm";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 export default function RecycleBinScreen() {
   const router = useRouter();
@@ -103,6 +104,7 @@ export default function RecycleBinScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      <BrandStrip />
       <View style={styles.headerBar}>
         <TouchableOpacity testID="back-button" onPress={safeBack} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.primary} />

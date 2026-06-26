@@ -14,6 +14,7 @@ import { useLocalSearchParams } from "expo-router";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { Model3DViewer } from "@/src/components/Model3DViewer";
+import { BrandStrip } from "@/src/components/BrandStrip";
 
 export default function CadPreviewScreen() {
   const params = useLocalSearchParams<{ id: string; url?: string; name?: string }>();
@@ -33,6 +34,7 @@ export default function CadPreviewScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <BrandStrip />
       <View style={styles.header}>
         <TouchableOpacity testID="cad-preview-back" onPress={safeBack}>
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />
