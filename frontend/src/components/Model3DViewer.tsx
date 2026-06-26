@@ -126,10 +126,14 @@ const VIEWER_HTML = `<!doctype html>
             geometry.center();
             geometry.computeBoundingSphere();
             var radius = geometry.boundingSphere ? geometry.boundingSphere.radius : 50;
+            // Neutral matte silver — matches how CAD viewers (Solidworks,
+            // Fusion 360, Blender STL preview) display untextured STL
+            // geometry by default. Keeps the model legible without forcing
+            // an arbitrary material onto the part.
             var material = new THREE.MeshStandardMaterial({
-              color: 0xA05A2A,
-              metalness: 0.6,
-              roughness: 0.4,
+              color: 0xC0C0C0,
+              metalness: 0.4,
+              roughness: 0.55,
             });
             var mesh = new THREE.Mesh(geometry, material);
             mesh.rotation.x = -Math.PI / 2;
