@@ -29,6 +29,9 @@ export default function UsersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [editingAliasId, setEditingAliasId] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState("");
+  // "Only show workshops missing a primary contact" filter. A workshop counts
+  // as incomplete when none of its 3 contact slots have a name filled in.
+  const [onlyMissingContacts, setOnlyMissingContacts] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +48,25 @@ export default function UsersScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { load(); }, [load]);
 
-  const filtered = users.filter((u) => u.role === filter);
+  /** A manufacturer is "missing contacts" when no slot has a name filled in.
+   * (Empty 3-slot rosters are auto-seeded by the backend, so a brand new
+   * workshop also counts as missing — which is exactly what we want to surface.) */
+  const isMissingContacts = (u: User): boolean => {
+    if (u.role !== "manufacturer") return false;
+    const list = (u as any).contacts as { name?: string | null }[] | undefined;
+    if (!list || list.length === 0) return true;
+    return !list.some((c) => (c.name || "").trim().length > 0);
+  };
+
+  const filteredRaw = users.filter((u) => u.role === filter);
+  const filtered =
+    filter === "manufacturer" && onlyMissingContacts
+      ? filteredRaw.filter(isMissingContacts)
+      : filteredRaw;
+  const missingCount =
+    filter === "manufacturer"
+      ? filteredRaw.filter(isMissingContacts).length
+      : 0;
 
   const handleToggleAutoForward = async (u: User, val: boolean) => {
     try {
@@ -146,6 +167,56 @@ export default function UsersScreen() {
           })}
         </ScrollView>
       </View>
+
+      {/* Sub-filter strip — only relevant while the Workshops tab is active */}
+      {filter === "manufacturer" && (
+        <View style={styles.subFilterRow}>
+          <TouchableOpacity
+            testID="filter-missing-contacts"
+            onPress={() => setOnlyMissingContacts((v) => !v)}
+            style={[
+              styles.missingChip,
+              onlyMissingContacts && styles.missingChipSel,
+            ]}
+          >
+            <Ionicons
+              name={onlyMissingContacts ? "alert-circle" : "alert-circle-outline"}
+              size={14}
+              color={onlyMissingContacts ? "#0A0A0A" : theme.primary}
+            />
+            <Text
+              style={[
+                styles.missingChipText,
+                onlyMissingContacts && styles.missingChipTextSel,
+              ]}
+            >
+              MISSING CONTACTS
+            </Text>
+            {missingCount > 0 && (
+              <View
+                style={[
+                  styles.missingBadge,
+                  onlyMissingContacts && styles.missingBadgeSel,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.missingBadgeText,
+                    onlyMissingContacts && styles.missingBadgeTextSel,
+                  ]}
+                >
+                  {missingCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          {onlyMissingContacts && (
+            <Text style={styles.subFilterHint}>
+              Showing workshops with no contact filled.
+            </Text>
+          )}
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
@@ -314,6 +385,49 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   contactText: { color: theme.textSecondary, fontSize: 11, flexShrink: 1 },
+  subFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  missingChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  missingChipSel: { backgroundColor: theme.primary },
+  missingChipText: {
+    color: theme.primary,
+    fontSize: 10,
+    letterSpacing: 2,
+    fontWeight: "600",
+  },
+  missingChipTextSel: { color: "#0A0A0A" },
+  missingBadge: {
+    backgroundColor: theme.primary,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
+  },
+  missingBadgeSel: { backgroundColor: "#0A0A0A" },
+  missingBadgeText: { color: "#0A0A0A", fontSize: 10, fontWeight: "700" },
+  missingBadgeTextSel: { color: theme.primary },
+  subFilterHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    letterSpacing: 1,
+    fontStyle: "italic",
+  },
   aliasRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   aliasLabel: { color: theme.textMuted, fontSize: 11, letterSpacing: 1 },
   aliasValue: { color: theme.primary, fontSize: 12, letterSpacing: 1, marginRight: 4 },
