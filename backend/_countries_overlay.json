@@ -1,0 +1,526 @@
+{
+  "source": "gem-gallery-193",
+  "synced_at": "2026-06-26T01:42:56.786941+00:00",
+  "iso_map": {
+    "Australia": "AU",
+    "New Zealand": "NZ",
+    "United States": "US",
+    "United Kingdom": "GB",
+    "Canada": "CA",
+    "Switzerland": "CH",
+    "France": "FR",
+    "Germany": "DE",
+    "Italy": "IT",
+    "Spain": "ES",
+    "Singapore": "SG",
+    "Hong Kong SAR": "HK",
+    "Japan": "JP",
+    "China": "CN",
+    "Philippines": "PH"
+  },
+  "countries": {
+    "AU": {
+      "name": "Australia",
+      "states": [
+        {
+          "code": "NSW",
+          "name": "New South Wales (NSW)"
+        },
+        {
+          "code": "VIC",
+          "name": "Victoria (VIC)"
+        },
+        {
+          "code": "QLD",
+          "name": "Queensland (QLD)"
+        },
+        {
+          "code": "WA",
+          "name": "Western Australia (WA)"
+        },
+        {
+          "code": "SA",
+          "name": "South Australia (SA)"
+        },
+        {
+          "code": "TAS",
+          "name": "Tasmania (TAS)"
+        },
+        {
+          "code": "ACT",
+          "name": "Australian Capital Territory (ACT)"
+        },
+        {
+          "code": "NT",
+          "name": "Northern Territory (NT)"
+        }
+      ]
+    },
+    "NZ": {
+      "name": "New Zealand",
+      "states": [
+        {
+          "code": "NORT",
+          "name": "Northland"
+        },
+        {
+          "code": "AUCK",
+          "name": "Auckland"
+        },
+        {
+          "code": "WAIK",
+          "name": "Waikato"
+        },
+        {
+          "code": "BOP",
+          "name": "Bay of Plenty"
+        },
+        {
+          "code": "GISB",
+          "name": "Gisborne"
+        },
+        {
+          "code": "HSB",
+          "name": "Hawke's Bay"
+        },
+        {
+          "code": "TARA",
+          "name": "Taranaki"
+        },
+        {
+          "code": "MW",
+          "name": "Manawatū-Whanganui"
+        },
+        {
+          "code": "WELL",
+          "name": "Wellington"
+        },
+        {
+          "code": "TASM",
+          "name": "Tasman"
+        },
+        {
+          "code": "NELS",
+          "name": "Nelson"
+        },
+        {
+          "code": "MARL",
+          "name": "Marlborough"
+        },
+        {
+          "code": "WC",
+          "name": "West Coast"
+        },
+        {
+          "code": "CANT",
+          "name": "Canterbury"
+        },
+        {
+          "code": "OTAG",
+          "name": "Otago"
+        },
+        {
+          "code": "SOUT",
+          "name": "Southland"
+        }
+      ]
+    },
+    "US": {
+      "name": "United States",
+      "states": [
+        {
+          "code": "AL",
+          "name": "Alabama (AL)"
+        },
+        {
+          "code": "AK",
+          "name": "Alaska (AK)"
+        },
+        {
+          "code": "AZ",
+          "name": "Arizona (AZ)"
+        },
+        {
+          "code": "AR",
+          "name": "Arkansas (AR)"
+        },
+        {
+          "code": "CA",
+          "name": "California (CA)"
+        },
+        {
+          "code": "CO",
+          "name": "Colorado (CO)"
+        },
+        {
+          "code": "CT",
+          "name": "Connecticut (CT)"
+        },
+        {
+          "code": "DE",
+          "name": "Delaware (DE)"
+        },
+        {
+          "code": "DC",
+          "name": "District of Columbia (DC)"
+        },
+        {
+          "code": "FL",
+          "name": "Florida (FL)"
+        },
+        {
+          "code": "GA",
+          "name": "Georgia (GA)"
+        },
+        {
+          "code": "HI",
+          "name": "Hawaii (HI)"
+        },
+        {
+          "code": "ID",
+          "name": "Idaho (ID)"
+        },
+        {
+          "code": "IL",
+          "name": "Illinois (IL)"
+        },
+        {
+          "code": "IN",
+          "name": "Indiana (IN)"
+        },
+        {
+          "code": "IA",
+          "name": "Iowa (IA)"
+        },
+        {
+          "code": "KS",
+          "name": "Kansas (KS)"
+        },
+        {
+          "code": "KY",
+          "name": "Kentucky (KY)"
+        },
+        {
+          "code": "LA",
+          "name": "Louisiana (LA)"
+        },
+        {
+          "code": "ME",
+          "name": "Maine (ME)"
+        },
+        {
+          "code": "MD",
+          "name": "Maryland (MD)"
+        },
+        {
+          "code": "MA",
+          "name": "Massachusetts (MA)"
+        },
+        {
+          "code": "MI",
+          "name": "Michigan (MI)"
+        },
+        {
+          "code": "MN",
+          "name": "Minnesota (MN)"
+        },
+        {
+          "code": "MS",
+          "name": "Mississippi (MS)"
+        },
+        {
+          "code": "MO",
+          "name": "Missouri (MO)"
+        },
+        {
+          "code": "MT",
+          "name": "Montana (MT)"
+        },
+        {
+          "code": "NE",
+          "name": "Nebraska (NE)"
+        },
+        {
+          "code": "NV",
+          "name": "Nevada (NV)"
+        },
+        {
+          "code": "NH",
+          "name": "New Hampshire (NH)"
+        },
+        {
+          "code": "NJ",
+          "name": "New Jersey (NJ)"
+        },
+        {
+          "code": "NM",
+          "name": "New Mexico (NM)"
+        },
+        {
+          "code": "NY",
+          "name": "New York (NY)"
+        },
+        {
+          "code": "NC",
+          "name": "North Carolina (NC)"
+        },
+        {
+          "code": "ND",
+          "name": "North Dakota (ND)"
+        },
+        {
+          "code": "OH",
+          "name": "Ohio (OH)"
+        },
+        {
+          "code": "OK",
+          "name": "Oklahoma (OK)"
+        },
+        {
+          "code": "OR",
+          "name": "Oregon (OR)"
+        },
+        {
+          "code": "PA",
+          "name": "Pennsylvania (PA)"
+        },
+        {
+          "code": "RI",
+          "name": "Rhode Island (RI)"
+        },
+        {
+          "code": "SC",
+          "name": "South Carolina (SC)"
+        },
+        {
+          "code": "SD",
+          "name": "South Dakota (SD)"
+        },
+        {
+          "code": "TN",
+          "name": "Tennessee (TN)"
+        },
+        {
+          "code": "TX",
+          "name": "Texas (TX)"
+        },
+        {
+          "code": "UT",
+          "name": "Utah (UT)"
+        },
+        {
+          "code": "VT",
+          "name": "Vermont (VT)"
+        },
+        {
+          "code": "VA",
+          "name": "Virginia (VA)"
+        },
+        {
+          "code": "WA",
+          "name": "Washington (WA)"
+        },
+        {
+          "code": "WV",
+          "name": "West Virginia (WV)"
+        },
+        {
+          "code": "WI",
+          "name": "Wisconsin (WI)"
+        },
+        {
+          "code": "WY",
+          "name": "Wyoming (WY)"
+        }
+      ]
+    },
+    "GB": {
+      "name": "United Kingdom",
+      "states": [
+        {
+          "code": "ENGL",
+          "name": "England"
+        },
+        {
+          "code": "SCOT",
+          "name": "Scotland"
+        },
+        {
+          "code": "WALE",
+          "name": "Wales"
+        },
+        {
+          "code": "NI",
+          "name": "Northern Ireland"
+        },
+        {
+          "code": "GL",
+          "name": "Greater London"
+        },
+        {
+          "code": "SEE",
+          "name": "South East England"
+        },
+        {
+          "code": "SWE",
+          "name": "South West England"
+        },
+        {
+          "code": "EOE",
+          "name": "East of England"
+        },
+        {
+          "code": "EM",
+          "name": "East Midlands"
+        },
+        {
+          "code": "WM",
+          "name": "West Midlands"
+        },
+        {
+          "code": "YATH",
+          "name": "Yorkshire and the Humber"
+        },
+        {
+          "code": "NWE",
+          "name": "North West England"
+        },
+        {
+          "code": "NEE",
+          "name": "North East England"
+        }
+      ]
+    },
+    "CA": {
+      "name": "Canada",
+      "states": [
+        {
+          "code": "AB",
+          "name": "Alberta (AB)"
+        },
+        {
+          "code": "BC",
+          "name": "British Columbia (BC)"
+        },
+        {
+          "code": "MB",
+          "name": "Manitoba (MB)"
+        },
+        {
+          "code": "NB",
+          "name": "New Brunswick (NB)"
+        },
+        {
+          "code": "NL",
+          "name": "Newfoundland and Labrador (NL)"
+        },
+        {
+          "code": "NS",
+          "name": "Nova Scotia (NS)"
+        },
+        {
+          "code": "ON",
+          "name": "Ontario (ON)"
+        },
+        {
+          "code": "PE",
+          "name": "Prince Edward Island (PE)"
+        },
+        {
+          "code": "QC",
+          "name": "Quebec (QC)"
+        },
+        {
+          "code": "SK",
+          "name": "Saskatchewan (SK)"
+        },
+        {
+          "code": "NT",
+          "name": "Northwest Territories (NT)"
+        },
+        {
+          "code": "NU",
+          "name": "Nunavut (NU)"
+        },
+        {
+          "code": "YT",
+          "name": "Yukon (YT)"
+        }
+      ]
+    },
+    "PH": {
+      "name": "Philippines",
+      "states": [
+        {
+          "code": "NCR",
+          "name": "National Capital Region (NCR)"
+        },
+        {
+          "code": "CAR",
+          "name": "Cordillera Administrative Region (CAR)"
+        },
+        {
+          "code": "REGIONI",
+          "name": "Ilocos Region (Region I)"
+        },
+        {
+          "code": "REGIONII",
+          "name": "Cagayan Valley (Region II)"
+        },
+        {
+          "code": "REGIONIII",
+          "name": "Central Luzon (Region III)"
+        },
+        {
+          "code": "REGIONIV-A",
+          "name": "CALABARZON (Region IV-A)"
+        },
+        {
+          "code": "REGIONIV-B",
+          "name": "MIMAROPA (Region IV-B)"
+        },
+        {
+          "code": "REGIONV",
+          "name": "Bicol Region (Region V)"
+        },
+        {
+          "code": "REGIONVI",
+          "name": "Western Visayas (Region VI)"
+        },
+        {
+          "code": "REGIONVII",
+          "name": "Central Visayas (Region VII)"
+        },
+        {
+          "code": "REGIONVIII",
+          "name": "Eastern Visayas (Region VIII)"
+        },
+        {
+          "code": "REGIONIX",
+          "name": "Zamboanga Peninsula (Region IX)"
+        },
+        {
+          "code": "REGIONX",
+          "name": "Northern Mindanao (Region X)"
+        },
+        {
+          "code": "REGIONXI",
+          "name": "Davao Region (Region XI)"
+        },
+        {
+          "code": "REGIONXII",
+          "name": "SOCCSKSARGEN (Region XII)"
+        },
+        {
+          "code": "REGIONXIII",
+          "name": "Caraga (Region XIII)"
+        },
+        {
+          "code": "BARMM",
+          "name": "Bangsamoro (BARMM)"
+        }
+      ]
+    }
+  },
+  "unmatched_country_names": []
+}

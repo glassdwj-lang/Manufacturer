@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import pytz
@@ -56,6 +57,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ---- Activity-log middleware -------------------------------------------------
+# Any mutating endpoint (POST/PUT/PATCH/DELETE) that hasn't already recorded
+# a richer event itself will be logged here with a generic action name derived
+# from the HTTP method + path. Handlers that record their own event simply set
+# ``request.state.activity_logged = True`` to suppress this fallback.
+from _activity_log import record_event  # noqa: E402
+
+_LOGGED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_SKIP_PATHS = {"/api/auth/login", "/api/auth/me", "/api/auth/register"}
+
+
+def _derive_action(method: str, path: str) -> str:
+    parts = [p for p in path.strip("/").split("/") if p]
+    if parts and parts[0] == "api":
+        parts = parts[1:]
+    # Replace UUID-like / numeric path segments with ``:id`` to keep the action
+    # name stable across resources.
+    cleaned = []
+    for p in parts:
+        if "-" in p and len(p) >= 32:
+            cleaned.append(":id")
+        elif p.isdigit():
+            cleaned.append(":id")
+        else:
+            cleaned.append(p)
+    return f"http.{method.lower()}." + ".".join(cleaned or ["root"])
+
+
+@app.middleware("http")
+async def _activity_log_middleware(request, call_next):
+    response = await call_next(request)
+    try:
+        method = request.method.upper()
+        path = request.url.path
+        if method not in _LOGGED_METHODS or path in _SKIP_PATHS:
+            return response
+        if getattr(request.state, "activity_logged", False):
+            return response
+        if response.status_code >= 400:
+            return response
+        # Pull the authenticated user out of request.state if our auth
+        # dependency stashed one there; otherwise fall back to SYSTEM.
+        user = getattr(request.state, "current_user", None)
+        actor = None
+        if not user:
+            actor = "anon"
+        await record_event(
+            db,
+            request,
+            _derive_action(method, path),
+            user=user,
+            actor_email=actor,
+            meta={"path": path, "status": response.status_code},
+        )
+    except Exception:
+        pass
+    return response
+# ----------------------------------------------------------------------------
+
+
 # ---- Scheduler: daily associate sync ----
 scheduler: Optional[AsyncIOScheduler] = None
 
@@ -83,9 +145,35 @@ async def _start_scheduler():
             id="associate_sync",
             replace_existing=True,
         )
+        # Monthly gem-gallery-193 country/state lookup sync — runs at 00:05
+        # on the first day of every month in the same timezone.
+        from _gem_gallery_meta_sync import sync_country_meta_from_gem_gallery
+        from _countries_data import reset_overlay_cache
+
+        async def _monthly_meta_sync():
+            try:
+                summary = await sync_country_meta_from_gem_gallery()
+                reset_overlay_cache()
+                # Persist a tiny audit trail so admins can inspect the last
+                # run from the DB without grepping logs.
+                await db.gem_gallery_meta_runs.insert_one(
+                    {"summary": summary, "at": datetime.now(timezone.utc).isoformat()}
+                )
+            except Exception as exc:  # pragma: no cover - background task
+                logger.exception("Monthly gem-gallery meta sync failed: %s", exc)
+
+        scheduler.add_job(
+            lambda: asyncio.create_task(_monthly_meta_sync()),
+            CronTrigger(day="1", hour=0, minute=5),
+            id="gem_gallery_meta_sync",
+            replace_existing=True,
+        )
         scheduler.start()
         logger.info(
             "Associate sync scheduled daily at %02d:%02d %s", hour, minute, tz_name
+        )
+        logger.info(
+            "Gem-gallery meta sync scheduled monthly on day 1 at 00:05 %s", tz_name
         )
     except Exception as e:
         logger.warning("Could not start scheduler: %s", e)

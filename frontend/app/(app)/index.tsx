@@ -206,6 +206,15 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
+            testID="activity-log-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/activity-log")}
+          >
+            <Ionicons name="document-text-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>Activity Log</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
             testID="test-translate-button"
             style={[styles.linkBtn, { marginTop: spacing.sm }]}
             onPress={() => router.push("/(app)/test-translate")}

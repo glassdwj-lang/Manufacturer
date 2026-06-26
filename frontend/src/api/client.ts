@@ -103,6 +103,25 @@ export const api = {
   wipeDemo: () => request<any>("/admin/wipe-demo", { method: "POST" }),
   importAssociates: () => request<any>("/admin/import-associates", { method: "POST" }),
   importAssociatesStatus: () => request<any>("/admin/import-associates/status"),
+  syncGemGalleryMeta: () =>
+    request<any>("/admin/sync-gem-gallery-meta", { method: "POST" }),
+  syncGemGalleryMetaStatus: () =>
+    request<any>("/admin/sync-gem-gallery-meta/status"),
+  activityLog: (
+    params: { limit?: number; offset?: number; action?: string; actor_email?: string } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    if (params.action) q.set("action", params.action);
+    if (params.actor_email) q.set("actor_email", params.actor_email);
+    const qs = q.toString();
+    return request<{ rows: any[]; total: number; limit: number; offset: number }>(
+      `/admin/activity-log${qs ? `?${qs}` : ""}`,
+    );
+  },
+  activityLogActions: () =>
+    request<{ actions: string[] }>("/admin/activity-log/actions"),
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
@@ -220,9 +239,41 @@ export const api = {
     role: Role;
     associate_id?: string | null;
     country?: string;
+    phone_dial_code?: string | null;
+    phone_number?: string | null;
+    birthday?: string | null;
+    city?: string | null;
+    state?: string | null;
+    address_line1?: string | null;
+    address_line2?: string | null;
   }) => request<User>("/users", { method: "POST", body: JSON.stringify(payload) }),
+  getUser: (userId: string) => request<any>(`/users/${userId}`),
+  updateUserProfile: (
+    userId: string,
+    payload: {
+      name?: string;
+      associate_id?: string | null;
+      country?: string;
+      phone_dial_code?: string | null;
+      phone_number?: string | null;
+      birthday?: string | null;
+      city?: string | null;
+      state?: string | null;
+      address_line1?: string | null;
+      address_line2?: string | null;
+    },
+  ) =>
+    request<User>(`/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   deleteUser: (userId: string) =>
     request<any>(`/users/${userId}`, { method: "DELETE" }),
+  setUserPassword: (userId: string, password: string) =>
+    request<any>(`/users/${userId}/password`, {
+      method: "PUT",
+      body: JSON.stringify({ password }),
+    }),
   // ---- Soft-delete / recycle bin ----
   softDeleteOrder: (orderId: string) =>
     request<{ ok: boolean; deleted_at?: string }>(`/orders/${orderId}`, {

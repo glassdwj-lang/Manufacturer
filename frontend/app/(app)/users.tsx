@@ -10,6 +10,7 @@ import { api, User } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
+import { confirmAction, notify } from "@/src/utils/confirm";
 
 const ROLE_FILTERS: { key: string; label: string }[] = [
   { key: "manufacturer", label: "WORKSHOPS" },
@@ -74,6 +75,30 @@ export default function UsersScreen() {
     } finally {
       setEditingAliasId(null);
     }
+  };
+
+  const handleDeleteUser = (u: User) => {
+    const label =
+      u.role === "manufacturer"
+        ? `workshop ${u.alias || u.name}`
+        : `${ROLE_LABELS[u.role]?.toLowerCase() || u.role} ${u.name}`;
+    confirmAction({
+      title: "Delete user?",
+      message:
+        `This will permanently remove ${label} (${u.email}).\n\n` +
+        "Users attached to active orders must have those orders moved to the recycle bin first.",
+      confirmLabel: "DELETE",
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api.deleteUser(u.id);
+          setUsers((prev) => prev.filter((x) => x.id !== u.id));
+          notify("User deleted", `${u.name} has been removed.`);
+        } catch (e: any) {
+          notify("Delete failed", e?.message ?? "Unable to delete user.");
+        }
+      },
+    });
   };
 
   if (loading) {
@@ -192,6 +217,24 @@ export default function UsersScreen() {
                   />
                 </View>
               )}
+              {me?.role === "admin" && (u.role === "client" || u.role === "manufacturer") && (
+                <View style={styles.actionsCol}>
+                  <TouchableOpacity
+                    testID={`edit-user-${u.id}`}
+                    onPress={() => router.push(`/(app)/create-user?userId=${u.id}`)}
+                    style={styles.actionBtn}
+                  >
+                    <Ionicons name="create-outline" size={18} color={theme.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID={`delete-user-${u.id}`}
+                    onPress={() => handleDeleteUser(u)}
+                    style={styles.actionBtn}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={theme.error || "#C8553D"} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           ))
         )}
@@ -238,4 +281,19 @@ const styles = StyleSheet.create({
   userMeta: { color: theme.primary, fontSize: 10, letterSpacing: 2, marginTop: 4 },
   autoFwdBox: { alignItems: "center", gap: 4, marginLeft: spacing.md },
   autoFwdLabel: { color: theme.primary, fontSize: 9, letterSpacing: 1 },
+  actionsCol: {
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: spacing.sm,
+    gap: 6,
+  },
+  actionBtn: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
 });

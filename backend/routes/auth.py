@@ -4,8 +4,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from _activity_log import record_event
 from _associate_importer import SOURCE_TAG, source_proxy_auth
 from deps import create_token, db, get_current_user
 from helpers import hash_password, user_to_public, verify_password
@@ -15,7 +16,7 @@ router = APIRouter(tags=["auth"])
 
 
 @router.post("/auth/register", response_model=TokenResponse)
-async def register(data: UserCreate):
+async def register(data: UserCreate, request: Request):
     existing = await db.users.find_one({"email": data.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -32,13 +33,29 @@ async def register(data: UserCreate):
     }
     await db.users.insert_one(user_doc)
     token = create_token(user_id, data.role)
+    await record_event(
+        db,
+        request,
+        "auth.registered",
+        user=user_doc,
+        meta={"role": data.role, "user_id": user_id},
+    )
+    request.state.activity_logged = True
     return TokenResponse(access_token=token, user=UserPublic(**user_to_public(user_doc)))
 
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(data: UserLogin):
+async def login(data: UserLogin, request: Request):
     user = await db.users.find_one({"email": data.email.lower()})
     if not user:
+        await record_event(
+            db,
+            request,
+            "auth.login.failed",
+            actor_email=data.email.lower(),
+            meta={"reason": "unknown_email"},
+        )
+        request.state.activity_logged = True
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     local_ok = bool(user.get("hashed_password")) and verify_password(
@@ -63,9 +80,25 @@ async def login(data: UserLogin):
             local_ok = True
 
     if not local_ok:
+        await record_event(
+            db,
+            request,
+            "auth.login.failed",
+            user=user,
+            meta={"reason": "bad_password", "user_id": user["id"]},
+        )
+        request.state.activity_logged = True
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_token(user["id"], user["role"])
+    await record_event(
+        db,
+        request,
+        "auth.login",
+        user=user,
+        meta={"role": user["role"], "user_id": user["id"]},
+    )
+    request.state.activity_logged = True
     return TokenResponse(access_token=token, user=UserPublic(**user_to_public(user)))
 
 

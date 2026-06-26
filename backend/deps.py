@@ -12,7 +12,7 @@ from pathlib import Path
 import jwt as pyjwt
 import pytz
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -44,7 +44,9 @@ def create_token(user_id: str, role: str) -> str:
     return pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(
+    request: Request, token: str = Depends(oauth2_scheme)
+):
     try:
         payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -55,6 +57,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Cache the authenticated user on request.state so the activity-log
+    # middleware can attribute fallback events without re-decoding the JWT.
+    try:
+        request.state.current_user = user
+    except Exception:
+        pass
     return user
 
 

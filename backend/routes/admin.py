@@ -105,6 +105,86 @@ async def import_associates_status(user=Depends(require_roles("admin"))):
     return {"last_run": get_last_run(), "schedule": sched_info}
 
 
+# ---- Gem-gallery country / state lookup sync ----
+@router.post("/admin/sync-gem-gallery-meta")
+async def admin_sync_gem_gallery_meta(user=Depends(require_roles("admin"))):
+    """Manual trigger for the monthly country/state/region sync from
+    gem-gallery-193. Returns a summary of additions/updates."""
+    from _gem_gallery_meta_sync import sync_country_meta_from_gem_gallery
+    from _countries_data import reset_overlay_cache
+
+    summary = await sync_country_meta_from_gem_gallery()
+    reset_overlay_cache()
+    await db.gem_gallery_meta_runs.insert_one(
+        {
+            "summary": summary,
+            "at": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).isoformat(),
+            "trigger": "manual",
+            "by_user": user["id"],
+        }
+    )
+    return summary
+
+
+@router.get("/admin/sync-gem-gallery-meta/status")
+async def admin_sync_gem_gallery_meta_status(user=Depends(require_roles("admin"))):
+    """Return the last gem-gallery meta-sync run, if any."""
+    doc = await db.gem_gallery_meta_runs.find_one(sort=[("at", -1)])
+    if doc:
+        doc.pop("_id", None)
+    return {
+        "last_run": doc,
+        "schedule": {
+            "tz": os.environ.get("ASSOCIATE_SYNC_TZ", "Australia/Sydney"),
+            "day": 1,
+            "hour": 0,
+            "minute": 5,
+            "description": "First day of every month at 00:05",
+        },
+    }
+
+
+# ---- Activity log ----
+@router.get("/admin/activity-log")
+async def admin_activity_log(
+    limit: int = 200,
+    offset: int = 0,
+    action: str | None = None,
+    actor_email: str | None = None,
+    user=Depends(require_roles("admin")),
+):
+    """Mirrors the gem-gallery-193 ``/api/admin/activity-log`` shape.
+
+    Supports lightweight filtering by ``action`` (exact match) and
+    ``actor_email`` (case-insensitive partial). Results are ordered
+    newest-first and capped at 1000 to protect the client."""
+    q: dict = {}
+    if action:
+        q["action"] = action
+    if actor_email:
+        q["actor_email"] = {"$regex": actor_email.replace(".", r"\."), "$options": "i"}
+    limit = max(1, min(int(limit), 1000))
+    offset = max(0, int(offset))
+    cur = (
+        db.activity_log.find(q, {"_id": 0})
+        .sort("at", -1)
+        .skip(offset)
+        .limit(limit)
+    )
+    rows = await cur.to_list(limit)
+    total = await db.activity_log.count_documents(q)
+    return {"rows": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/admin/activity-log/actions")
+async def admin_activity_log_actions(user=Depends(require_roles("admin"))):
+    """Distinct action names — useful to populate a filter dropdown."""
+    actions = await db.activity_log.distinct("action")
+    return {"actions": sorted(actions)}
+
+
 # ---- Alias backfill ----
 @router.post("/admin/backfill-aliases")
 async def admin_backfill_aliases(user=Depends(require_roles("admin"))):

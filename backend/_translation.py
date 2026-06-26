@@ -54,6 +54,7 @@ COUNTRY_LANG: dict[str, tuple[str, str]] = {
     "ID": ("id", "Indonesian"),
     "MY": ("ms", "Malay"),
     "VN": ("vi", "Vietnamese"),
+    "PH": ("en", "English"),
 }
 
 # List of (code, name) tuples for the country dropdown
@@ -94,6 +95,7 @@ COUNTRY_LIST = sorted(
         ("ID", "Indonesia"),
         ("MY", "Malaysia"),
         ("VN", "Vietnam"),
+        ("PH", "Philippines"),
     ],
     key=lambda x: x[1],
 )

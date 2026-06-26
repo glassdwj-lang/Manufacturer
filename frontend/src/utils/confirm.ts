@@ -38,3 +38,17 @@ export function confirmAction(opts: ConfirmOptions): void {
     },
   ]);
 }
+
+/**
+ * Cross-platform info notice. Falls back to `window.alert` on web for parity
+ * with `confirmAction`.
+ */
+export function notify(title: string, message?: string): void {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") {
+      window.alert(message ? `${title}\n\n${message}` : title);
+    }
+    return;
+  }
+  Alert.alert(title, message);
+}

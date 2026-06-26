@@ -30,6 +30,21 @@ class UserCountryUpdate(BaseModel):
     country: str
 
 
+class UserProfileUpdate(BaseModel):
+    """Optional patch for any subset of the extended profile fields.
+    All ``None`` values are treated as "no change" (not "clear the field")."""
+    name: Optional[str] = None
+    associate_id: Optional[str] = None
+    country: Optional[str] = None
+    phone_dial_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    birthday: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+
+
 class UserAliasUpdate(BaseModel):
     alias: str
 
