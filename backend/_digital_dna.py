@@ -9,7 +9,9 @@ font for Chinese glyphs and falls back to Helvetica for the latin scripts.
 from __future__ import annotations
 import base64
 import io
+import logging
 import re
+import urllib.request
 from datetime import datetime
 from typing import Any
 import pytz
@@ -24,6 +26,8 @@ from reportlab.lib.utils import ImageReader
 
 from _step_translations import STEP_I18N
 from helpers import language_for_user
+
+log = logging.getLogger(__name__)
 
 BG = HexColor("#0A0A0A")
 GOLD = HexColor("#D4AF37")
@@ -196,10 +200,43 @@ def _t(lang: str, key: str, **vars: Any) -> str:
     return s
 
 
+def _is_video_url(raw: str) -> bool:
+    """Cloudinary video URLs live under /video/upload/ — those have no
+    extractable still frame, so we skip them in the PDF."""
+    return "/video/upload/" in (raw or "")
+
+
 def _decode_photo(raw: str) -> ImageReader | None:
+    """Resolve a photo reference (Cloudinary URL **or** base64 data URI) to an
+    ImageReader the PDF engine can embed. Returns ``None`` on any failure so
+    callers can silently skip the thumbnail without breaking the certificate.
+    """
     if not raw or not isinstance(raw, str):
         return None
+    # Cloudinary video URLs cannot be embedded as still images.
+    if _is_video_url(raw):
+        return None
     try:
+        # Remote URL → fetch the bytes (short timeout, no auth).
+        if raw.startswith("http://") or raw.startswith("https://"):
+            # Force a JPEG transform on Cloudinary URLs so we never feed
+            # WEBP / HEIC / GIF into ReportLab — which only handles common
+            # raster formats reliably. The "f_jpg" transformation tells
+            # Cloudinary to deliver a JPEG regardless of source format.
+            url = raw
+            if "/image/upload/" in url:
+                url = url.replace(
+                    "/image/upload/",
+                    "/image/upload/f_jpg,q_auto:good,w_800/",
+                    1,
+                )
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Somnio.Co/DigitalDNA"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read(6_000_000)  # 6 MB cap per thumbnail
+            return ImageReader(io.BytesIO(data))
+        # Base64 / data URI fallback (legacy).
         if raw.startswith("data:"):
             _, b64 = raw.split(",", 1)
         else:
@@ -207,7 +244,8 @@ def _decode_photo(raw: str) -> ImageReader | None:
         b64 = re.sub(r"\s+", "", b64)
         data = base64.b64decode(b64, validate=False)
         return ImageReader(io.BytesIO(data))
-    except Exception:
+    except Exception as e:
+        log.warning("Digital DNA: failed to load thumbnail %.80s — %s", raw, e)
         return None
 
 
