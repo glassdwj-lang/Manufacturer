@@ -366,12 +366,18 @@ export default function CreateUserScreen() {
             })}
           </View>
 
-          <Text style={styles.formLabel}>FULL NAME</Text>
+          <Text style={styles.formLabel}>
+            {role === "manufacturer" ? "BUSINESS NAME" : "FULL NAME"}
+          </Text>
           <TextInput
             testID="user-name-input"
             value={name}
             onChangeText={setName}
-            placeholder="e.g. Marc Aubert"
+            placeholder={
+              role === "manufacturer"
+                ? "e.g. Atelier Aubert Pte. Ltd."
+                : "e.g. Marc Aubert"
+            }
             placeholderTextColor={theme.textMuted}
             style={styles.input}
           />
