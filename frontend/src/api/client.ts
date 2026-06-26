@@ -141,7 +141,26 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<User>("/auth/me"),
-  listOrders: () => request<Order[]>("/orders"),
+  listOrders: (
+    params: {
+      client_id?: string;
+      manufacturer_id?: string;
+      associate_id?: string;
+      q?: string;
+      date_from?: string;
+      date_to?: string;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.client_id) qs.set("client_id", params.client_id);
+    if (params.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params.associate_id) qs.set("associate_id", params.associate_id);
+    if (params.q) qs.set("q", params.q);
+    if (params.date_from) qs.set("date_from", params.date_from);
+    if (params.date_to) qs.set("date_to", params.date_to);
+    const tail = qs.toString();
+    return request<Order[]>(`/orders${tail ? `?${tail}` : ""}`);
+  },
   getOrder: (id: string) => request<Order>(`/orders/${id}`),
   createOrder: (payload: any) =>
     request<Order>("/orders", { method: "POST", body: JSON.stringify(payload) }),

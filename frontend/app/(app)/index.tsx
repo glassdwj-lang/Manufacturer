@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
-import { api, Order } from "@/src/api/client";
+import { api, Order, User } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { Eyebrow, ProgressBar, PhaseBadge, CompletedBadge } from "@/src/components/Ui";
 import { flags } from "@/src/flags";
@@ -33,6 +35,46 @@ export default function HomeScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [approvalsCount, setApprovalsCount] = useState(0);
+  // ---- Commission filters --------------------------------------------------
+  // Admin/associate can narrow the list by client/manufacturer/associate,
+  // jewelry-type search, and a date window. Filter state lives in this
+  // component (not URL) so a refresh resets cleanly.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterClient, setFilterClient] = useState<string>("");
+  const [filterManufacturer, setFilterManufacturer] = useState<string>("");
+  const [filterAssociate, setFilterAssociate] = useState<string>("");
+  const [filterQuery, setFilterQuery] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  // Debounced copy of the search query so we don't hit the API on every key.
+  const [searchSubmitted, setSearchSubmitted] = useState("");
+  // Lookup tables for the dropdowns.
+  const [clientOptions, setClientOptions] = useState<User[]>([]);
+  const [mfgOptions, setMfgOptions] = useState<User[]>([]);
+  const [assocOptions, setAssocOptions] = useState<User[]>([]);
+  const [openPicker, setOpenPicker] = useState<"" | "client" | "mfg" | "assoc">("");
+
+  const showFilters = user?.role === "admin" || user?.role === "associate";
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (filterClient) n += 1;
+    if (filterManufacturer) n += 1;
+    if (filterAssociate) n += 1;
+    if (searchSubmitted) n += 1;
+    if (filterDateFrom) n += 1;
+    if (filterDateTo) n += 1;
+    return n;
+  }, [filterClient, filterManufacturer, filterAssociate, searchSubmitted, filterDateFrom, filterDateTo]);
+
+  const clearFilters = useCallback(() => {
+    setFilterClient("");
+    setFilterManufacturer("");
+    setFilterAssociate("");
+    setFilterQuery("");
+    setSearchSubmitted("");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+  }, []);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -50,7 +92,14 @@ export default function HomeScreen() {
 
   const load = useCallback(async () => {
     try {
-      const list = await api.listOrders();
+      const list = await api.listOrders({
+        client_id: filterClient || undefined,
+        manufacturer_id: filterManufacturer || undefined,
+        associate_id: filterAssociate || undefined,
+        q: searchSubmitted || undefined,
+        date_from: filterDateFrom || undefined,
+        date_to: filterDateTo || undefined,
+      });
       setOrders(list);
       if (user && (user.role === "admin" || user.role === "associate")) {
         try {
@@ -68,7 +117,15 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [
+    user,
+    filterClient,
+    filterManufacturer,
+    filterAssociate,
+    searchSubmitted,
+    filterDateFrom,
+    filterDateTo,
+  ]);
 
   const bulkDelete = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -102,6 +159,31 @@ export default function HomeScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Load the people-picker options once on mount (admin gets all 3 lists,
+  // associate only needs client + workshop lists).
+  useEffect(() => {
+    if (!showFilters) return;
+    (async () => {
+      try {
+        const all = await api.listUsers();
+        const clients = all.filter((u) => u.role === "client");
+        const mfgs = all.filter((u) => u.role === "manufacturer");
+        const assoc = all.filter((u) => u.role === "associate");
+        setClientOptions(
+          clients.sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+        );
+        setMfgOptions(
+          mfgs.sort((a, b) => (a.alias || a.name || "").localeCompare(b.alias || b.name || "")),
+        );
+        setAssocOptions(
+          assoc.sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+        );
+      } catch (e) {
+        console.warn("filter lookup load", e);
+      }
+    })();
+  }, [showFilters]);
 
   // Refresh the orders list when the manual language changes so cached
   // step titles re-localize without having to navigate away and back.
@@ -238,6 +320,146 @@ export default function HomeScreen() {
       )}
 
       <Eyebrow testID="orders-section-eyebrow">{t("home.section.commissions")}</Eyebrow>
+
+      {showFilters && (
+        <View style={styles.filterBar}>
+          <TouchableOpacity
+            testID="toggle-commission-filters"
+            onPress={() => setFiltersOpen((v) => !v)}
+            style={styles.filterToggle}
+          >
+            <Ionicons
+              name={filtersOpen ? "funnel" : "funnel-outline"}
+              size={14}
+              color={activeFilterCount > 0 ? theme.primary : theme.textMuted}
+            />
+            <Text
+              style={[
+                styles.filterToggleText,
+                activeFilterCount > 0 && { color: theme.primary },
+              ]}
+            >
+              FILTERS
+            </Text>
+            {activeFilterCount > 0 && (
+              <View style={styles.filterCount}>
+                <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          {activeFilterCount > 0 && (
+            <TouchableOpacity
+              testID="clear-commission-filters"
+              onPress={clearFilters}
+              style={styles.filterClear}
+            >
+              <Text style={styles.filterClearText}>CLEAR</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {showFilters && filtersOpen && (
+        <View style={styles.filterPanel}>
+          <Text style={styles.filterLabel}>SEARCH JEWELRY TYPE / NAME</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              testID="filter-search-input"
+              value={filterQuery}
+              onChangeText={setFilterQuery}
+              onSubmitEditing={() => setSearchSubmitted(filterQuery.trim())}
+              returnKeyType="search"
+              placeholder="e.g. ring, earring, necklace…"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              style={styles.searchInput}
+            />
+            <TouchableOpacity
+              testID="filter-search-apply"
+              onPress={() => setSearchSubmitted(filterQuery.trim())}
+              style={styles.searchBtn}
+            >
+              <Ionicons name="search" size={14} color="#0A0A0A" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.filterLabel}>DATE RANGE</Text>
+          <View style={styles.dateRow}>
+            <View style={{ flex: 1, marginRight: 6 }}>
+              <Text style={styles.filterSubLabel}>FROM</Text>
+              <TextInput
+                testID="filter-date-from"
+                value={filterDateFrom}
+                onChangeText={setFilterDateFrom}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                style={styles.searchInput}
+              />
+            </View>
+            <View style={{ flex: 1, marginLeft: 6 }}>
+              <Text style={styles.filterSubLabel}>TO</Text>
+              <TextInput
+                testID="filter-date-to"
+                value={filterDateTo}
+                onChangeText={setFilterDateTo}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                style={styles.searchInput}
+              />
+            </View>
+          </View>
+
+          {user.role === "admin" && (
+            <>
+              <PeoplePicker
+                label="WORKSHOP (MANUFACTURER)"
+                placeholder="All workshops"
+                options={mfgOptions}
+                selectedId={filterManufacturer}
+                isOpen={openPicker === "mfg"}
+                onToggle={() => setOpenPicker(openPicker === "mfg" ? "" : "mfg")}
+                onSelect={(id) => {
+                  setFilterManufacturer(id);
+                  setOpenPicker("");
+                }}
+                renderLabel={(u) => u.alias || u.name}
+                renderSub={(u) => u.email}
+              />
+              <PeoplePicker
+                label="ASSOCIATE"
+                placeholder="All associates"
+                options={assocOptions}
+                selectedId={filterAssociate}
+                isOpen={openPicker === "assoc"}
+                onToggle={() => setOpenPicker(openPicker === "assoc" ? "" : "assoc")}
+                onSelect={(id) => {
+                  setFilterAssociate(id);
+                  setOpenPicker("");
+                }}
+                renderLabel={(u) => u.name}
+                renderSub={(u) => u.email}
+              />
+            </>
+          )}
+          <PeoplePicker
+            label="CLIENT"
+            placeholder="All clients"
+            options={clientOptions}
+            selectedId={filterClient}
+            isOpen={openPicker === "client"}
+            onToggle={() => setOpenPicker(openPicker === "client" ? "" : "client")}
+            onSelect={(id) => {
+              setFilterClient(id);
+              setOpenPicker("");
+            }}
+            renderLabel={(u) => u.name}
+            renderSub={(u) => u.email}
+          />
+        </View>
+      )}
+
       {user.role === "admin" && orders.length > 0 && (
         <View style={styles.selectModeRow}>
           {selectMode ? (
@@ -565,4 +787,214 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   bulkDeleteText: { color: "#0A0A0A", fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+  // ---- Commission filters --------------------------------------------------
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: 4,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  filterToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  filterToggleText: {
+    color: theme.textMuted,
+    fontSize: 10,
+    letterSpacing: 2,
+    fontWeight: "600",
+  },
+  filterCount: {
+    backgroundColor: theme.primary,
+    paddingHorizontal: 6,
+    minWidth: 18,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    marginLeft: 4,
+  },
+  filterCountText: { color: "#0A0A0A", fontSize: 10, fontWeight: "700" },
+  filterClear: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  filterClearText: { color: theme.textMuted, fontSize: 10, letterSpacing: 2 },
+  filterPanel: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    gap: 4,
+  },
+  filterLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    letterSpacing: 2,
+    marginTop: spacing.sm,
+    marginBottom: 6,
+  },
+  filterSubLabel: {
+    color: theme.textMuted,
+    fontSize: 9,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: theme.textPrimary,
+    fontSize: 13,
+    minHeight: 40,
+  },
+  searchBtn: {
+    backgroundColor: theme.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 40,
+  },
+  dateRow: { flexDirection: "row", justifyContent: "space-between" },
+  pickerToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 40,
+  },
+  pickerToggleText: { flex: 1, color: theme.textPrimary, fontSize: 13 },
+  pickerToggleEmpty: { color: theme.textMuted },
+  pickerList: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderTopWidth: 0,
+    maxHeight: 200,
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  pickerRowSel: { backgroundColor: "rgba(218,165,32,0.08)" },
+  pickerRowName: { color: theme.textPrimary, fontSize: 13 },
+  pickerRowSub: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
 });
+
+// Inline single-select people picker reused for client / manufacturer /
+// associate filtering. Kept in this file (vs /src/components) because it's
+// tightly coupled to the local picker-open state machine.
+function PeoplePicker({
+  label,
+  placeholder,
+  options,
+  selectedId,
+  isOpen,
+  onToggle,
+  onSelect,
+  renderLabel,
+  renderSub,
+}: {
+  label: string;
+  placeholder: string;
+  options: User[];
+  selectedId: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+  renderLabel: (u: User) => string;
+  renderSub: (u: User) => string;
+}) {
+  const selected = options.find((u) => u.id === selectedId);
+  return (
+    <>
+      <Text style={styles.filterLabel}>{label}</Text>
+      <TouchableOpacity
+        style={styles.pickerToggle}
+        onPress={onToggle}
+        testID={`picker-toggle-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}
+      >
+        <Text
+          style={[
+            styles.pickerToggleText,
+            !selected && styles.pickerToggleEmpty,
+          ]}
+        >
+          {selected ? renderLabel(selected) : placeholder}
+        </Text>
+        <Ionicons
+          name={isOpen ? "chevron-up" : "chevron-down"}
+          size={14}
+          color={theme.textMuted}
+        />
+      </TouchableOpacity>
+      {isOpen && (
+        <ScrollView style={styles.pickerList} nestedScrollEnabled>
+          <TouchableOpacity
+            testID="picker-row-clear"
+            style={styles.pickerRow}
+            onPress={() => onSelect("")}
+          >
+            <Text
+              style={[styles.pickerRowName, !selectedId && { color: theme.primary }]}
+            >
+              {placeholder}
+            </Text>
+            {!selectedId && (
+              <Ionicons
+                name="checkmark"
+                size={16}
+                color={theme.primary}
+                style={{ marginLeft: "auto" }}
+              />
+            )}
+          </TouchableOpacity>
+          {options.map((u) => {
+            const sel = selectedId === u.id;
+            return (
+              <TouchableOpacity
+                key={u.id}
+                testID={`picker-row-${u.id}`}
+                style={[styles.pickerRow, sel && styles.pickerRowSel]}
+                onPress={() => onSelect(u.id)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[styles.pickerRowName, sel && { color: theme.primary }]}
+                    numberOfLines={1}
+                  >
+                    {renderLabel(u)}
+                  </Text>
+                  <Text style={styles.pickerRowSub} numberOfLines={1}>
+                    {renderSub(u)}
+                  </Text>
+                </View>
+                {sel && <Ionicons name="checkmark" size={16} color={theme.primary} />}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+    </>
+  );
+}

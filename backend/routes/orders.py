@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from _digital_dna import build_digital_dna_pdf
@@ -65,9 +65,25 @@ async def create_order(
 
 
 @router.get("/orders")
-async def list_orders(user=Depends(get_current_user)):
+async def list_orders(
+    user=Depends(get_current_user),
+    client_id: str | None = Query(default=None),
+    manufacturer_id: str | None = Query(default=None),
+    associate_id: str | None = Query(default=None),
+    q: str | None = Query(default=None, description="Jewelry-type / order-name substring (case-insensitive)"),
+    date_from: str | None = Query(default=None, description="ISO date (YYYY-MM-DD); inclusive lower bound on created_at"),
+    date_to: str | None = Query(default=None, description="ISO date (YYYY-MM-DD); inclusive upper bound on created_at"),
+):
     """Returns the calling user's visible orders. Soft-deleted commissions
-    are excluded — they live exclusively in /admin/recycle-bin."""
+    are excluded — they live exclusively in /admin/recycle-bin.
+
+    Filters:
+    * ``client_id`` / ``manufacturer_id`` / ``associate_id`` — admin can filter
+      across any of these; non-admins have the matching id locked to their
+      own (any conflicting filter is silently ignored).
+    * ``q`` — case-insensitive substring against ``jewelry_name``.
+    * ``date_from`` / ``date_to`` — inclusive date window on ``created_at``.
+    """
     not_deleted = {
         "$or": [
             {"deleted_at": {"$exists": False}},
@@ -82,9 +98,52 @@ async def list_orders(user=Depends(get_current_user)):
         role_filter["associate_id"] = user["id"]
     elif user["role"] == "client":
         role_filter["client_id"] = user["id"]
-    q = {"$and": [not_deleted, role_filter]} if role_filter else not_deleted
+
+    extra: dict = {}
+    if user["role"] == "admin":
+        if client_id:
+            extra["client_id"] = client_id
+        if manufacturer_id:
+            extra["manufacturer_id"] = manufacturer_id
+        if associate_id:
+            extra["associate_id"] = associate_id
+    elif user["role"] == "associate":
+        # An associate can narrow their own list down to a specific client /
+        # workshop, but never break role-scope.
+        if client_id:
+            extra["client_id"] = client_id
+        if manufacturer_id:
+            extra["manufacturer_id"] = manufacturer_id
+
+    if q:
+        # MongoDB regex with safe escape so users can't accidentally type a
+        # regex special character and break the query.
+        import re as _re
+
+        extra["jewelry_name"] = {
+            "$regex": _re.escape(q.strip()),
+            "$options": "i",
+        }
+
+    if date_from or date_to:
+        # ``created_at`` is an ISO-8601 string (lexicographically sortable for
+        # YYYY-MM-DD…), so a plain $gte / $lte on the prefix works correctly.
+        rng: dict = {}
+        if date_from:
+            rng["$gte"] = date_from.strip()
+        if date_to:
+            # Inclusive day-end: 2026-06-26 matches up to 2026-06-26T23:59:59.
+            rng["$lte"] = date_to.strip() + "T23:59:59"
+        extra["created_at"] = rng
+
+    parts = [not_deleted]
+    if role_filter:
+        parts.append(role_filter)
+    if extra:
+        parts.append(extra)
+    query = {"$and": parts} if len(parts) > 1 else parts[0]
     orders = (
-        await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     )
     return [list_strip(o, user) for o in orders]
 
