@@ -211,6 +211,41 @@ export default function OrderDetail() {
           </View>
         </View>
 
+        {(user?.role === "admin" ||
+          user?.role === "manufacturer" ||
+          user?.role === "cad_renderer" ||
+          user?.role === "client" ||
+          user?.role === "associate") && (() => {
+          // Renders folder — vendor (cad_renderer) uploads need admin
+          // approval before clients see them. The card shows the count
+          // of approved renders that are visible to the current viewer.
+          const renderCount = (order as any).renders?.length || 0;
+          const pendingCount = (order as any).pending_renders?.length || 0;
+          return (
+            <TouchableOpacity
+              testID="renders-button"
+              style={styles.customsBtn}
+              onPress={() => router.push(`/(app)/renders/${order.id}`)}
+            >
+              <Ionicons name="images-outline" size={18} color={theme.primary} />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={styles.customsTitle}>
+                  Renders{renderCount > 0 ? ` (${renderCount})` : ""}
+                  {user?.role === "admin" && pendingCount > 0
+                    ? `  •  ${pendingCount} pending`
+                    : ""}
+                </Text>
+                <Text style={styles.customsSub}>
+                  {user?.role === "cad_renderer"
+                    ? "Upload your finished renders here for admin review"
+                    : "Finished render images approved for the client"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
+
         {(user?.role === "admin" || user?.role === "manufacturer") && (() => {
           const cadCount = order.cad_files?.length || 0;
           return (

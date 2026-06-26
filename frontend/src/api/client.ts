@@ -377,6 +377,82 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  // ---- Renders (Phase 3) --------------------------------------------------
+  assignCadRenderer: (orderId: string, cad_renderer_id: string | null) =>
+    request<{ ok: boolean; cad_renderer_id: string | null; cad_renderer_name: string | null }>(
+      `/orders/${orderId}/cad-renderer`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ cad_renderer_id }),
+      },
+    ),
+  listRenders: (orderId: string) =>
+    request<{
+      renders: CadFile[];
+      pending_renders: CadFile[];
+      cad_renderer_id: string | null;
+      cad_renderer_name: string | null;
+    }>(`/orders/${orderId}/renders`),
+  addRender: (orderId: string, payload: CadFilePayload) =>
+    request<{ render: CadFile; queue: "renders" | "pending_renders" }>(
+      `/orders/${orderId}/renders`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  approveRender: (orderId: string, renderId: string) =>
+    request<{ ok: boolean; render: CadFile }>(
+      `/orders/${orderId}/renders/${renderId}/approve`,
+      { method: "POST" },
+    ),
+  rejectRender: (orderId: string, renderId: string) =>
+    request<{ ok: boolean }>(`/orders/${orderId}/renders/${renderId}/reject`, {
+      method: "POST",
+    }),
+  removeRender: (orderId: string, renderId: string) =>
+    request<{ ok: boolean }>(`/orders/${orderId}/renders/${renderId}`, {
+      method: "DELETE",
+    }),
+  // ---- Admin CAD Library (cross-order) ------------------------------------
+  adminListAllCadFiles: (params?: {
+    manufacturer_id?: string | null;
+    q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.date_from) qs.set("date_from", params.date_from);
+    if (params?.date_to) qs.set("date_to", params.date_to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<
+      (CadFile & {
+        order_id: string;
+        order_ref: string | null;
+        jewelry_name: string | null;
+        manufacturer_id: string | null;
+        manufacturer_name: string | null;
+        manufacturer_alias: string | null;
+        client_id: string | null;
+        client_name: string | null;
+      })[]
+    >(`/admin/cad-files${suffix}`);
+  },
+  adminEmailCrossOrderCadFiles: (payload: {
+    recipients: string[];
+    items: { order_id: string; file_id: string }[];
+    subject?: string | null;
+    message?: string | null;
+  }) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      order_count: number;
+      provider_id: string | null;
+    }>(`/admin/cad-files/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listUsers: (role?: string) =>
     request<User[]>(`/users${role ? `?role=${role}` : ""}`),
   setAutoForward: (userId: string, auto_forward: boolean) =>

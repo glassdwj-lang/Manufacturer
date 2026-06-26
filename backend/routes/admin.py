@@ -484,3 +484,193 @@ async def seed_extended():
         "workshops": len(workshop_ids),
         "clients": len(client_ids),
     }
+
+
+# ---- Cross-order CAD library (Phase 2) -------------------------------------
+# Admin-only flat view of every CAD file across every non-deleted commission.
+# Used by the new CAD Library page to bulk-email files via Resend without
+# navigating to each order individually.
+
+
+@router.get("/admin/cad-files")
+async def admin_list_all_cad_files(
+    user=Depends(require_roles("admin")),
+    manufacturer_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """Returns a flat list of CAD files, each row enriched with its parent
+    commission context (order_ref, jewelry_name, manufacturer_name). Sorted
+    newest-uploaded first so the most recent designs surface immediately.
+
+    Filters (all optional):
+    * ``manufacturer_id`` — only files from the named workshop
+    * ``q``               — case-insensitive substring against file name OR
+                            jewelry name OR order ref
+    * ``date_from`` /
+      ``date_to``         — inclusive ``uploaded_at`` date window
+                            (ISO YYYY-MM-DD)
+    """
+    not_deleted = {
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+            {"deleted_at": ""},
+        ]
+    }
+    query: dict = {"$and": [not_deleted, {"cad_files": {"$exists": True, "$ne": []}}]}
+    if manufacturer_id:
+        query["$and"].append({"manufacturer_id": manufacturer_id})
+
+    rows: list[dict] = []
+    needle = (q or "").strip().lower()
+    df = (date_from or "").strip()
+    dt = (date_to or "").strip()
+    dt_end = (dt + "T23:59:59") if dt else None
+
+    cursor = db.orders.find(query, {"_id": 0}).sort("created_at", -1)
+    async for order in cursor:
+        files = order.get("cad_files") or []
+        if not files:
+            continue
+        order_match_q = (
+            needle in (order.get("jewelry_name") or "").lower()
+            or needle in (order.get("order_ref") or "").lower()
+        )
+        for f in files:
+            uploaded = f.get("uploaded_at") or ""
+            if df and uploaded < df:
+                continue
+            if dt_end and uploaded > dt_end:
+                continue
+            if needle and not (
+                order_match_q or needle in (f.get("name") or "").lower()
+            ):
+                continue
+            rows.append(
+                {
+                    **f,
+                    "order_id": order.get("id"),
+                    "order_ref": order.get("order_ref"),
+                    "jewelry_name": order.get("jewelry_name"),
+                    "manufacturer_id": order.get("manufacturer_id"),
+                    "manufacturer_name": order.get("manufacturer_name"),
+                    "manufacturer_alias": order.get("manufacturer_alias"),
+                    "client_id": order.get("client_id"),
+                    "client_name": order.get("client_name"),
+                }
+            )
+
+    # Final sort: newest uploaded_at first; missing timestamps sink to the end.
+    rows.sort(key=lambda r: r.get("uploaded_at") or "", reverse=True)
+    return rows
+
+
+class CadLibraryEmailItem(BaseModel):
+    order_id: str
+    file_id: str
+
+
+class CadLibraryEmailPayload(BaseModel):
+    recipients: list[str]
+    items: list[CadLibraryEmailItem]
+    subject: str | None = None
+    message: str | None = None
+
+
+@router.post("/admin/cad-files/email")
+async def admin_email_cross_order_cad_files(
+    body: CadLibraryEmailPayload,
+    user=Depends(require_roles("admin")),
+):
+    """Bulk-email a selection of CAD files that may come from MANY different
+    commissions. Composes a single email whose body groups the files by
+    commission so the recipient sees clear provenance.
+
+    Because the file rows reference orders other than the one the recipient
+    cares about, the per-order context (jewelry name + order ref) is folded
+    into the link labels — done client-side in the email template.
+    """
+    from _email import send_files_email
+    from routes.orders._shared import sanitize_recipients
+
+    cleaned = sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+    if not body.items:
+        raise HTTPException(status_code=400, detail="Select at least one file.")
+
+    # Group requested {order_id, file_id} pairs so we only hit Mongo once per
+    # order, not once per file.
+    grouped: dict[str, set[str]] = {}
+    for it in body.items:
+        grouped.setdefault(it.order_id, set()).add(it.file_id)
+
+    selected: list[dict] = []
+    for order_id, file_ids in grouped.items():
+        order = await db.orders.find_one(
+            {"id": order_id, "$or": [
+                {"deleted_at": {"$exists": False}},
+                {"deleted_at": None},
+                {"deleted_at": ""},
+            ]},
+            {"_id": 0},
+        )
+        if not order:
+            continue
+        ref = order.get("order_ref") or ""
+        jewel = order.get("jewelry_name") or ""
+        for f in (order.get("cad_files") or []):
+            if f.get("id") not in file_ids:
+                continue
+            # Folder the per-order context into the filename used in the
+            # email so the recipient can tell which commission each link
+            # belongs to.
+            label = f.get("name") or "CAD file"
+            if jewel or ref:
+                provenance = " · ".join(s for s in (jewel, ref) if s)
+                label = f"{label}  ({provenance})"
+            selected.append({**f, "name": label})
+
+    if not selected:
+        raise HTTPException(
+            status_code=400, detail="None of the selected files were found."
+        )
+
+    try:
+        provider_response = send_files_email(
+            kind="cad",
+            recipients=cleaned,
+            subject=body.subject,
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=None,
+            jewelry_name=None,
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "order_count": len(grouped),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
