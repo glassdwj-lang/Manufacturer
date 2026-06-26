@@ -16,6 +16,7 @@ import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { useAuth } from "@/src/context/AuthContext";
 
 type Dashboard = {
   commissions: { total: number; active: number; completed: number; by_phase: Record<string, number> };
@@ -47,6 +48,7 @@ function relTime(iso: string): string {
 export default function DashboardScreen() {
   const safeBack = useSafeBack("/(app)");
   const router = useRouter();
+  const { user } = useAuth();
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -157,31 +159,45 @@ export default function DashboardScreen() {
           {data.top_manufacturers.length === 0 ? (
             <Text style={styles.empty}>No commissions yet.</Text>
           ) : (
-            data.top_manufacturers.map((m) => (
-              <View key={m.id} style={styles.workshopRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.workshopName} numberOfLines={1}>
-                    {m.alias || m.name}
-                  </Text>
-                  <Text style={styles.workshopMeta} numberOfLines={1}>
-                    {m.email}
-                  </Text>
+            data.top_manufacturers.map((m) => {
+              // Admin sees the real business name first, with the alias
+              // appended as a secondary label (so the alias is still legible
+              // for cross-referencing). Other roles never reach this screen
+              // today, but we guard just in case.
+              const isAdmin = user?.role === "admin";
+              const realName = m.name || "—";
+              const alias = (m.alias || "").trim();
+              const headline = isAdmin
+                ? alias && alias !== realName
+                  ? `${realName}  ·  ${alias}`
+                  : realName
+                : alias || realName;
+              return (
+                <View key={m.id} style={styles.workshopRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.workshopName} numberOfLines={1}>
+                      {headline}
+                    </Text>
+                    <Text style={styles.workshopMeta} numberOfLines={1}>
+                      {m.email}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    testID={`workshop-active-${m.id}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(app)",
+                        params: { mfg: m.id },
+                      })
+                    }
+                    style={styles.workshopCountBox}
+                  >
+                    <Text style={styles.workshopCount}>{m.active_count}</Text>
+                    <Text style={styles.workshopCountLabel}>ACTIVE</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  testID={`workshop-active-${m.id}`}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(app)",
-                      params: { mfg: m.id },
-                    })
-                  }
-                  style={styles.workshopCountBox}
-                >
-                  <Text style={styles.workshopCount}>{m.active_count}</Text>
-                  <Text style={styles.workshopCountLabel}>ACTIVE</Text>
-                </TouchableOpacity>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
 
