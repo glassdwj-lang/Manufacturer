@@ -14,7 +14,7 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { theme, spacing } from "@/src/theme";
-import { DateField } from "@/src/components/DateField";
+import { CalendarPicker } from "./CalendarPicker";
 
 export type DateRangePreset =
   | "all"
@@ -158,7 +158,7 @@ export function DateRangePresets({
     >
   >;
 }) {
-  const [showCustom, setShowCustom] = useState(value.preset === "custom");
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const tab = (
     key: "day" | "week" | "month" | "quarter" | "ytd" | "custom",
@@ -171,18 +171,17 @@ export function DateRangePresets({
         key={key}
         testID={testID ? `${testID}-${key}` : undefined}
         onPress={() => {
+          if (key === "custom") {
+            // CUSTOM tab always opens the calendar modal — tapping again
+            // while active reopens (vs clearing) so the user can refine.
+            setCalendarOpen(true);
+            return;
+          }
           if (active) {
             // Tap an active preset again → clear it.
-            setShowCustom(false);
             onChange(EMPTY_DATE_RANGE);
             return;
           }
-          if (key === "custom") {
-            setShowCustom(true);
-            onChange(rangeForPreset("custom", value));
-            return;
-          }
-          setShowCustom(false);
           onChange(rangeForPreset(key));
         }}
         style={[styles.tab, active && styles.tabActive]}
@@ -215,38 +214,17 @@ export function DateRangePresets({
           {tab("custom", labels?.custom || "CUSTOM")}
         </View>
       </View>
-      {showCustom && (
-        <View style={styles.customRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>FROM</Text>
-            <DateField
-              testID={testID ? `${testID}-from` : undefined}
-              value={value.date_from}
-              onChange={(date_from) =>
-                onChange({ ...value, preset: "custom", date_from })
-              }
-              placeholder="Any start date"
-              maximumDate={
-                value.date_to ? new Date(value.date_to) : undefined
-              }
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>TO</Text>
-            <DateField
-              testID={testID ? `${testID}-to` : undefined}
-              value={value.date_to}
-              onChange={(date_to) =>
-                onChange({ ...value, preset: "custom", date_to })
-              }
-              placeholder="Any end date"
-              minimumDate={
-                value.date_from ? new Date(value.date_from) : undefined
-              }
-            />
-          </View>
-        </View>
-      )}
+      <CalendarPicker
+        visible={calendarOpen}
+        initialFrom={value.date_from}
+        initialTo={value.date_to}
+        onClose={() => setCalendarOpen(false)}
+        onApply={(range) => {
+          onChange({ preset: "custom", ...range });
+          setCalendarOpen(false);
+        }}
+        testID={testID ? `${testID}-calendar` : undefined}
+      />
     </View>
   );
 }
