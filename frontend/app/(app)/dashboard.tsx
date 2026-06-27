@@ -16,6 +16,7 @@ import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { HomeDailyChart } from "@/src/components/HomeDailyChart";
 import { useAuth } from "@/src/context/AuthContext";
 
 type Dashboard = {
@@ -239,6 +240,13 @@ export default function DashboardScreen() {
               </View>
             </>
           )}
+        </View>
+
+        {/* ATELIER PULSE — daily activity chart, mirrors home dashboard. */}
+        {/* Negative horizontal margin so the chart aligns to card width
+            (the chart wraps itself with marginHorizontal: spacing.lg). */}
+        <View style={{ marginHorizontal: -spacing.lg, marginTop: -spacing.lg }}>
+          <HomeDailyChart />
         </View>
 
         {/* TOP MANUFACTURERS */}
