@@ -453,6 +453,53 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  // ---- Admin Renders Library (cross-order) --------------------------------
+  // Mirrors the CAD library endpoints exactly so the frontend can reuse the
+  // same screen shell with a different data source. Filters by
+  // `cad_renderer_id` (the vendor) instead of `manufacturer_id`.
+  adminListAllRenders: (params?: {
+    cad_renderer_id?: string | null;
+    q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.cad_renderer_id) qs.set("cad_renderer_id", params.cad_renderer_id);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.date_from) qs.set("date_from", params.date_from);
+    if (params?.date_to) qs.set("date_to", params.date_to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<
+      (CadFile & {
+        order_id: string;
+        order_ref: string | null;
+        jewelry_name: string | null;
+        manufacturer_id: string | null;
+        manufacturer_name: string | null;
+        manufacturer_alias: string | null;
+        cad_renderer_id: string | null;
+        cad_renderer_name: string | null;
+        client_id: string | null;
+        client_name: string | null;
+      })[]
+    >(`/admin/renders${suffix}`);
+  },
+  adminEmailCrossOrderRenders: (payload: {
+    recipients: string[];
+    items: { order_id: string; file_id: string }[];
+    subject?: string | null;
+    message?: string | null;
+  }) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      order_count: number;
+      provider_id: string | null;
+    }>(`/admin/renders/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listUsers: (role?: string) =>
     request<User[]>(`/users${role ? `?role=${role}` : ""}`),
   setAutoForward: (userId: string, auto_forward: boolean) =>

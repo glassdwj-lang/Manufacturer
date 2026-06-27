@@ -679,6 +679,174 @@ async def admin_email_cross_order_cad_files(
 # ---- Seed: CAD & Render vendors -------------------------------------------
 # Idempotent — running this multiple times will not duplicate vendors. Useful
 # from the Atelier Debug screen to spin up a demo directory quickly.
+@router.get("/admin/renders")
+async def admin_list_all_renders(
+    user=Depends(require_roles("admin")),
+    cad_renderer_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """Cross-order render library. Returns every APPROVED render (no pending
+    entries) across every commission, enriched with its parent context.
+    Mirrors :func:`admin_list_all_cad_files` so the frontend can reuse the
+    same UX shell.
+
+    Filters (all optional):
+    * ``cad_renderer_id`` — narrow to a specific CAD/Render vendor
+    * ``q``               — case-insensitive substring against render name,
+                            jewelry name or order ref
+    * ``date_from`` /
+      ``date_to``         — inclusive ``uploaded_at`` window (YYYY-MM-DD)
+    """
+    not_deleted = {
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+            {"deleted_at": ""},
+        ]
+    }
+    query: dict = {"$and": [not_deleted, {"renders": {"$exists": True, "$ne": []}}]}
+    if cad_renderer_id:
+        query["$and"].append({"cad_renderer_id": cad_renderer_id})
+
+    rows: list[dict] = []
+    needle = (q or "").strip().lower()
+    df = (date_from or "").strip()
+    dt = (date_to or "").strip()
+    dt_end = (dt + "T23:59:59") if dt else None
+
+    cursor = db.orders.find(query, {"_id": 0}).sort("created_at", -1)
+    async for order in cursor:
+        files = order.get("renders") or []
+        if not files:
+            continue
+        order_match_q = (
+            needle in (order.get("jewelry_name") or "").lower()
+            or needle in (order.get("order_ref") or "").lower()
+        )
+        for f in files:
+            uploaded = f.get("uploaded_at") or ""
+            if df and uploaded < df:
+                continue
+            if dt_end and uploaded > dt_end:
+                continue
+            if needle and not (
+                order_match_q or needle in (f.get("name") or "").lower()
+            ):
+                continue
+            rows.append(
+                {
+                    **f,
+                    "order_id": order.get("id"),
+                    "order_ref": order.get("order_ref"),
+                    "jewelry_name": order.get("jewelry_name"),
+                    "manufacturer_id": order.get("manufacturer_id"),
+                    "manufacturer_name": order.get("manufacturer_name"),
+                    "manufacturer_alias": order.get("manufacturer_alias"),
+                    "cad_renderer_id": order.get("cad_renderer_id"),
+                    "cad_renderer_name": order.get("cad_renderer_name"),
+                    "client_id": order.get("client_id"),
+                    "client_name": order.get("client_name"),
+                }
+            )
+
+    rows.sort(key=lambda r: r.get("uploaded_at") or "", reverse=True)
+    return rows
+
+
+@router.post("/admin/renders/email")
+async def admin_email_cross_order_renders(
+    body: CadLibraryEmailPayload,
+    user=Depends(require_roles("admin")),
+):
+    """Bulk-email a multi-commission selection of renders. Same shape and
+    semantics as the cross-order CAD endpoint — file IDs reference entries
+    in ``order.renders`` (live, approved). Provenance (jewelry name + order
+    ref) is appended to each link label so recipients can tell which
+    commission a render belongs to."""
+    from _email import send_files_email
+    from routes.orders._shared import sanitize_recipients
+
+    cleaned = sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+    if not body.items:
+        raise HTTPException(status_code=400, detail="Select at least one render.")
+
+    grouped: dict[str, set[str]] = {}
+    for it in body.items:
+        grouped.setdefault(it.order_id, set()).add(it.file_id)
+
+    selected: list[dict] = []
+    for order_id, file_ids in grouped.items():
+        order = await db.orders.find_one(
+            {"id": order_id, "$or": [
+                {"deleted_at": {"$exists": False}},
+                {"deleted_at": None},
+                {"deleted_at": ""},
+            ]},
+            {"_id": 0},
+        )
+        if not order:
+            continue
+        ref = order.get("order_ref") or ""
+        jewel = order.get("jewelry_name") or ""
+        for f in (order.get("renders") or []):
+            if f.get("id") not in file_ids:
+                continue
+            label = f.get("name") or "Render"
+            if jewel or ref:
+                provenance = " · ".join(s for s in (jewel, ref) if s)
+                label = f"{label}  ({provenance})"
+            selected.append({**f, "name": label})
+
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the selected renders were found.",
+        )
+
+    try:
+        # Reuse the CAD email template — visually identical and the
+        # subject defaults can be overridden by the caller.
+        provider_response = send_files_email(
+            kind="cad",
+            recipients=cleaned,
+            subject=body.subject or "Renders",
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=None,
+            jewelry_name=None,
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "order_count": len(grouped),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
+
+
 @router.post("/seed-cad-renderers")
 async def seed_cad_renderers(user=Depends(require_roles("admin"))):
     """Seeds 4 production-grade CAD/Render vendor accounts with realistic
