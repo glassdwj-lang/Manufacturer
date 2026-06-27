@@ -85,6 +85,20 @@ export default function ApprovalsScreen() {
     | { kind: ModerationKind; target: ModerationTarget }
     | null
   >(null);
+  // Lock-down: the moderator must open each image in the lightbox at least
+  // once before they're allowed to APPROVE / HOLD / REJECT it. Prevents
+  // muscle-memory taps that bypass actual visual review. Persists for the
+  // life of the screen so the moderator doesn't have to re-review after
+  // closing the lightbox.
+  const [reviewedUrls, setReviewedUrls] = useState<Set<string>>(new Set());
+  const markReviewed = (url: string) => {
+    setReviewedUrls((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  };
 
   const canModerate = user?.role === "admin" || user?.role === "associate";
   const isAdmin = user?.role === "admin";
@@ -213,10 +227,15 @@ export default function ApprovalsScreen() {
   const renderCard = (it: QueueItem) => {
     const url = it.photo_url;
     const thumb = isVideoUrl(url) ? videoPoster(url) : url;
+    // Recycled rows are admin-only reinstate flows — no review-gate needed.
+    const requiresReview = tab !== "recycled";
+    const isReviewed = reviewedUrls.has(url);
+    const locked = requiresReview && !isReviewed;
     return (
       <View key={`${it.order_id}-${it.step_number}-${url}`} style={styles.card}>
         <Pressable
           onPress={() => {
+            markReviewed(url);
             setLightboxUrls([url]);
             setLightboxIndex(0);
           }}
@@ -226,6 +245,19 @@ export default function ApprovalsScreen() {
           {isVideoUrl(url) && (
             <View style={styles.playPill}>
               <Ionicons name="play" size={14} color="#fff" />
+            </View>
+          )}
+          {/* Subtle "tap to inspect" affordance — hidden once reviewed so
+              the card calms down. */}
+          {locked && (
+            <View style={styles.reviewBadge}>
+              <Ionicons name="eye" size={11} color="#FFFFFF" />
+              <Text style={styles.reviewBadgeText}>TAP TO INSPECT</Text>
+            </View>
+          )}
+          {!locked && requiresReview && (
+            <View style={styles.reviewedBadge}>
+              <Ionicons name="checkmark" size={10} color="#FFFFFF" />
             </View>
           )}
         </Pressable>
@@ -247,6 +279,11 @@ export default function ApprovalsScreen() {
               Rejected by {it.rejected_by || "—"} · {it.days_remaining ?? "?"} day(s) left
             </Text>
           )}
+          {locked && (
+            <Text style={styles.lockedHint}>
+              Open the image to enable APPROVE / HOLD / REJECT.
+            </Text>
+          )}
           <View style={styles.actionsRow}>
             {tab !== "recycled" ? (
               <>
@@ -254,6 +291,7 @@ export default function ApprovalsScreen() {
                   label={t("approvals.approve")}
                   color={theme.success}
                   loading={busyUrl === url}
+                  disabled={locked}
                   onPress={() => approve(it)}
                 />
                 {tab === "pending" && (
@@ -261,6 +299,7 @@ export default function ApprovalsScreen() {
                     label={t("approvals.hold")}
                     color="#C28D3D"
                     loading={busyUrl === url}
+                    disabled={locked}
                     onPress={() => hold(it)}
                   />
                 )}
@@ -269,6 +308,7 @@ export default function ApprovalsScreen() {
                   color="#D9362C"
                   filled
                   loading={busyUrl === url}
+                  disabled={locked}
                   onPress={() => reject(it)}
                 />
               </>
@@ -455,6 +495,7 @@ function ActionButton({
   color,
   filled,
   loading,
+  disabled,
   onPress,
 }: {
   label: string;
@@ -464,17 +505,23 @@ function ActionButton({
    *  outlined APPROVE / HOLD pills. */
   filled?: boolean;
   loading?: boolean;
+  /** Locked-out state — used by the "must inspect first" rule. */
+  disabled?: boolean;
   onPress: () => void;
 }) {
+  const muted = disabled && !loading;
   return (
     <TouchableOpacity
       style={[
         styles.actionBtn,
-        { borderColor: color },
-        filled && { backgroundColor: color },
+        { borderColor: muted ? theme.divider : color },
+        filled && {
+          backgroundColor: muted ? theme.divider : color,
+        },
+        muted && { opacity: 0.55 },
       ]}
       onPress={onPress}
-      disabled={loading}
+      disabled={loading || disabled}
       testID={`action-${label.toLowerCase()}`}
     >
       {loading ? (
@@ -483,7 +530,13 @@ function ActionButton({
         <Text
           style={[
             styles.actionBtnText,
-            { color: filled ? "#FFFFFF" : color },
+            {
+              color: muted
+                ? theme.textMuted
+                : filled
+                  ? "#FFFFFF"
+                  : color,
+            },
           ]}
         >
           {label}
@@ -554,6 +607,45 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  // "Tap to inspect" affordance shown on top of any not-yet-reviewed thumb.
+  reviewBadge: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 4,
+  },
+  reviewBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 8.5,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  // Tiny check badge once reviewed, so the moderator can see at a glance
+  // which items they've already inspected during this session.
+  reviewedBadge: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.success,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lockedHint: {
+    color: theme.textMuted,
+    fontStyle: "italic",
+    fontSize: 11,
+    marginTop: 4,
   },
   cardBody: { flex: 1, gap: 2 },
   cardEyebrow: { color: theme.primary, fontSize: 9, letterSpacing: 2, fontWeight: "700" },
