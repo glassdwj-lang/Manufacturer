@@ -209,3 +209,15 @@ agent_communication:
          airway-bill section + airway-bill-text input + customs section but
          NOT the INTERNAL NOTES textarea.
       3. Negative — confirm associate/client are bounced off the screen.
+
+  - agent: main
+    message: |
+      Dashboard decomposition complete (P0). DashboardScreen.tsx was split into:
+        • types.ts, utils.ts, styles.ts, useDashboard.ts
+        • components/: CommissionsCard, PendingTiles, NewUsersCard,
+          TopWorkshopsCard, RecentActivityCard, SyncStatusCard,
+          DashboardErrorView, Stat
+      Lint clean. Visually verified at /dashboard as admin — all cards
+      (Period filter, Commissions 18/0/18, Atelier Pulse chart, Pending
+      Tiles 0 & 5/8, New Users, Top Workshops with aliases, Recent Activity,
+      System Syncs) render correctly. No regressions.
