@@ -17,6 +17,7 @@ from ._shared import (
     db,
     get_current_user,
     language_for_country,
+    language_for_user,
     now_china_iso,
     require_roles,
     strip_order_for_role,
@@ -42,8 +43,11 @@ async def complete_step(
 
     client = await db.users.find_one({"id": order["client_id"]})
     auto_forward = client.get("auto_forward", False) if client else False
-    client_country = (client or {}).get("country") or "AU"
-    target_lang, target_lang_name = language_for_country(client_country)
+    # Respect the client's manual `preferred_language` override before
+    # falling back to country-derived language. This ensures e.g. an
+    # AU-based client who set their dashboard to Chinese still receives
+    # translated workshop notes.
+    target_lang, target_lang_name = language_for_user(client or {})
     translated_note = ""
     if body.notes and not target_lang.lower().startswith("en"):
         t = await translate_text(body.notes, target_lang, target_lang_name)
@@ -93,6 +97,11 @@ async def complete_step(
         "steps.$.forwarded_to_client": auto_forward,
         "steps.$.forwarded_at": china_iso if auto_forward else None,
     }
+    # Seed the multi-language cache so `ensure_translations_for_viewer`
+    # surfaces this translation on read instead of overwriting it with
+    # an empty fallback.
+    if translated_note:
+        update_fields[f"steps.$.notes_i18n.{target_lang}"] = translated_note
     res = await db.orders.update_one(
         {"id": order_id, "steps.step_number": step_number},
         {"$set": update_fields},
@@ -134,8 +143,7 @@ async def update_completed_step(
         )
 
     client = await db.users.find_one({"id": order["client_id"]})
-    client_country = (client or {}).get("country") or "AU"
-    target_lang, target_lang_name = language_for_country(client_country)
+    target_lang, target_lang_name = language_for_user(client or {})
     translated_note = ""
     if body.notes and not target_lang.lower().startswith("en"):
         t = await translate_text(body.notes, target_lang, target_lang_name)
@@ -165,6 +173,11 @@ async def update_completed_step(
                 "steps.$.notes": body.notes or "",
                 "steps.$.notes_translated": translated_note,
                 "steps.$.notes_target_lang": target_lang if translated_note else "",
+                **(
+                    {f"steps.$.notes_i18n.{target_lang}": translated_note}
+                    if translated_note
+                    else {}
+                ),
                 "steps.$.photos": final_live,
                 "steps.$.pending_photos": final_pending,
                 "steps.$.updated_at_china": now_china_iso(),
@@ -237,24 +250,27 @@ async def forward_step(
     if user["role"] == "associate" and order["associate_id"] != user["id"]:
         raise HTTPException(status_code=403)
     client_doc = await db.users.find_one({"id": order["client_id"]})
-    client_country = (client_doc or {}).get("country") or "AU"
-    target_lang, target_lang_name = language_for_country(client_country)
+    target_lang, target_lang_name = language_for_user(client_doc or {})
     translated_review = ""
     if body.review_note and not target_lang.lower().startswith("en"):
         t = await translate_text(body.review_note, target_lang, target_lang_name)
         if t:
             translated_review = t
     china_iso = now_china_iso()
+    update_set = {
+        "steps.$.forwarded_to_client": True,
+        "steps.$.forwarded_at": china_iso,
+        "steps.$.associate_review_note": body.review_note or "",
+        "steps.$.associate_review_note_translated": translated_review,
+    }
+    # Seed the multi-language cache so `ensure_translations_for_viewer`
+    # surfaces this translation on read instead of overwriting it with
+    # an empty fallback.
+    if translated_review:
+        update_set[f"steps.$.associate_review_note_i18n.{target_lang}"] = translated_review
     res = await db.orders.update_one(
         {"id": order_id, "steps.step_number": step_number},
-        {
-            "$set": {
-                "steps.$.forwarded_to_client": True,
-                "steps.$.forwarded_at": china_iso,
-                "steps.$.associate_review_note": body.review_note or "",
-                "steps.$.associate_review_note_translated": translated_review,
-            }
-        },
+        {"$set": update_set},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Step not found")

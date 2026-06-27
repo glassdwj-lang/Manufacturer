@@ -23,6 +23,7 @@ from _notes_translation import ensure_translations_for_viewer
 from _translation import language_for_country, translate as translate_text
 from deps import db, get_current_user, require_roles
 from helpers import (
+    language_for_user,
     list_strip,
     now_china_iso,
     progress_summary,
@@ -54,6 +55,7 @@ __all__ = [
     "build_digital_dna_pdf",
     "ensure_translations_for_viewer",
     "language_for_country",
+    "language_for_user",
     "translate_text",
     "db",
     "get_current_user",
