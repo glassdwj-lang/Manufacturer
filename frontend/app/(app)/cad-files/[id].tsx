@@ -24,6 +24,7 @@ import { isPreviewable } from "@/src/components/Model3DViewer";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { EmailFilesModal } from "@/src/components/EmailFilesModal";
+import { useI18n } from "@/src/i18n";
 
 // File extensions we explicitly recognise as CAD payloads. Picker doesn't
 // strictly limit to these (we accept everything so workshops aren't blocked
@@ -64,6 +65,7 @@ export default function CadFilesScreen() {
   const orderId = String(params.id || "");
   const safeBack = useSafeBack(`/(app)/order/${orderId}`);
   const { user } = useAuth();
+  const { t } = useI18n();
   const [files, setFiles] = useState<CadFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -258,7 +260,7 @@ export default function CadFilesScreen() {
         <TouchableOpacity testID="cad-back" onPress={safeBack}>
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>CAD FILES</Text>
+        <Text style={styles.headerTitle}>{t("cad_page.title")}</Text>
         <View style={{ width: 22 }} />
       </View>
 
@@ -277,7 +279,7 @@ export default function CadFilesScreen() {
         ) : (
           <>
             <Ionicons name="cloud-upload-outline" size={16} color="#0A0A0A" />
-            <Text style={styles.uploadBtnText}>UPLOAD CAD FILES</Text>
+            <Text style={styles.uploadBtnText}>{t("cad_page.upload")}</Text>
           </>
         )}
       </TouchableOpacity>
@@ -292,7 +294,7 @@ export default function CadFilesScreen() {
         >
           <Ionicons name="mail-outline" size={16} color={theme.primary} />
           <Text style={styles.emailBtnText}>
-            EMAIL CAD FILES ({files.length})
+            {`${t("cad_page.email")} (${files.length})`}
           </Text>
         </TouchableOpacity>
       )}
@@ -319,8 +321,7 @@ export default function CadFilesScreen() {
             </View>
           ) : (
             <Text style={styles.emptyText}>
-              No CAD files uploaded yet. Tap UPLOAD CAD FILES above to add .stl, .step,
-              .3dm, .obj or any other workshop file (multiple selection supported).
+              {t("cad_page.empty_hint")}
             </Text>
           )
         }

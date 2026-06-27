@@ -16,19 +16,21 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme, spacing } from "@/src/theme";
 import { HeaderLogo } from "@/src/components/HeaderLogo";
+import { useI18n } from "@/src/i18n";
 
 const LOGIN_BG =
   "https://images.pexels.com/photos/6263069/pexels-photo-6263069.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 
-const DEMO_ACCOUNTS: { label: string; email: string; password: string }[] = [
-  { label: "Atelier (Admin)", email: "admin" + "@" + "somnio.co", password: "Admin" + "@" + "2026" },
-  { label: "Workshop (Manufacturer)", email: "mfg" + "@" + "somnio.co", password: "Mfg" + "@" + "2026" },
-  { label: "Associate", email: "associate" + "@" + "somnio.co", password: "Assoc" + "@" + "2026" },
-  { label: "Maison (Client)", email: "client" + "@" + "somnio.co", password: "Client" + "@" + "2026" },
+const DEMO_ACCOUNTS: { labelKey: any; email: string; password: string }[] = [
+  { labelKey: "login.demo.atelier", email: "admin" + "@" + "somnio.co", password: "Admin" + "@" + "2026" },
+  { labelKey: "login.demo.workshop", email: "mfg" + "@" + "somnio.co", password: "Mfg" + "@" + "2026" },
+  { labelKey: "login.demo.associate", email: "associate" + "@" + "somnio.co", password: "Assoc" + "@" + "2026" },
+  { labelKey: "login.demo.client", email: "client" + "@" + "somnio.co", password: "Client" + "@" + "2026" },
 ];
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export default function LoginScreen() {
     try {
       await signIn(overrideEmail ?? email.trim(), overridePassword ?? password);
     } catch (e: any) {
-      setError(e?.message ?? "Sign-in failed");
+      setError(e?.message ?? t("login.error.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -69,19 +71,19 @@ export default function LoginScreen() {
               <View style={{ alignItems: "center", marginBottom: spacing.sm }}>
                 <HeaderLogo size={36} />
               </View>
-              <Text style={styles.brandTitle}>Digital DNA{"\n"}for every Maison piece.</Text>
+              <Text style={styles.brandTitle}>{t("login.brand.title")}</Text>
               <Text style={styles.brandSub}>
-                A 26-step traceable journey, from origin to ownership.
+                {t("login.brand.sub")}
               </Text>
             </View>
 
             <View style={styles.formCard}>
-              <Text style={styles.formLabel}>EMAIL</Text>
+              <Text style={styles.formLabel}>{t("login.label.email")}</Text>
               <TextInput
                 testID="login-email-input"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="you@maison.com"
+                placeholder={t("login.placeholder.email")}
                 placeholderTextColor={theme.textMuted}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -89,7 +91,7 @@ export default function LoginScreen() {
                 style={styles.input}
               />
               <View style={{ height: spacing.lg }} />
-              <Text style={styles.formLabel}>PASSWORD</Text>
+              <Text style={styles.formLabel}>{t("login.label.password")}</Text>
               <TextInput
                 testID="login-password-input"
                 value={password}
@@ -113,13 +115,13 @@ export default function LoginScreen() {
                 {submitting ? (
                   <ActivityIndicator color="#0A0A0A" />
                 ) : (
-                  <Text style={styles.primaryBtnText}>ENTER ATELIER</Text>
+                  <Text style={styles.primaryBtnText}>{t("login.cta.enter")}</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             <View style={styles.demoBlock}>
-              <Text style={styles.demoTitle}>QUICK ACCESS · DEMO</Text>
+              <Text style={styles.demoTitle}>{t("login.demo.title")}</Text>
               {DEMO_ACCOUNTS.map((acc) => (
                 <TouchableOpacity
                   key={acc.email}
@@ -131,7 +133,7 @@ export default function LoginScreen() {
                     handleLogin(acc.email, acc.password);
                   }}
                 >
-                  <Text style={styles.demoPillLabel}>{acc.label}</Text>
+                  <Text style={styles.demoPillLabel}>{t(acc.labelKey)}</Text>
                   <Text style={styles.demoPillEmail}>{acc.email}</Text>
                 </TouchableOpacity>
               ))}

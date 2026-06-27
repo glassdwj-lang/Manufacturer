@@ -20,6 +20,7 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { notify } from "@/src/utils/confirm";
 import { dialCodeFor, formatAsYouType, formatStored } from "@/src/utils/phone";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { useI18n } from "@/src/i18n";
 
 const ROLE_OPTIONS: Role[] = ["manufacturer", "cad_renderer", "client"];
 
@@ -47,6 +48,7 @@ const DIAL_CODE_FALLBACK: Record<string, string> = {
 export default function CreateUserScreen() {
   const router = useRouter();
   const safeBack = useSafeBack();
+  const { t } = useI18n();
   const { role: initialRole, userId } = useLocalSearchParams<{
     role?: string;
     userId?: string;
@@ -337,7 +339,19 @@ export default function CreateUserScreen() {
           <TouchableOpacity testID="create-user-close" onPress={safeBack}>
             <Ionicons name="close" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
-          <Text style={styles.headerEyebrow}>{editMode ? "EDIT USER" : "NEW USER"}</Text>
+          <Text style={styles.headerEyebrow}>
+            {editMode
+              ? t("create_user.eyebrow")
+              : role === "manufacturer"
+              ? t("create_user.title.manufacturer")
+              : role === "cad_renderer"
+              ? t("create_user.title.cad_renderer")
+              : role === "admin"
+              ? t("create_user.title.admin")
+              : role === "associate"
+              ? t("create_user.title.associate")
+              : t("create_user.title.client")}
+          </Text>
           <View style={{ width: 24 }} />
         </View>
 
@@ -371,10 +385,10 @@ export default function CreateUserScreen() {
 
           <Text style={styles.formLabel}>
             {role === "manufacturer"
-              ? "BUSINESS NAME"
+              ? t("create_user.label.workshop_name")
               : role === "cad_renderer"
-              ? "STUDIO / VENDOR NAME"
-              : "FULL NAME"}
+              ? t("create_user.label.studio_name")
+              : t("create_user.label.full_name")}
           </Text>
           <TextInput
             testID="user-name-input"
@@ -391,7 +405,7 @@ export default function CreateUserScreen() {
             style={styles.input}
           />
 
-          <Text style={styles.formLabel}>EMAIL</Text>
+          <Text style={styles.formLabel}>{t("create_user.label.email")}</Text>
           <TextInput
             testID="user-email-input"
             value={email}
@@ -454,7 +468,7 @@ export default function CreateUserScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.formLabel}>COUNTRY</Text>
+              <Text style={styles.formLabel}>{t("create_user.label.country")}</Text>
               <TouchableOpacity
                 testID="country-toggle"
                 style={[styles.input, styles.countrySelectRow]}
@@ -692,8 +706,9 @@ export default function CreateUserScreen() {
                 CONTACT PEOPLE
               </Text>
               <Text style={styles.sectionHint}>
-                Add up to 3 contacts at the {role === "manufacturer" ? "workshop" : "studio"}. Tap the star to choose
-                which one is the primary contact for orders & escalations.
+                {role === "manufacturer"
+                  ? t("create_user.contacts.workshop_hint")
+                  : t("create_user.contacts.studio_hint")}
               </Text>
               {contacts.map((c, idx) => {
                 const open = expandedContactIdx === idx;
@@ -878,7 +893,9 @@ export default function CreateUserScreen() {
               {saving ? (
                 <ActivityIndicator color="#0A0A0A" />
               ) : (
-                <Text style={styles.primaryBtnText}>{editMode ? "SAVE" : "CREATE"}</Text>
+                <Text style={styles.primaryBtnText}>
+                  {editMode ? t("common.save") : t("create_user.cta.create")}
+                </Text>
               )}
             </TouchableOpacity>
           </View>

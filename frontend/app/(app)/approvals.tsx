@@ -23,6 +23,7 @@ import { theme, spacing } from "@/src/theme";
 import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { useI18n } from "@/src/i18n";
 
 type QueueItem = {
   order_id: string;
@@ -60,6 +61,7 @@ function videoPoster(videoUrl: string): string {
 export default function ApprovalsScreen() {
   const router = useRouter();
   const safeBack = useSafeBack();
+  const { t } = useI18n();
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("pending");
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -241,21 +243,21 @@ export default function ApprovalsScreen() {
             {tab !== "recycled" ? (
               <>
                 <ActionButton
-                  label="APPROVE"
+                  label={t("approvals.approve")}
                   color={theme.success}
                   loading={busyUrl === url}
                   onPress={() => approve(it)}
                 />
                 {tab === "pending" && (
                   <ActionButton
-                    label="HOLD"
+                    label={t("approvals.hold")}
                     color="#C28D3D"
                     loading={busyUrl === url}
                     onPress={() => hold(it)}
                   />
                 )}
                 <ActionButton
-                  label="REJECT"
+                  label={t("approvals.reject")}
                   color={theme.danger}
                   loading={busyUrl === url}
                   onPress={() => reject(it)}
@@ -264,7 +266,7 @@ export default function ApprovalsScreen() {
             ) : (
               isAdmin && (
                 <ActionButton
-                  label="REINSTATE"
+                  label={t("approvals.reinstate")}
                   color={theme.primary}
                   loading={busyUrl === url}
                   onPress={() => reinstate(it)}
@@ -286,20 +288,20 @@ export default function ApprovalsScreen() {
           <TouchableOpacity onPress={safeBack} hitSlop={12} testID="approvals-back">
             <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>MEDIA APPROVALS</Text>
+          <Text style={styles.headerTitle}>{t("approvals.title")}</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.empty}>
           <Ionicons name="lock-closed-outline" size={28} color={theme.textMuted} />
           <Text style={styles.emptyText}>
-            Only admins and associates can manage the approval queue.
+            {t("approvals.access_denied")}
           </Text>
           <TouchableOpacity
             style={styles.backToHome}
             onPress={() => router.replace("/(app)")}
             testID="approvals-back-home"
           >
-            <Text style={styles.backToHomeText}>BACK TO HOME</Text>
+            <Text style={styles.backToHomeText}>{t("approvals.back_home")}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -325,19 +327,19 @@ export default function ApprovalsScreen() {
 
       <View style={styles.tabs}>
         <TabPill
-          label="Pending"
+          label={t("approvals.tab.pending")}
           count={pending.length}
           active={tab === "pending"}
           onPress={() => setTab("pending")}
         />
         <TabPill
-          label="On Hold"
+          label={t("approvals.tab.on_hold")}
           count={onHold.length}
           active={tab === "on_hold"}
           onPress={() => setTab("on_hold")}
         />
         <TabPill
-          label="Recycle Bin"
+          label={t("approvals.tab.recycled")}
           count={recycled.length}
           active={tab === "recycled"}
           onPress={() => setTab("recycled")}
@@ -371,10 +373,10 @@ export default function ApprovalsScreen() {
           <Ionicons name="checkmark-done-outline" size={28} color={theme.textMuted} />
           <Text style={styles.emptyText}>
             {tab === "pending"
-              ? "Nothing awaiting review."
+              ? t("approvals.empty.pending")
               : tab === "on_hold"
-              ? "No items on hold."
-              : "Recycle bin is empty."}
+              ? t("approvals.empty.on_hold")
+              : t("approvals.empty.recycled")}
           </Text>
         </View>
       ) : (

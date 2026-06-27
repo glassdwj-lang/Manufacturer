@@ -259,10 +259,12 @@ export default function OrderDetail() {
               <Ionicons name="cube-outline" size={18} color={theme.primary} />
               <View style={{ flex: 1, marginLeft: spacing.sm }}>
                 <Text style={styles.customsTitle}>
-                  CAD Files{cadCount > 0 ? ` (${cadCount})` : ""}
+                  {cadCount > 0
+                    ? `${t("order.card.cad_title")} (${cadCount})`
+                    : t("order.card.cad_title")}
                 </Text>
                 <Text style={styles.customsSub}>
-                  Upload .stl / .step / .3dm and other workshop files
+                  {t("order.card.cad_sub")}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
@@ -285,10 +287,12 @@ export default function OrderDetail() {
               />
               <View style={{ flex: 1, marginLeft: spacing.sm }}>
                 <Text style={styles.customsTitle}>
-                  IGI Certificates{igiCount > 0 ? ` (${igiCount})` : ""}
+                  {igiCount > 0
+                    ? `${t("order.card.igi_title")} (${igiCount})`
+                    : t("order.card.igi_title")}
                 </Text>
                 <Text style={styles.customsSub}>
-                  Attach digital IGI lab reports (PDF, image, any file type)
+                  {t("order.card.igi_sub")}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
