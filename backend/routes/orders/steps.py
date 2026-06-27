@@ -1,11 +1,9 @@
 """Per-step operations: complete / edit / reopen / forward / translate.
 
-NOTE — `forward_step` was historically missing its `@router.post(...)`
-decorator in `orders.py`, so the `/orders/{id}/steps/{n}/forward`
-endpoint silently 404s in production despite the frontend calling
-`api.forwardStep`. The refactor preserves the original behaviour
-(decorator omitted) to honour the \"zero behavior change\" promise,
-but the bug is flagged here for a follow-up fix.
+The `forward_step` endpoint's `@router.post(...)` decorator was missing in
+the original monolithic `orders.py` (and preserved that way during the
+package refactor). It is now restored — see the explanatory note above
+`forward_step` below.
 """
 from __future__ import annotations
 
@@ -222,12 +220,11 @@ async def reopen_step(
     return strip_order_for_role(updated, user)
 
 
-# DEAD CODE — preserved from `orders.py` exactly. The `@router.post(...)`
-# decorator was missing in the original file, which means the
-# /orders/{id}/steps/{n}/forward endpoint never registered with FastAPI.
-# The frontend's `api.forwardStep` currently 404s. We intentionally do
-# NOT add the decorator here to honour zero-behaviour-change; flag this
-# as the first follow-up after refactor verification.
+# Forward a completed step to the client. Previously the `@router.post(...)`
+# decorator was missing in `orders.py`, which caused the frontend's
+# `api.forwardStep` call to silently 404 in production. The decorator is
+# restored here so step forwarding works again.
+@router.post("/orders/{order_id}/steps/{step_number}/forward")
 async def forward_step(
     order_id: str,
     step_number: int,

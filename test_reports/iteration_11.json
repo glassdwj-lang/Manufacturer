@@ -1,0 +1,45 @@
+{
+  "summary": "Regression test for the previously-broken POST /api/orders/{order_id}/steps/{step_number}/forward endpoint. The missing @router.post decorator above forward_step in routes/orders/steps.py has been restored. Created /app/backend/tests/test_forward_step.py with 10 targeted tests across reachability, role gating, edge cases, and the translation hook. 9/10 passed, 1 skipped (translation populated-translation check — endpoint succeeded but the Emergent LLM translate() call returned an empty string; see action_items). Reachability + persistence + RBAC are fully verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/orders/{id}/steps/{n}/forward (translation hook)",
+        "issue": "When the order's client country is CN/FR/IT, the endpoint correctly invokes _translation.translate() (LiteLLM log line 'LiteLLM completion() model=claude-sonnet-4-5-20250929 provider=openai' is emitted), the request returns 200, but steps.$.associate_review_note_translated is stored as an empty string. result.content from emergentintegrations LlmChat appears to come back empty (no 'translation failed' log either). This is NOT a regression of the forward fix — same behaviour exists in complete_step's translation path. Pre-existing translation integration issue."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_forward_step.py",
+    "/app/test_reports/pytest/iteration_11.xml"
+  ],
+  "action_items": [
+    "Forward endpoint fix verified end-to-end — no further action needed for the decorator restoration.",
+    "Separate (pre-existing) bug: investigate why _translation.translate() returns empty strings for non-EN countries despite a successful LiteLLM round-trip. Likely candidates: emergentintegrations LlmChat result.content shape changed, or the 'anthropic'/'claude-sonnet-4-5-20250929' model name is rejected silently. Reproduce by setting client country to CN/FR/IT and calling /forward or /complete with notes; result is HTTP 200 but the *_translated field is ''. Same behaviour observed via direct probe script."
+  ],
+  "critical_code_review_comments": [
+    "routes/orders/steps.py:227 — @router.post(\"/orders/{order_id}/steps/{step_number}/forward\") now correctly registers forward_step with the FastAPI router. Path parameters and ForwardUpdate body match the frontend's api.forwardStep payload ({review_note: string}) in src/api/client.ts.",
+    "Role gating in forward_step uses require_roles('associate', 'admin'); manufacturer/client are blocked at the dependency level before the order lookup, which is the correct order of checks.",
+    "Associate ownership gate (order['associate_id'] != user['id']) raises 403 with no detail body — consider adding detail='Forbidden' for parity with other endpoints (minor).",
+    "Update uses positional $ projection {'id': order_id, 'steps.step_number': step_number} with $set on steps.$.*; matched_count==0 correctly maps to 404 'Step not found' after the order existence check.",
+    "strip_order_for_role(updated, user) is applied to the response, preserving the same role-filtering contract as sibling step endpoints."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_forward_step.py (new)"
+  ],
+  "success_rate": {
+    "backend": "90% (9 passed / 1 skipped — skip is due to a pre-existing translation-integration issue, not the forward-step fix)",
+    "frontend": "not tested (backend-only per request)"
+  },
+  "seed_data_creation": "Two module-scoped throwaway orders are created using the seed client + manufacturer (one assigned to associate@somnio.co for happy-path/own-order tests, one assigned to a different gem-gallery associate for the 403 'foreign order' test). Both are soft-deleted and purged in fixture teardown. The translation tests temporarily PATCH the seed client@somnio.co country to CN and restore to AU afterwards. No persistent data mutation.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/test_forward_step.py as the canonical regression for the forward endpoint. Run with: `set -a && . /app/frontend/.env && set +a && pytest backend/tests/test_forward_step.py -v`. The translation-skip path will auto-pass once the upstream _translation.translate() bug is fixed.",
+  "rca_of_issue": "Original bug: a refactor extracted forward_step from the monolithic orders.py into routes/orders/steps.py but dropped its `@router.post(...)` decorator. Because the function was never registered with the APIRouter, FastAPI's path table had no entry for POST /api/orders/{id}/steps/{n}/forward and every request 404'd. Frontend api.forwardStep silently failed in production. Fix: re-add `@router.post(\"/orders/{order_id}/steps/{step_number}/forward\")` directly above the async function (line 227). Verification: endpoint now returns 200 for admin and assigned associate, 403 for foreign associate / manufacturer / client, 404 for unknown order or unknown step. MongoDB steps.$.forwarded_to_client, steps.$.forwarded_at, and steps.$.associate_review_note are all written and re-read correctly via subsequent GET."
+}
