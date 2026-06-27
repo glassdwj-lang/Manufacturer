@@ -697,6 +697,54 @@ const STRINGS = {
     fr: "« {name} » sera supprimé de cette commande. Action irréversible.",
     it: "«{name}» verrà rimosso da questa commissione. Operazione irreversibile.",
   },
+  "cad_page.pending_section": {
+    en: "PENDING APPROVAL ({n})",
+    zh: "待审批 ({n})",
+    fr: "EN ATTENTE DE VALIDATION ({n})",
+    it: "IN ATTESA DI APPROVAZIONE ({n})",
+  },
+  "cad_page.live_section": {
+    en: "APPROVED FILES ({n})",
+    zh: "已批准文件 ({n})",
+    fr: "FICHIERS APPROUVÉS ({n})",
+    it: "FILE APPROVATI ({n})",
+  },
+  "cad_page.pending_hint_admin": {
+    en: "Approve to publish to the commission; reject to discard.",
+    zh: "批准后发布至委托;拒绝则丢弃。",
+    fr: "Approuver pour publier ; rejeter pour écarter.",
+    it: "Approva per pubblicare; rifiuta per scartare.",
+  },
+  "cad_page.pending_hint_vendor": {
+    en: "Your uploads are waiting for the atelier to review them. You can delete an entry below before approval if needed.",
+    zh: "您的上传正等待工作室审核。批准前您仍可在下方删除。",
+    fr: "Vos téléversements attendent la validation de l’atelier. Vous pouvez supprimer une entrée avant approbation.",
+    it: "I tuoi caricamenti attendono la revisione dell’atelier. Puoi eliminare una voce prima dell’approvazione.",
+  },
+  "igi_page.pending_section": {
+    en: "PENDING APPROVAL ({n})",
+    zh: "待审批 ({n})",
+    fr: "EN ATTENTE DE VALIDATION ({n})",
+    it: "IN ATTESA DI APPROVAZIONE ({n})",
+  },
+  "igi_page.live_section": {
+    en: "APPROVED CERTIFICATES ({n})",
+    zh: "已批准证书 ({n})",
+    fr: "CERTIFICATS APPROUVÉS ({n})",
+    it: "CERTIFICATI APPROVATI ({n})",
+  },
+  "igi_page.pending_hint_admin": {
+    en: "Approve to publish to the commission; reject to discard.",
+    zh: "批准后发布至委托;拒绝则丢弃。",
+    fr: "Approuver pour publier ; rejeter pour écarter.",
+    it: "Approva per pubblicare; rifiuta per scartare.",
+  },
+  "igi_page.pending_hint_vendor": {
+    en: "Your uploads are waiting for the atelier to review them.",
+    zh: "您的上传正等待工作室审核。",
+    fr: "Vos téléversements attendent la validation de l’atelier.",
+    it: "I tuoi caricamenti attendono la revisione dell’atelier.",
+  },
   // -----------------------------------------------------------------------
   // approvals.tsx (admin photo approvals)
   // -----------------------------------------------------------------------

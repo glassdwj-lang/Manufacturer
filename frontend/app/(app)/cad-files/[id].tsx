@@ -196,7 +196,7 @@ export default function CadFilesScreen() {
   }, []);
 
   const deleteFile = useCallback(
-    (file: CadFile) => {
+    (file: CadFile, isPending: boolean) => {
       confirmAction({
         title: "Delete CAD file?",
         message: `Remove ${file.name}? The file will stay on Cloudinary but no longer be associated with this commission.`,
@@ -204,8 +204,13 @@ export default function CadFilesScreen() {
         destructive: true,
         onConfirm: async () => {
           try {
-            await api.removeCadFile(orderId, file.id);
-            setFiles((prev) => prev.filter((f) => f.id !== file.id));
+            if (isPending) {
+              await api.rejectCadFile(orderId, file.id);
+              setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+            } else {
+              await api.removeCadFile(orderId, file.id);
+              setFiles((prev) => prev.filter((f) => f.id !== file.id));
+            }
           } catch (e: any) {
             notify("Delete failed", e?.message || "Could not remove file.");
           }
@@ -215,14 +220,59 @@ export default function CadFilesScreen() {
     [orderId],
   );
 
-  const renderRow = ({ item }: { item: CadFile }) => {
+  // Approve a pending CAD file → promotes it into the live list.
+  const approveFile = useCallback(
+    async (file: CadFile) => {
+      try {
+        const res = await api.approveCadFile(orderId, file.id);
+        setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+        setFiles((prev) => [res.file, ...prev]);
+        notify("Approved", `${file.name} is now visible to the client.`);
+      } catch (e: any) {
+        notify("Approve failed", e?.message || "Could not approve file.");
+      }
+    },
+    [orderId],
+  );
+
+  // Reject a pending CAD file (vendor-rejected). Removes from pending; the
+  // Cloudinary asset is intentionally kept so admins can re-upload manually.
+  const rejectFile = useCallback(
+    (file: CadFile) => {
+      confirmAction({
+        title: "Reject CAD file?",
+        message: `${file.name} will be removed from the pending queue. The workshop will be notified to re-upload if needed.`,
+        confirmLabel: "REJECT",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await api.rejectCadFile(orderId, file.id);
+            setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+          } catch (e: any) {
+            notify("Reject failed", e?.message || "Could not reject file.");
+          }
+        },
+      });
+    },
+    [orderId],
+  );
+
+  const renderRow = (item: CadFile, isPending: boolean) => {
     const ext = extOf(item);
     const known = CAD_EXTS.has(ext);
     const can3D = isPreviewable(item.name);
-    const isAdmin = user?.role === "admin";
-    const canRemove = isAdmin || item.uploaded_by === user?.id;
+    // Approval buttons surface only on pending rows + only for reviewers.
+    const showApprovalActions = isPending && isReviewer;
+    // Delete is hidden when approval actions are shown (avoid duplicates).
+    const canRemove =
+      !showApprovalActions &&
+      (isReviewer || item.uploaded_by === user?.id);
     return (
-      <View style={styles.row} testID={`cad-row-${item.id}`}>
+      <View
+        style={[styles.row, isPending && styles.rowPending]}
+        testID={`cad-row-${item.id}`}
+        key={item.id}
+      >
         <View style={[styles.extBadge, !known && styles.extBadgeUnknown]}>
           <Text style={styles.extText} numberOfLines={1}>
             {ext.toUpperCase().slice(0, 5)}
@@ -239,7 +289,7 @@ export default function CadFilesScreen() {
             <Text style={styles.rowMeta}>by {item.uploaded_by_email}</Text>
           ) : null}
         </View>
-        {can3D && (
+        {can3D && !showApprovalActions && (
           <TouchableOpacity
             testID={`cad-preview-${item.id}`}
             onPress={() =>
@@ -257,17 +307,37 @@ export default function CadFilesScreen() {
             <Ionicons name="cube-outline" size={18} color={theme.primary} />
           </TouchableOpacity>
         )}
-        <TouchableOpacity
-          testID={`cad-open-${item.id}`}
-          onPress={() => openFile(item)}
-          style={styles.iconBtn}
-        >
-          <Ionicons name="download-outline" size={18} color={theme.primary} />
-        </TouchableOpacity>
+        {!showApprovalActions && (
+          <TouchableOpacity
+            testID={`cad-open-${item.id}`}
+            onPress={() => openFile(item)}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="download-outline" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        )}
+        {showApprovalActions && (
+          <>
+            <TouchableOpacity
+              testID={`cad-approve-${item.id}`}
+              onPress={() => approveFile(item)}
+              style={[styles.iconBtn, styles.iconBtnApprove]}
+            >
+              <Ionicons name="checkmark" size={18} color="#0A0A0A" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID={`cad-reject-${item.id}`}
+              onPress={() => rejectFile(item)}
+              style={[styles.iconBtn, styles.iconBtnReject]}
+            >
+              <Ionicons name="close" size={18} color="#FF6B6B" />
+            </TouchableOpacity>
+          </>
+        )}
         {canRemove && (
           <TouchableOpacity
             testID={`cad-delete-${item.id}`}
-            onPress={() => deleteFile(item)}
+            onPress={() => deleteFile(item, isPending)}
             style={styles.iconBtn}
           >
             <Ionicons name="trash-outline" size={18} color={theme.error || "#C8553D"} />
@@ -290,6 +360,9 @@ export default function CadFilesScreen() {
 
       <Text style={styles.subhead}>
         {files.length} file{files.length === 1 ? "" : "s"} attached
+        {pendingFiles.length > 0
+          ? `  ·  ${pendingFiles.length} pending`
+          : ""}
       </Text>
 
       <TouchableOpacity
@@ -324,9 +397,9 @@ export default function CadFilesScreen() {
       )}
 
       <FlatList
-        data={files}
-        renderItem={renderRow}
-        keyExtractor={(f) => f.id}
+        data={[]}
+        renderItem={null as any}
+        keyExtractor={() => ""}
         contentContainerStyle={{ padding: spacing.lg, paddingTop: spacing.sm }}
         refreshControl={
           <RefreshControl
@@ -338,16 +411,43 @@ export default function CadFilesScreen() {
             tintColor={theme.primary}
           />
         }
-        ListEmptyComponent={
-          loading ? (
-            <View style={{ paddingVertical: spacing.xxl }}>
-              <ActivityIndicator color={theme.primary} />
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>
-              {t("cad_page.empty_hint")}
-            </Text>
-          )
+        ListHeaderComponent={
+          <>
+            {pendingFiles.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>
+                  {t("cad_page.pending_section", { n: pendingFiles.length })}
+                </Text>
+                <Text style={styles.sectionHint}>
+                  {isReviewer
+                    ? t("cad_page.pending_hint_admin")
+                    : t("cad_page.pending_hint_vendor")}
+                </Text>
+                {pendingFiles.map((f) => renderRow(f, true))}
+              </>
+            )}
+            {(files.length > 0 || pendingFiles.length > 0) && (
+              <Text
+                style={[
+                  styles.sectionLabel,
+                  pendingFiles.length > 0 && { marginTop: spacing.lg },
+                ]}
+              >
+                {t("cad_page.live_section", { n: files.length })}
+              </Text>
+            )}
+            {files.map((f) => renderRow(f, false))}
+            {loading && (
+              <View style={{ paddingVertical: spacing.xxl }}>
+                <ActivityIndicator color={theme.primary} />
+              </View>
+            )}
+            {!loading && files.length === 0 && pendingFiles.length === 0 && (
+              <Text style={styles.emptyText}>
+                {t("cad_page.empty_hint")}
+              </Text>
+            )}
+          </>
         }
       />
 
@@ -398,6 +498,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   uploadBtnDim: { opacity: 0.6 },
+  rowPending: { borderLeftWidth: 3, borderLeftColor: theme.primary, paddingLeft: spacing.sm },
+  iconBtnApprove: {
+    borderColor: theme.success || "#5B9279",
+    backgroundColor: theme.success || "#5B9279",
+  },
+  iconBtnReject: {
+    borderColor: "#FF6B6B",
+  },
+  sectionLabel: {
+    color: theme.textPrimary,
+    fontSize: 11,
+    letterSpacing: 3,
+    textTransform: "uppercase",
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  sectionHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontStyle: "italic",
+    marginBottom: spacing.sm,
+    lineHeight: 14,
+  },
   uploadBtnText: {
     color: "#0A0A0A",
     fontSize: 12,

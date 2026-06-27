@@ -82,6 +82,97 @@ async def patch_settings(body: SettingsPatch, user=Depends(get_current_user)):
     return await update_settings(patch)
 
 
+@router.get("/admin/pending-counts")
+async def admin_pending_counts(user=Depends(get_current_user)):
+    """Aggregate pending counts across every approval surface — photos,
+    on-hold photos, pending CAD files, pending IGI certificates, and
+    pending renders. Returns a flat ``{total, photos, on_hold, cad,
+    igi, renders}`` payload that the home dashboard can display next to
+    the Media Approvals tile without pulling the full queue.
+
+    Scoped via :func:`_viewer_scope` so associates only count their own
+    commissions and non-moderators get an empty payload.
+    """
+    scope = _viewer_scope(user)
+    empty = {
+        "total": 0,
+        "photos": 0,
+        "on_hold": 0,
+        "cad": 0,
+        "igi": 0,
+        "renders": 0,
+    }
+    if scope.get("_block_"):
+        return empty
+
+    pipeline = [
+        {"$match": scope},
+        {
+            "$project": {
+                "_id": 0,
+                "pending_photos": {
+                    "$sum": {
+                        "$map": {
+                            "input": "$steps",
+                            "as": "s",
+                            "in": {
+                                "$size": {
+                                    "$ifNull": ["$$s.pending_photos", []]
+                                }
+                            },
+                        }
+                    }
+                },
+                "on_hold_photos": {
+                    "$sum": {
+                        "$map": {
+                            "input": "$steps",
+                            "as": "s",
+                            "in": {
+                                "$size": {
+                                    "$ifNull": ["$$s.on_hold_photos", []]
+                                }
+                            },
+                        }
+                    }
+                },
+                "cad": {"$size": {"$ifNull": ["$pending_cad_files", []]}},
+                "igi": {
+                    "$size": {"$ifNull": ["$pending_igi_certificates", []]}
+                },
+                "renders": {"$size": {"$ifNull": ["$pending_renders", []]}},
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "photos": {"$sum": "$pending_photos"},
+                "on_hold": {"$sum": "$on_hold_photos"},
+                "cad": {"$sum": "$cad"},
+                "igi": {"$sum": "$igi"},
+                "renders": {"$sum": "$renders"},
+            }
+        },
+    ]
+    result = await db.orders.aggregate(pipeline).to_list(length=1)
+    if not result:
+        return empty
+    row = result[0]
+    photos = row.get("photos", 0) or 0
+    on_hold = row.get("on_hold", 0) or 0
+    cad = row.get("cad", 0) or 0
+    igi = row.get("igi", 0) or 0
+    renders = row.get("renders", 0) or 0
+    return {
+        "total": photos + on_hold + cad + igi + renders,
+        "photos": photos,
+        "on_hold": on_hold,
+        "cad": cad,
+        "igi": igi,
+        "renders": renders,
+    }
+
+
 # ------------------------------------------------------------ Queue listing
 @router.get("/photos/pending")
 async def list_pending_photos(user=Depends(get_current_user)):

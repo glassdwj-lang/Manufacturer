@@ -184,8 +184,10 @@ export default function IgiCertificatesScreen() {
     setPreview(file);
   }, []);
 
+  const isReviewer = user?.role === "admin" || user?.role === "associate";
+
   const deleteFile = useCallback(
-    (file: CadFile) => {
+    (file: CadFile, isPending: boolean) => {
       confirmAction({
         title: "Delete IGI certificate?",
         message: `Remove ${file.name}? The file stays on Cloudinary but no longer belongs to this commission.`,
@@ -193,8 +195,13 @@ export default function IgiCertificatesScreen() {
         destructive: true,
         onConfirm: async () => {
           try {
-            await api.removeIgiCertificate(orderId, file.id);
-            setFiles((prev) => prev.filter((f) => f.id !== file.id));
+            if (isPending) {
+              await api.rejectIgiCertificate(orderId, file.id);
+              setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+            } else {
+              await api.removeIgiCertificate(orderId, file.id);
+              setFiles((prev) => prev.filter((f) => f.id !== file.id));
+            }
           } catch (e: any) {
             notify("Delete failed", e?.message || "Could not remove certificate.");
           }
@@ -204,14 +211,54 @@ export default function IgiCertificatesScreen() {
     [orderId],
   );
 
-  const renderRow = ({ item }: { item: CadFile }) => {
+  const approveFile = useCallback(
+    async (file: CadFile) => {
+      try {
+        const res = await api.approveIgiCertificate(orderId, file.id);
+        setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+        setFiles((prev) => [res.file, ...prev]);
+        notify("Approved", `${file.name} is now visible to the client.`);
+      } catch (e: any) {
+        notify("Approve failed", e?.message || "Could not approve certificate.");
+      }
+    },
+    [orderId],
+  );
+
+  const rejectFile = useCallback(
+    (file: CadFile) => {
+      confirmAction({
+        title: "Reject IGI certificate?",
+        message: `${file.name} will be removed from the pending queue.`,
+        confirmLabel: "REJECT",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await api.rejectIgiCertificate(orderId, file.id);
+            setPendingFiles((prev) => prev.filter((f) => f.id !== file.id));
+          } catch (e: any) {
+            notify("Reject failed", e?.message || "Could not reject certificate.");
+          }
+        },
+      });
+    },
+    [orderId],
+  );
+
+  const renderRow = (item: CadFile, isPending: boolean) => {
     const ext = extOf(item);
     const known = IGI_EXTS.has(ext);
-    const isAdmin = user?.role === "admin";
-    const canRemove = isAdmin || item.uploaded_by === user?.id;
+    const showApprovalActions = isPending && isReviewer;
+    const canRemove =
+      !showApprovalActions &&
+      (isReviewer || item.uploaded_by === user?.id);
     const thumbUri = cloudinaryPreviewImage(item.secure_url, 220);
     return (
-      <View style={styles.row} testID={`igi-row-${item.id}`}>
+      <View
+        style={[styles.row, isPending && styles.rowPending]}
+        testID={`igi-row-${item.id}`}
+        key={item.id}
+      >
         {thumbUri ? (
           <TouchableOpacity
             onPress={() => openFile(item)}
@@ -242,17 +289,37 @@ export default function IgiCertificatesScreen() {
             <Text style={styles.rowMeta}>by {item.uploaded_by_email}</Text>
           ) : null}
         </View>
-        <TouchableOpacity
-          testID={`igi-open-${item.id}`}
-          onPress={() => openFile(item)}
-          style={styles.iconBtn}
-        >
-          <Ionicons name="download-outline" size={18} color={theme.primary} />
-        </TouchableOpacity>
+        {!showApprovalActions && (
+          <TouchableOpacity
+            testID={`igi-open-${item.id}`}
+            onPress={() => openFile(item)}
+            style={styles.iconBtn}
+          >
+            <Ionicons name="download-outline" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        )}
+        {showApprovalActions && (
+          <>
+            <TouchableOpacity
+              testID={`igi-approve-${item.id}`}
+              onPress={() => approveFile(item)}
+              style={[styles.iconBtn, styles.iconBtnApprove]}
+            >
+              <Ionicons name="checkmark" size={18} color="#0A0A0A" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID={`igi-reject-${item.id}`}
+              onPress={() => rejectFile(item)}
+              style={[styles.iconBtn, styles.iconBtnReject]}
+            >
+              <Ionicons name="close" size={18} color="#FF6B6B" />
+            </TouchableOpacity>
+          </>
+        )}
         {canRemove && (
           <TouchableOpacity
             testID={`igi-delete-${item.id}`}
-            onPress={() => deleteFile(item)}
+            onPress={() => deleteFile(item, isPending)}
             style={styles.iconBtn}
           >
             <Ionicons name="trash-outline" size={18} color={theme.error || "#C8553D"} />
@@ -307,9 +374,9 @@ export default function IgiCertificatesScreen() {
       )}
 
       <FlatList
-        data={files}
-        renderItem={renderRow}
-        keyExtractor={(f) => f.id}
+        data={[]}
+        renderItem={null as any}
+        keyExtractor={() => ""}
         contentContainerStyle={{ padding: spacing.lg, paddingTop: spacing.sm }}
         refreshControl={
           <RefreshControl
@@ -321,18 +388,43 @@ export default function IgiCertificatesScreen() {
             tintColor={theme.primary}
           />
         }
-        ListEmptyComponent={
-          loading ? (
-            <View style={{ paddingVertical: spacing.xxl }}>
-              <ActivityIndicator color={theme.primary} />
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>
-              No IGI certificates uploaded yet. Tap UPLOAD IGI CERTIFICATES
-              above to attach the digital lab report (PDF, JPEG, PNG — any file
-              type accepted).
-            </Text>
-          )
+        ListHeaderComponent={
+          <>
+            {pendingFiles.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>
+                  {t("igi_page.pending_section", { n: pendingFiles.length })}
+                </Text>
+                <Text style={styles.sectionHint}>
+                  {isReviewer
+                    ? t("igi_page.pending_hint_admin")
+                    : t("igi_page.pending_hint_vendor")}
+                </Text>
+                {pendingFiles.map((f) => renderRow(f, true))}
+              </>
+            )}
+            {(files.length > 0 || pendingFiles.length > 0) && (
+              <Text
+                style={[
+                  styles.sectionLabel,
+                  pendingFiles.length > 0 && { marginTop: spacing.lg },
+                ]}
+              >
+                {t("igi_page.live_section", { n: files.length })}
+              </Text>
+            )}
+            {files.map((f) => renderRow(f, false))}
+            {loading && (
+              <View style={{ paddingVertical: spacing.xxl }}>
+                <ActivityIndicator color={theme.primary} />
+              </View>
+            )}
+            {!loading && files.length === 0 && pendingFiles.length === 0 && (
+              <Text style={styles.emptyText}>
+                No certificates uploaded yet.
+              </Text>
+            )}
+          </>
         }
       />
 
@@ -456,6 +548,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: theme.border,
+  },
+  iconBtnApprove: {
+    borderColor: theme.success || "#5B9279",
+    backgroundColor: theme.success || "#5B9279",
+  },
+  iconBtnReject: {
+    borderColor: "#FF6B6B",
+  },
+  rowPending: {
+    borderLeftWidth: 3,
+    borderLeftColor: theme.primary,
+    paddingLeft: spacing.sm,
+  },
+  sectionLabel: {
+    color: theme.textPrimary,
+    fontSize: 11,
+    letterSpacing: 3,
+    textTransform: "uppercase",
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  sectionHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontStyle: "italic",
+    marginBottom: spacing.sm,
+    lineHeight: 14,
   },
   emptyText: {
     textAlign: "center",

@@ -230,8 +230,11 @@ export default function HomeScreen() {
       setOrders(list);
       if (user && (user.role === "admin" || user.role === "associate")) {
         try {
-          const q = await api.listPendingPhotos();
-          setApprovalsCount(q.pending_count || 0);
+          // Aggregated count covers photos, on-hold photos, pending CAD,
+          // pending IGI, and pending renders — gives the admin a single
+          // glanceable number for the Media Approvals tile.
+          const counts = await api.adminPendingCounts();
+          setApprovalsCount(counts.total || 0);
         } catch {
           setApprovalsCount(0);
         }

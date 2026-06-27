@@ -238,6 +238,18 @@ export const api = {
     request<any>(`/admin/photos/migrate${limit ? `?limit=${limit}` : ""}`, { method: "POST" }),
   // ---- Photo approval queue ----
   listPendingPhotos: () => request<any>(`/photos/pending`, { method: "GET" }),
+  // Aggregated pending count across photos / on-hold / CAD / IGI / renders.
+  // The home dashboard uses this for the Media Approvals badge so the
+  // admin sees the *total* number of items awaiting review.
+  adminPendingCounts: () =>
+    request<{
+      total: number;
+      photos: number;
+      on_hold: number;
+      cad: number;
+      igi: number;
+      renders: number;
+    }>(`/admin/pending-counts`),
   listRecycledPhotos: () => request<any>(`/photos/recycled`, { method: "GET" }),
   approvePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
     request<any>(`/photos/approve`, { method: "POST", body: JSON.stringify(body) }),
