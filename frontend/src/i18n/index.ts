@@ -380,6 +380,18 @@ const STRINGS = {
     fr: "MOIS",
     it: "MESE",
   },
+  "lib.preset_quarter": {
+    en: "QTR",
+    zh: "季",
+    fr: "TRIM.",
+    it: "TRIM.",
+  },
+  "lib.preset_ytd": {
+    en: "YTD",
+    zh: "年初至今",
+    fr: "ANNÉE",
+    it: "ANNO",
+  },
   "lib.preset_custom": {
     en: "CUSTOM",
     zh: "自定义",

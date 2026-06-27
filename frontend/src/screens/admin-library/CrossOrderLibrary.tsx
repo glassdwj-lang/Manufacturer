@@ -413,6 +413,8 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
             day: t("lib.preset_day" as any),
             week: t("lib.preset_week" as any),
             month: t("lib.preset_month" as any),
+            quarter: t("lib.preset_quarter" as any),
+            ytd: t("lib.preset_ytd" as any),
             custom: t("lib.preset_custom" as any),
           }}
         />

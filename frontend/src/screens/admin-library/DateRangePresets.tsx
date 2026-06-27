@@ -16,7 +16,14 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { theme, spacing } from "@/src/theme";
 import { DateField } from "@/src/components/DateField";
 
-export type DateRangePreset = "all" | "day" | "week" | "month" | "custom";
+export type DateRangePreset =
+  | "all"
+  | "day"
+  | "week"
+  | "month"
+  | "quarter"
+  | "ytd"
+  | "custom";
 
 export type DateRangeValue = {
   preset: DateRangePreset;
@@ -61,6 +68,17 @@ export function rangeForPreset(
     from.setDate(from.getDate() - 6);
     return { preset, date_from: iso(from), date_to: iso(today) };
   }
+  if (preset === "quarter") {
+    // Current calendar quarter (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec).
+    const qStartMonth = Math.floor(today.getMonth() / 3) * 3;
+    const from = new Date(today.getFullYear(), qStartMonth, 1);
+    return { preset, date_from: iso(from), date_to: iso(today) };
+  }
+  if (preset === "ytd") {
+    // 1 January of the current year through today, inclusive.
+    const from = new Date(today.getFullYear(), 0, 1);
+    return { preset, date_from: iso(from), date_to: iso(today) };
+  }
   // month → last 30 days
   const from = new Date(today);
   from.setDate(from.getDate() - 29);
@@ -78,12 +96,24 @@ export function DateRangePresets({
   onChange: (next: DateRangeValue) => void;
   /** Optional copy overrides for i18n. */
   labels?: Partial<
-    Record<"day" | "week" | "month" | "custom" | "daily_report", string>
+    Record<
+      | "day"
+      | "week"
+      | "month"
+      | "quarter"
+      | "ytd"
+      | "custom"
+      | "daily_report",
+      string
+    >
   >;
 }) {
   const [showCustom, setShowCustom] = useState(value.preset === "custom");
 
-  const tab = (key: "day" | "week" | "month" | "custom", label: string) => {
+  const tab = (
+    key: "day" | "week" | "month" | "quarter" | "ytd" | "custom",
+    label: string,
+  ) => {
     const active = value.preset === key;
     return (
       <TouchableOpacity
@@ -123,6 +153,8 @@ export function DateRangePresets({
           {tab("day", labels?.day || "DAY")}
           {tab("week", labels?.week || "WEEK")}
           {tab("month", labels?.month || "MONTH")}
+          {tab("quarter", labels?.quarter || "QTR")}
+          {tab("ytd", labels?.ytd || "YTD")}
           {tab("custom", labels?.custom || "CUSTOM")}
         </View>
       </View>
@@ -172,8 +204,8 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: theme.textMuted,
     fontSize: 9,
-    letterSpacing: 2,
-    minWidth: 76,
+    letterSpacing: 1.5,
+    minWidth: 60,
   },
   tabs: {
     flexDirection: "row",
@@ -183,7 +215,8 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
     alignItems: "center",
     justifyContent: "center",
     borderRightWidth: 1,
@@ -192,8 +225,8 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: theme.primary },
   tabText: {
     color: theme.textSecondary,
-    fontSize: 9,
-    letterSpacing: 2,
+    fontSize: 8,
+    letterSpacing: 1.2,
     fontWeight: "600",
   },
   tabTextActive: { color: "#0A0A0A", fontWeight: "700" },
