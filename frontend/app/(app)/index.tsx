@@ -17,7 +17,6 @@ import { useAuth } from "@/src/context/AuthContext";
 import { api, Order, User } from "@/src/api/client";
 import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { Eyebrow, ProgressBar, PhaseBadge, CompletedBadge } from "@/src/components/Ui";
-import { flags } from "@/src/flags";
 import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { BrandStrip } from "@/src/components/BrandStrip";
@@ -377,8 +376,17 @@ export default function HomeScreen() {
       {user.role === "admin" && (
         <View style={styles.adminLinks}>
           <TouchableOpacity
-            testID="approvals-button"
+            testID="dashboard-button"
             style={styles.linkBtn}
+            onPress={() => router.push("/(app)/dashboard")}
+          >
+            <Ionicons name="stats-chart-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>{t("home.link.dashboard")}</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="approvals-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
             onPress={() => router.push("/(app)/approvals")}
           >
             <Ionicons name="shield-checkmark-outline" size={16} color={theme.primary} />
@@ -418,52 +426,17 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
-            testID="dashboard-button"
+            testID="atelier-tools-button"
             style={[styles.linkBtn, { marginTop: spacing.sm }]}
-            onPress={() => router.push("/(app)/dashboard")}
+            onPress={() => router.push("/(app)/admin/atelier-tools")}
           >
-            <Ionicons name="stats-chart-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>{t("home.link.dashboard")}</Text>
+            <Ionicons name="construct-outline" size={16} color={theme.primary} />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text style={styles.linkBtnText}>{t("home.link.atelier_tools")}</Text>
+              <Text style={styles.toolsSub}>{t("home.link.atelier_tools.sub")}</Text>
+            </View>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity
-            testID="recycle-bin-button"
-            style={[styles.linkBtn, { marginTop: spacing.sm }]}
-            onPress={() => router.push("/(app)/recycle-bin")}
-          >
-            <Ionicons name="trash-bin-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>{t("home.link.recycle_bin")}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="activity-log-button"
-            style={[styles.linkBtn, { marginTop: spacing.sm }]}
-            onPress={() => router.push("/(app)/activity-log")}
-          >
-            <Ionicons name="document-text-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>{t("home.link.activity_log")}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="test-translate-button"
-            style={[styles.linkBtn, { marginTop: spacing.sm }]}
-            onPress={() => router.push("/(app)/test-translate")}
-          >
-            <Ionicons name="language-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>{t("home.link.test_translation")}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-          </TouchableOpacity>
-          {flags.enableDebug && (
-            <TouchableOpacity
-              testID="debug-button"
-              style={[styles.linkBtn, { marginTop: spacing.sm }]}
-              onPress={() => router.push("/(app)/debug")}
-            >
-              <Ionicons name="construct-outline" size={16} color={theme.primary} />
-              <Text style={styles.linkBtnText}>{t("home.link.debug")}</Text>
-              <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-            </TouchableOpacity>
-          )}
         </View>
       )}
 
@@ -914,6 +887,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   linkBtnText: { color: theme.textPrimary, fontSize: 12, letterSpacing: 2, flex: 1 },
+  toolsSub: {
+    color: theme.textMuted,
+    fontSize: 9,
+    letterSpacing: 1,
+    marginTop: 3,
+    fontStyle: "italic",
+  },
   approvalsBadge: {
     backgroundColor: theme.primary,
     borderRadius: 999,
