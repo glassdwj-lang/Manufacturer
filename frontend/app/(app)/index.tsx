@@ -391,6 +391,15 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
+            testID="cad-library-button"
+            style={[styles.linkBtn, { marginTop: spacing.sm }]}
+            onPress={() => router.push("/(app)/admin/cad-files")}
+          >
+            <Ionicons name="cube-outline" size={16} color={theme.primary} />
+            <Text style={styles.linkBtnText}>{t("home.link.cad_library")}</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
             testID="manage-users-button"
             style={[styles.linkBtn, { marginTop: spacing.sm }]}
             onPress={() => router.push("/(app)/users")}
