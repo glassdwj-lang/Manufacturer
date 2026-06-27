@@ -100,6 +100,39 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
+        testID="igi-library-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/igi-certificates")}
+      >
+        <Ionicons name="ribbon-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>
+          {t("home.link.igi_library")}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID="airway-library-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/airway-bills")}
+      >
+        <Ionicons name="airplane-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>
+          {t("home.link.airway_library")}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID="customs-library-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/customs")}
+      >
+        <Ionicons name="document-text-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>
+          {t("home.link.customs_library")}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
         testID="manage-users-button"
         style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
         onPress={() => router.push("/(app)/users")}

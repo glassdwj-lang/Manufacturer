@@ -934,6 +934,318 @@ async def admin_email_cross_order_renders(
     }
 
 
+# ---- Cross-Order IGI / Customs / Airway Bill Libraries -------------------
+# Three sibling endpoints that mirror the CAD/Renders library pattern. Each
+# returns a flat list of file rows enriched with the parent commission
+# context (order_ref, jewelry_name, manufacturer details). All three are
+# filtered by `manufacturer_id` (workshop) since these documents originate
+# from the workshop side of the supply chain.
+#
+# The data layout differs per kind:
+#   * IGI       -> `order.igi_certificates`               (top-level array)
+#   * Airway    -> `order.customs.airway_bill_files`      (nested under customs)
+#   * Customs   -> `order.customs.customs_files`          (nested under customs)
+#
+# We share a single helper so future kinds (e.g. invoices) can hook in with
+# one line.
+
+
+async def _list_cross_order_doc_files(
+    *,
+    field_path: tuple[str, ...],
+    manufacturer_id: str | None,
+    q: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> list[dict]:
+    """Walks every non-deleted order and emits one row per file found at
+    ``field_path`` (e.g. ``("igi_certificates",)`` or
+    ``("customs", "airway_bill_files")``).
+
+    Same filter semantics as ``admin_list_all_cad_files``: workshop, free-text
+    against (jewelry_name | order_ref | file name), and an inclusive
+    ``uploaded_at`` date window.
+    """
+    not_deleted = {
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+            {"deleted_at": ""},
+        ]
+    }
+    query: dict = {"$and": [not_deleted]}
+    if manufacturer_id:
+        query["$and"].append({"manufacturer_id": manufacturer_id})
+
+    needle = (q or "").strip().lower()
+    df = (date_from or "").strip()
+    dt = (date_to or "").strip()
+    dt_end = (dt + "T23:59:59") if dt else None
+
+    rows: list[dict] = []
+    cursor = db.orders.find(query, {"_id": 0}).sort("created_at", -1)
+    async for order in cursor:
+        # Walk the nested path to fetch the file array.
+        container: object = order
+        for key in field_path:
+            if isinstance(container, dict):
+                container = container.get(key)
+            else:
+                container = None
+                break
+        files = container if isinstance(container, list) else []
+        if not files:
+            continue
+
+        order_match_q = (
+            needle in (order.get("jewelry_name") or "").lower()
+            or needle in (order.get("order_ref") or "").lower()
+        )
+        for f in files:
+            if not isinstance(f, dict):
+                continue
+            uploaded = f.get("uploaded_at") or ""
+            if df and uploaded < df:
+                continue
+            if dt_end and uploaded > dt_end:
+                continue
+            if needle and not (
+                order_match_q or needle in (f.get("name") or "").lower()
+            ):
+                continue
+            rows.append(
+                {
+                    **f,
+                    "order_id": order.get("id"),
+                    "order_ref": order.get("order_ref"),
+                    "jewelry_name": order.get("jewelry_name"),
+                    "manufacturer_id": order.get("manufacturer_id"),
+                    "manufacturer_name": order.get("manufacturer_name"),
+                    "manufacturer_alias": order.get("manufacturer_alias"),
+                    "client_id": order.get("client_id"),
+                    "client_name": order.get("client_name"),
+                }
+            )
+
+    rows.sort(key=lambda r: r.get("uploaded_at") or "", reverse=True)
+    return rows
+
+
+@router.get("/admin/igi-certificates")
+async def admin_list_all_igi_certificates(
+    user=Depends(require_roles("admin")),
+    manufacturer_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """Returns all approved IGI certificates across every commission. Mirrors
+    ``admin_list_all_cad_files`` (same filter contract + enrichment fields)."""
+    return await _list_cross_order_doc_files(
+        field_path=("igi_certificates",),
+        manufacturer_id=manufacturer_id,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.get("/admin/airway-bill-files")
+async def admin_list_all_airway_bill_files(
+    user=Depends(require_roles("admin")),
+    manufacturer_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """Returns all airway-bill documents across every commission. The files
+    live under ``order.customs.airway_bill_files``."""
+    return await _list_cross_order_doc_files(
+        field_path=("customs", "airway_bill_files"),
+        manufacturer_id=manufacturer_id,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.get("/admin/customs-files")
+async def admin_list_all_customs_files(
+    user=Depends(require_roles("admin")),
+    manufacturer_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    """Returns all customs documents across every commission. The files live
+    under ``order.customs.customs_files``."""
+    return await _list_cross_order_doc_files(
+        field_path=("customs", "customs_files"),
+        manufacturer_id=manufacturer_id,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+# ---- Cross-order email helpers for the new libraries ---------------------
+
+
+class DocLibraryEmailItem(BaseModel):
+    order_id: str
+    file_id: str
+
+
+class DocLibraryEmailPayload(BaseModel):
+    recipients: list[str]
+    items: list[DocLibraryEmailItem]
+    subject: str | None = None
+    message: str | None = None
+
+
+async def _bulk_email_doc_library(
+    *,
+    body: DocLibraryEmailPayload,
+    user: dict,
+    field_path: tuple[str, ...],
+    kind: str,
+    default_subject: str,
+) -> dict:
+    """Shared bulk-email implementation for the IGI / airway bill / customs
+    libraries. Mirrors ``admin_email_cross_order_cad_files`` exactly so the
+    frontend can reuse ``EmailFilesModal`` without surprises."""
+    from _email import send_files_email
+    from routes.orders._shared import sanitize_recipients
+
+    cleaned = sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+    if not body.items:
+        raise HTTPException(status_code=400, detail="Select at least one file.")
+
+    grouped: dict[str, set[str]] = {}
+    for it in body.items:
+        grouped.setdefault(it.order_id, set()).add(it.file_id)
+
+    selected: list[dict] = []
+    for order_id, file_ids in grouped.items():
+        order = await db.orders.find_one(
+            {
+                "id": order_id,
+                "$or": [
+                    {"deleted_at": {"$exists": False}},
+                    {"deleted_at": None},
+                    {"deleted_at": ""},
+                ],
+            },
+            {"_id": 0},
+        )
+        if not order:
+            continue
+        ref = order.get("order_ref") or ""
+        jewel = order.get("jewelry_name") or ""
+        container: object = order
+        for key in field_path:
+            if isinstance(container, dict):
+                container = container.get(key)
+            else:
+                container = None
+                break
+        files = container if isinstance(container, list) else []
+        for f in files:
+            if not isinstance(f, dict) or f.get("id") not in file_ids:
+                continue
+            label = f.get("name") or f"{kind} file"
+            if jewel or ref:
+                provenance = " \u00b7 ".join(s for s in (jewel, ref) if s)
+                label = f"{label}  ({provenance})"
+            selected.append({**f, "name": label})
+
+    if not selected:
+        raise HTTPException(
+            status_code=400, detail="None of the selected files were found."
+        )
+
+    try:
+        provider_response = send_files_email(
+            kind=kind,
+            recipients=cleaned,
+            subject=body.subject or default_subject,
+            message=body.message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=None,
+            jewelry_name=None,
+            files=selected,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(selected),
+        "order_count": len(grouped),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
+    }
+
+
+@router.post("/admin/igi-certificates/email")
+async def admin_email_cross_order_igi(
+    body: DocLibraryEmailPayload,
+    user=Depends(require_roles("admin")),
+):
+    return await _bulk_email_doc_library(
+        body=body,
+        user=user,
+        field_path=("igi_certificates",),
+        kind="igi",
+        default_subject="IGI Certificates",
+    )
+
+
+@router.post("/admin/airway-bill-files/email")
+async def admin_email_cross_order_airway_bills(
+    body: DocLibraryEmailPayload,
+    user=Depends(require_roles("admin")),
+):
+    return await _bulk_email_doc_library(
+        body=body,
+        user=user,
+        field_path=("customs", "airway_bill_files"),
+        kind="airway_bill",
+        default_subject="Airway Bill Documents",
+    )
+
+
+@router.post("/admin/customs-files/email")
+async def admin_email_cross_order_customs(
+    body: DocLibraryEmailPayload,
+    user=Depends(require_roles("admin")),
+):
+    return await _bulk_email_doc_library(
+        body=body,
+        user=user,
+        field_path=("customs", "customs_files"),
+        kind="customs",
+        default_subject="Customs Documents",
+    )
+
+
 @router.post("/seed-cad-renderers")
 async def seed_cad_renderers(user=Depends(require_roles("admin"))):
     """Seeds 4 production-grade CAD/Render vendor accounts with realistic

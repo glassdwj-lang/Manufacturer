@@ -152,6 +152,36 @@ export type CustomsBlob = {
   updated_at_china?: string | null;
 };
 
+// ---- Cross-order document library shared types ---------------------------
+// Used by `adminListAllIgiCertificates`, `adminListAllAirwayBillFiles`, and
+// `adminListAllCustomsFiles`. All three return the same shape: a CAD-style
+// file dict enriched with the parent commission context.
+export type DocLibraryRow = CadFile & {
+  order_id: string;
+  order_ref: string | null;
+  jewelry_name: string | null;
+  manufacturer_id: string | null;
+  manufacturer_name: string | null;
+  manufacturer_alias: string | null;
+  client_id: string | null;
+  client_name: string | null;
+};
+
+export type DocLibraryEmailPayload = {
+  recipients: string[];
+  items: { order_id: string; file_id: string }[];
+  subject?: string | null;
+  message?: string | null;
+};
+
+export type DocLibraryEmailResponse = {
+  ok: boolean;
+  recipients: string[];
+  file_count: number;
+  order_count: number;
+  provider_id: string | null;
+};
+
 export const api = {
   seed: () => request<any>("/seed", { method: "POST" }),
   seedExtended: () => request<any>("/seed-extended", { method: "POST" }),
@@ -560,6 +590,68 @@ export const api = {
       order_count: number;
       provider_id: string | null;
     }>(`/admin/renders/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  // ---- Admin Document Libraries (cross-order) -----------------------------
+  // Three sibling libraries that mirror the CAD/Renders shape exactly:
+  // IGI certificates, airway-bill documents, and customs documents. All
+  // three filter by `manufacturer_id` (workshop) and return a flat row
+  // shape with the parent commission context folded in.
+  adminListAllIgiCertificates: (params?: {
+    manufacturer_id?: string | null;
+    q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.date_from) qs.set("date_from", params.date_from);
+    if (params?.date_to) qs.set("date_to", params.date_to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<DocLibraryRow[]>(`/admin/igi-certificates${suffix}`);
+  },
+  adminEmailCrossOrderIgi: (payload: DocLibraryEmailPayload) =>
+    request<DocLibraryEmailResponse>(`/admin/igi-certificates/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminListAllAirwayBillFiles: (params?: {
+    manufacturer_id?: string | null;
+    q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.date_from) qs.set("date_from", params.date_from);
+    if (params?.date_to) qs.set("date_to", params.date_to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<DocLibraryRow[]>(`/admin/airway-bill-files${suffix}`);
+  },
+  adminEmailCrossOrderAirwayBills: (payload: DocLibraryEmailPayload) =>
+    request<DocLibraryEmailResponse>(`/admin/airway-bill-files/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminListAllCustomsFiles: (params?: {
+    manufacturer_id?: string | null;
+    q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.date_from) qs.set("date_from", params.date_from);
+    if (params?.date_to) qs.set("date_to", params.date_to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<DocLibraryRow[]>(`/admin/customs-files${suffix}`);
+  },
+  adminEmailCrossOrderCustoms: (payload: DocLibraryEmailPayload) =>
+    request<DocLibraryEmailResponse>(`/admin/customs-files/email`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
