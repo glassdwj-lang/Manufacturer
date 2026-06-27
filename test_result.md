@@ -221,3 +221,31 @@ agent_communication:
       (Period filter, Commissions 18/0/18, Atelier Pulse chart, Pending
       Tiles 0 & 5/8, New Users, Top Workshops with aliases, Recent Activity,
       System Syncs) render correctly. No regressions.
+
+  - agent: main
+    message: |
+      P1 refactor complete — IGI / Customs / Step screens decomposed.
+      
+      Before → After (largest single file → largest sub-module):
+        • IgiCertificatesScreen.tsx     574 → 224 lines
+        • CustomsScreen.tsx             621 → 249 lines
+        • StepScreen.tsx                881 → 225 lines
+      
+      New structure (each folder now ~5-11 small files):
+        igi/      utils, styles, useIgiCertificates, IgiRow, screen
+        customs/  utils, styles, useCustoms, CustomsSectionHeader, CustomsFileList, screen
+        step/     utils, styles, useStep, useStepMedia, useManualTranslate,
+                  PhotoGrid, StepCompletionTimestamp, StepFormSection,
+                  StepForwardSection, StepReadOnlyView, screen
+      
+      Visual verification:
+        • /igi-certificates/<id>  → pending-approval queue renders with
+          approve(✓)/reject(✗) pills + thumbnail.
+        • /customs/<id>           → airway-bill + customs sections, text
+          input + admin-only notes, prior-saved data ("TEST_customs")
+          loaded successfully.
+        • /step/<id>/1            → step header, completion timestamp tile,
+          and associate FORWARD-TO-CLIENT flow.
+      
+      Lint clean on all three folders. Route shims under app/(app) untouched.
+      No backend changes.
