@@ -4,12 +4,15 @@
  *   • useRenders() — fetch, approve/reject/delete, vendor management
  *   • RenderRow — single-file UI
  *   • VendorAssignModal — admin-only vendor picker
+ *   • MediaModerationModal — admin REJECT now opens the same 24h email
+ *     moderation flow that powers Media Approvals, so the uploader gets
+ *     a courteous notification with a replacement deadline.
  *
  * Upload flow uses `uploadCadFile` (Cloudinary signed upload, supports
  * any resource type) so both admins and cad_renderer vendors can push
  * images straight to the live or pending queue.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -23,7 +26,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 
-import { api } from "@/src/api/client";
+import { api, CadFile } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { uploadCadFile } from "@/src/api/cloudinaryUpload";
@@ -31,6 +34,11 @@ import { confirmAction, notify } from "@/src/utils/confirm";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { useI18n } from "@/src/i18n";
+import {
+  MediaModerationModal,
+  ModerationKind,
+  ModerationTarget,
+} from "@/src/components/MediaModerationModal";
 
 import { RenderRow } from "./RenderRow";
 import { VendorAssignModal } from "./VendorAssignModal";
@@ -47,6 +55,39 @@ export default function RendersScreen() {
 
   const [uploading, setUploading] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+
+  // Order metadata pulled once so the moderation modal can show the
+  // jewelry name + order ref in its meta-rows / subject line.
+  const [orderMeta, setOrderMeta] = useState<{
+    order_ref: string;
+    jewelry_name: string;
+  } | null>(null);
+  // Moderation modal state — opened from the REJECT pill on a pending row.
+  const [moderation, setModeration] = useState<{
+    kind: ModerationKind;
+    target: ModerationTarget;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const o = await api.getOrder(orderId);
+        if (!cancelled) {
+          setOrderMeta({
+            order_ref: o?.order_ref || orderId.slice(0, 8),
+            jewelry_name: o?.jewelry_name || "—",
+          });
+        }
+      } catch (e) {
+        console.warn("renders order meta load", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   const isAdmin = user?.role === "admin";
   const isVendor = user?.role === "cad_renderer";
@@ -92,13 +133,33 @@ export default function RendersScreen() {
     }
   };
 
-  const onReject = async (file: any) => {
-    const ok = await confirmAction(
-      t("renders.confirm.reject_title"),
-      t("renders.confirm.reject_msg", { name: file.name }),
-      "Reject",
-    );
-    if (ok) await r.rejectOne(file);
+  const onReject = (file: CadFile) => {
+    // Replaces the old plain-confirm reject. We now open the same
+    // Media Approvals moderation modal which emails the uploader with
+    // a 24h replacement deadline, then atomically removes the render
+    // from the pending queue on send-success.
+    if (!orderMeta) {
+      notify(
+        "Almost ready",
+        "Loading order details — try again in a moment.",
+      );
+      return;
+    }
+    setModeration({
+      kind: "reject",
+      target: {
+        order_id: orderId,
+        order_ref: orderMeta.order_ref,
+        jewelry_name: orderMeta.jewelry_name,
+        photo_url: file.secure_url,
+        render_id: file.id,
+        render_name: file.name,
+        manufacturer_email: file.uploaded_by_email,
+        manufacturer_name: file.uploaded_by_email
+          ? file.uploaded_by_email.split("@")[0]
+          : undefined,
+      },
+    });
   };
 
   const onDelete = async (file: any, isPending: boolean) => {
@@ -268,6 +329,24 @@ export default function RendersScreen() {
         onPick={async (newId) => {
           const ok = await r.assignVendor(newId);
           if (ok) setAssignOpen(false);
+        }}
+      />
+
+      <MediaModerationModal
+        visible={!!moderation}
+        kind={moderation?.kind || "reject"}
+        mode="render"
+        target={moderation?.target || null}
+        onClose={() => setModeration(null)}
+        onCompleted={async () => {
+          setModeration(null);
+          // Backend already removed the pending render — refresh to
+          // reflect the new state.
+          await r.load();
+          notify(
+            "Email sent",
+            "The uploader has been notified — render removed from the pending queue.",
+          );
         }}
       />
     </SafeAreaView>

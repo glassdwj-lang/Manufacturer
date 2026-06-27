@@ -103,6 +103,14 @@ export type LibraryConfig = {
     date_to?: string | null;
   }) => Promise<DocLibraryRow[]>;
   sendEmail: (payload: DocLibraryEmailPayload) => Promise<DocLibraryEmailResponse>;
+  /** Optional upload action — when set, renders a "+ UPLOAD" button in
+   *  the library header. `onPress` is invoked with a `refresh` callback
+   *  the library uses to re-fetch its rows after a successful upload. */
+  upload?: {
+    labelKey: string;
+    icon?: keyof typeof Ionicons.glyphMap;
+    onPress: (refresh: () => void) => Promise<void> | void;
+  };
 };
 
 type ListItem =
@@ -375,6 +383,24 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
           <TouchableOpacity onPress={clearSelection} testID={`${slug}-clear`}>
             <Text style={styles.clearText}>
               {t(copy.clearSelection as any)}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {config.upload && (
+          <TouchableOpacity
+            testID={`${slug}-upload`}
+            style={localStyles.uploadBtn}
+            onPress={async () => {
+              await config.upload!.onPress(loadRows);
+            }}
+          >
+            <Ionicons
+              name={config.upload.icon || "cloud-upload-outline"}
+              size={14}
+              color="#0A0A0A"
+            />
+            <Text style={localStyles.uploadBtnText}>
+              {t(config.upload.labelKey as any)}
             </Text>
           </TouchableOpacity>
         )}
@@ -712,5 +738,26 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+// Library-level extras — kept separate from the main `styles` so it's
+// obvious these only apply when the `upload` config is provided.
+const localStyles = StyleSheet.create({
+  uploadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: theme.primary,
+    marginLeft: 8,
+  },
+  uploadBtnText: {
+    color: "#0A0A0A",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+});
+
 
 export default CrossOrderLibrary;

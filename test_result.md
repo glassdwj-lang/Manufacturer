@@ -249,3 +249,40 @@ agent_communication:
       
       Lint clean on all three folders. Route shims under app/(app) untouched.
       No backend changes.
+
+  - agent: main
+    message: |
+      Option C complete — Renders now have media-approvals parity:
+      
+      Backend:
+        • NEW POST /orders/{order_id}/renders/{render_id}/moderation-email
+          (admin/associate only) — sends a HOLD/REJECT email via Resend,
+          24h deadline for REJECT; atomically removes from pending_renders
+          when also_action=true.
+      
+      Frontend:
+        • api.sendRenderModerationEmail() added.
+        • MediaModerationModal generalised with optional `mode` ("step" |
+          "render") + new target fields render_id, render_name. Subject,
+          body, and meta-row swap depending on mode. Existing step-photo
+          flow unchanged.
+        • RendersScreen (per-order): REJECT pill now opens MediaModerationModal
+          in render+reject mode with 24h deadline + email instead of the
+          plain confirm dialog. Order ref + jewelry name auto-loaded.
+        • CrossOrderLibrary now supports optional `upload` config (icon,
+          label, onPress(refresh)).
+        • admin/renders.tsx (Renders Library) wires UPLOAD button → opens
+          new OrderPickerModal → on order selection, opens ImagePicker →
+          uploads each via uploadCadFile + api.addRender (admin upload
+          lands directly in live queue per existing rules) → refreshes the
+          library list on success.
+        • New OrderPickerModal component (search + scrollable order list)
+          reusable for any future cross-context picker need.
+      
+      Visual verification:
+        • Library page shows "UPLOAD" pill in header; tapping it opens
+          the order picker sheet listing all commissions.
+        • Per-order Renders page still renders the existing UPLOAD button
+          + APPROVED RENDERS list with no regressions.
+      
+      Lint clean across all touched files.

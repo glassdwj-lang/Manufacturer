@@ -389,3 +389,151 @@ async def remove_render(
     )
     request.state.activity_logged = True
     return {"ok": True}
+
+
+
+# ----------------------------------------------------------------------------
+# Render-moderation email
+#
+# Mirrors the photo moderation-email pipeline: an admin / associate can
+# send a HOLD or REJECT email (with a 24h replacement deadline for REJECT)
+# to the original render uploader (CAD vendor) — and optionally execute
+# the underlying reject mutation atomically.
+#
+# Renders don't have a "hold" queue today; HOLD just sends the email
+# without touching the queue, REJECT sends the email then removes the
+# pending render so it disappears from the admin approval queue.
+# ----------------------------------------------------------------------------
+
+
+class RenderModerationEmailBody(BaseModel):
+    kind: str  # "hold" | "reject"
+    recipient_email: str | None = None
+    subject: str | None = None
+    message: str | None = None
+    # When True (default) the underlying reject is executed atomically
+    # after the email send succeeds.  HOLD is informational only because
+    # renders have no on-hold queue.
+    also_action: bool = True
+
+
+@router.post("/orders/{order_id}/renders/{render_id}/moderation-email")
+async def send_render_moderation_email(
+    order_id: str,
+    render_id: str,
+    body: RenderModerationEmailBody,
+    request: Request,
+    user=Depends(require_roles("admin", "associate")),
+):
+    from datetime import datetime, timedelta, timezone
+    from _email import send_moderation_email
+
+    if body.kind not in ("hold", "reject"):
+        raise HTTPException(status_code=400, detail="kind must be 'hold' or 'reject'")
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Look for the render in both pending and live queues — REJECT only
+    # operates on pending, HOLD is informational so it tolerates either.
+    pending = order.get("pending_renders") or []
+    live = order.get("renders") or []
+    target = next(
+        (r for r in pending if r.get("id") == render_id),
+        None,
+    ) or next((r for r in live if r.get("id") == render_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Render not found")
+    if body.kind == "reject" and target not in pending:
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending renders can be rejected.",
+        )
+
+    # Resolve recipient — caller can override, otherwise prefer the
+    # uploader's email if we recorded it, then fall back to the order's
+    # assigned cad_renderer's email on file.
+    recipient = (body.recipient_email or "").strip()
+    if not recipient and target.get("uploaded_by_email"):
+        recipient = target["uploaded_by_email"]
+    if not recipient and target.get("uploaded_by"):
+        uploader = await db.users.find_one(
+            {"id": target["uploaded_by"]}, {"_id": 0, "email": 1}
+        )
+        recipient = (uploader or {}).get("email") or ""
+    if not recipient and order.get("cad_renderer_id"):
+        cad = await db.users.find_one(
+            {"id": order["cad_renderer_id"]}, {"_id": 0, "email": 1}
+        )
+        recipient = (cad or {}).get("email") or ""
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient email available — please provide one explicitly.",
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    sent_at_iso = now_utc.strftime("%Y-%m-%d %H:%M UTC")
+    deadline_iso = (
+        (now_utc + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M UTC")
+        if body.kind == "reject"
+        else None
+    )
+
+    try:
+        result = send_moderation_email(
+            kind=body.kind,
+            recipient_email=recipient,
+            photo_url=target.get("secure_url") or "",
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            step_number=None,
+            step_title=f"Render · {target.get('name') or 'file'}",
+            moderator_name=user.get("name") or user.get("email"),
+            moderator_email=user.get("email"),
+            message=body.message,
+            sent_at_iso=sent_at_iso,
+            deadline_iso=deadline_iso,
+            subject_override=body.subject,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email failed: {exc}"
+        ) from exc
+
+    # Atomically execute the underlying reject after email succeeds.
+    action_done = False
+    if body.also_action and body.kind == "reject":
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$pull": {"pending_renders": {"id": render_id}}},
+        )
+        action_done = True
+
+    await record_event(
+        db,
+        request,
+        f"order.render.{body.kind}_emailed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "render_id": render_id,
+            "file_name": target.get("name"),
+            "recipient": recipient,
+            "deadline": deadline_iso,
+            "action_executed": action_done,
+        },
+    )
+    request.state.activity_logged = True
+
+    return {
+        "ok": True,
+        "kind": body.kind,
+        "recipient": result.get("recipient", recipient),
+        "sent_at": sent_at_iso,
+        "deadline": deadline_iso,
+        "action_executed": action_done,
+    }

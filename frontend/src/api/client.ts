@@ -350,6 +350,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** Send a HOLD or REJECT moderation email for a render upload. REJECT
+   *  also removes the render from the admin approval queue atomically. */
+  sendRenderModerationEmail: (
+    orderId: string,
+    renderId: string,
+    body: {
+      kind: "hold" | "reject";
+      recipient_email?: string;
+      subject?: string;
+      message?: string;
+      also_action?: boolean;
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      kind: "hold" | "reject";
+      recipient: string;
+      sent_at: string;
+      deadline: string | null;
+      action_executed: boolean;
+    }>(`/orders/${orderId}/renders/${renderId}/moderation-email`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   // ------------------------------------------------------------------------
   // In-app notifications
   // ------------------------------------------------------------------------

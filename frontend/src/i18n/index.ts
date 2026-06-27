@@ -259,6 +259,13 @@ const STRINGS = {
     fr: "ENVOYER {n} RENDUS",
     it: "INVIA {n} RENDER",
   },
+  "renders_lib.upload": {
+    en: "UPLOAD",
+    zh: "上传",
+    fr: "AJOUTER",
+    it: "CARICA",
+  },
+
   "cad_lib.title": {
     en: "CAD LIBRARY",
     zh: "CAD 资料库",

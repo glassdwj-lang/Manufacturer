@@ -31,15 +31,22 @@ import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 
 export type ModerationKind = "hold" | "reject";
 
+/** What is being moderated — drives the API endpoint, copy + meta rows. */
+export type ModerationMode = "step" | "render";
+
 export type ModerationTarget = {
   order_id: string;
   order_ref: string;
   jewelry_name: string;
-  step_number: number;
+  /** Step photo only — ignored when mode === "render". */
+  step_number?: number;
   step_title?: string;
   photo_url: string;
   manufacturer_email?: string;
   manufacturer_name?: string;
+  /** Render only — the render's UUID and filename when mode === "render". */
+  render_id?: string;
+  render_name?: string;
 };
 
 /** Build the default email body (recipient sees this verbatim). The HOLD
@@ -47,6 +54,7 @@ export type ModerationTarget = {
  *  carries a 24-hour replacement deadline computed from the local clock. */
 function defaultBody(
   kind: ModerationKind,
+  mode: ModerationMode,
   target: ModerationTarget,
   sentAtLocal: string,
   deadlineLocal: string,
@@ -54,9 +62,16 @@ function defaultBody(
   const nameLine = target.manufacturer_name
     ? `Hi ${target.manufacturer_name},`
     : "Hi,";
-  const stepLine = target.step_title
-    ? `Step ${String(target.step_number).padStart(2, "0")} — ${target.step_title}`
-    : `Step ${String(target.step_number).padStart(2, "0")}`;
+  let stepLine: string;
+  if (mode === "render") {
+    stepLine = target.render_name
+      ? `Render: ${target.render_name}`
+      : "Render upload";
+  } else {
+    stepLine = target.step_title
+      ? `Step ${String(target.step_number ?? 0).padStart(2, "0")} — ${target.step_title}`
+      : `Step ${String(target.step_number ?? 0).padStart(2, "0")}`;
+  }
   const commLine = `Commission: ${target.jewelry_name} (${target.order_ref})`;
 
   if (kind === "hold") {
@@ -96,13 +111,17 @@ Somnio Atelier — Media Review`;
 
 function defaultSubject(
   kind: ModerationKind,
+  mode: ModerationMode,
   target: ModerationTarget,
 ): string {
-  const step = `Step ${String(target.step_number).padStart(2, "0")}`;
+  const tail =
+    mode === "render"
+      ? `Render${target.render_name ? " — " + target.render_name : ""}`
+      : `Step ${String(target.step_number ?? 0).padStart(2, "0")}`;
   if (kind === "reject") {
-    return `REJECTED — replacement required in 24h · ${target.jewelry_name} (${target.order_ref}) · ${step}`;
+    return `REJECTED — replacement required in 24h · ${target.jewelry_name} (${target.order_ref}) · ${tail}`;
   }
-  return `On hold — please redo or re-select · ${target.jewelry_name} (${target.order_ref}) · ${step}`;
+  return `On hold — please redo or re-select · ${target.jewelry_name} (${target.order_ref}) · ${tail}`;
 }
 
 function formatLocal(d: Date): string {
@@ -122,12 +141,16 @@ function formatLocal(d: Date): string {
 export function MediaModerationModal({
   visible,
   kind,
+  mode = "step",
   target,
   onClose,
   onCompleted,
 }: {
   visible: boolean;
   kind: ModerationKind;
+  /** Defaults to "step" for the legacy photo-moderation flow. Pass
+   *  "render" to wire the modal against the renders moderation endpoint. */
+  mode?: ModerationMode;
   target: ModerationTarget | null;
   onClose: () => void;
   /** Called on successful send (after the backend has also performed the
@@ -153,14 +176,14 @@ export function MediaModerationModal({
     const now = new Date();
     setOpenedAt(now);
     setRecipient(target.manufacturer_email || "");
-    setSubject(defaultSubject(kind, target));
+    setSubject(defaultSubject(kind, mode, target));
     const deadline = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     setBody(
-      defaultBody(kind, target, formatLocal(now), formatLocal(deadline)),
+      defaultBody(kind, mode, target, formatLocal(now), formatLocal(deadline)),
     );
     setBusy(false);
     setError(null);
-  }, [visible, kind, target]);
+  }, [visible, kind, mode, target]);
 
   const deadlineLocal = useMemo(
     () => formatLocal(new Date(openedAt.getTime() + 24 * 60 * 60 * 1000)),
@@ -180,22 +203,47 @@ export function MediaModerationModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.sendModerationEmail({
-        order_id: target.order_id,
-        step_number: target.step_number,
-        photo_url: target.photo_url,
-        kind,
-        recipient_email: recipient.trim(),
-        subject: subject.trim() || undefined,
-        message: body.trim() || undefined,
-        also_action: true,
-      });
-      onCompleted({
-        kind,
-        recipient: res.recipient,
-        sent_at: res.sent_at,
-        deadline: res.deadline,
-      });
+      if (mode === "render") {
+        if (!target.render_id) {
+          setError("Render id missing — cannot send.");
+          setBusy(false);
+          return;
+        }
+        const res = await api.sendRenderModerationEmail(
+          target.order_id,
+          target.render_id,
+          {
+            kind,
+            recipient_email: recipient.trim(),
+            subject: subject.trim() || undefined,
+            message: body.trim() || undefined,
+            also_action: true,
+          },
+        );
+        onCompleted({
+          kind,
+          recipient: res.recipient,
+          sent_at: res.sent_at,
+          deadline: res.deadline,
+        });
+      } else {
+        const res = await api.sendModerationEmail({
+          order_id: target.order_id,
+          step_number: target.step_number ?? 0,
+          photo_url: target.photo_url,
+          kind,
+          recipient_email: recipient.trim(),
+          subject: subject.trim() || undefined,
+          message: body.trim() || undefined,
+          also_action: true,
+        });
+        onCompleted({
+          kind,
+          recipient: res.recipient,
+          sent_at: res.sent_at,
+          deadline: res.deadline,
+        });
+      }
     } catch (e: any) {
       console.warn("[moderation-email]", e);
       setError(e?.message || "Failed to send. Try again.");
@@ -294,12 +342,19 @@ export function MediaModerationModal({
               <View style={styles.metaCard}>
                 <MetaRow label="COMMISSION" value={target.order_ref} />
                 <MetaRow label="JEWELRY" value={target.jewelry_name} />
-                <MetaRow
-                  label="STEP"
-                  value={`${String(target.step_number).padStart(2, "0")}${
-                    target.step_title ? " · " + target.step_title : ""
-                  }`}
-                />
+                {mode === "render" ? (
+                  <MetaRow
+                    label="RENDER"
+                    value={target.render_name || "file"}
+                  />
+                ) : (
+                  <MetaRow
+                    label="STEP"
+                    value={`${String(target.step_number ?? 0).padStart(2, "0")}${
+                      target.step_title ? " · " + target.step_title : ""
+                    }`}
+                  />
+                )}
                 <MetaRow label="SENT" value={sentAtLocal} />
                 {isReject && (
                   <MetaRow
