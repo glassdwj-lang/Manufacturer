@@ -18,6 +18,93 @@ from pydantic import BaseModel
 router = APIRouter(tags=["admin"])
 
 
+# -------------------------------------------------------------------------
+# Daily insights — bar chart on the home dashboard
+# -------------------------------------------------------------------------
+@router.get("/admin/insights/daily")
+async def admin_insights_daily(
+    days: int = 30,
+    user=Depends(require_roles("admin", "associate")),
+):
+    """Returns a 30-day (configurable via ``days``) daily volume summary for
+    the home-dashboard bar chart. Each bucket combines three atelier-wide
+    signals into a single stacked bar:
+
+    * ``commissions`` — orders created on that day (uses ``created_at`` UTC)
+    * ``forwarded``   — step forwards to the client (uses ``steps.forwarded_at``
+                        which is stored in China-local ISO)
+    * ``dnas``        — orders where the *final* step (#26) was completed on
+                        that day, i.e. Digital DNA officially ready to issue
+
+    Scope is atelier-wide for both admin and associate viewers — admins see
+    everything; associates do too since the dashboard is meant to give a
+    pulse of the whole studio, not just their own commissions.
+
+    Soft-deleted orders are ignored.
+    """
+    days = max(1, min(int(days or 30), 365))
+    today = datetime.now(timezone.utc).date()
+    window_start = today - timedelta(days=days - 1)
+
+    # Initialise buckets so the response always has `days` rows even if
+    # some days are zero. Keys are ISO date strings (YYYY-MM-DD).
+    buckets: dict[str, dict[str, int]] = {
+        (window_start + timedelta(days=i)).isoformat(): {
+            "commissions": 0,
+            "forwarded": 0,
+            "dnas": 0,
+        }
+        for i in range(days)
+    }
+    start_iso = window_start.isoformat()
+
+    not_deleted = {
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+            {"deleted_at": ""},
+        ]
+    }
+    cursor = db.orders.find(
+        not_deleted, {"_id": 0, "created_at": 1, "steps": 1}
+    )
+    async for o in cursor:
+        ca = (o.get("created_at") or "")[:10]
+        if ca >= start_iso and ca in buckets:
+            buckets[ca]["commissions"] += 1
+        for s in o.get("steps") or []:
+            fa = (s.get("forwarded_at") or "")[:10]
+            if fa and fa in buckets:
+                buckets[fa]["forwarded"] += 1
+            if s.get("step_number") == 26 and s.get("completed"):
+                cc = (s.get("completed_at_china") or s.get("completed_at_utc") or "")[:10]
+                if cc and cc in buckets:
+                    buckets[cc]["dnas"] += 1
+
+    series = [
+        {
+            "date": d,
+            "commissions": v["commissions"],
+            "forwarded": v["forwarded"],
+            "dnas": v["dnas"],
+            "total": v["commissions"] + v["forwarded"] + v["dnas"],
+        }
+        for d, v in sorted(buckets.items())
+    ]
+    totals = {
+        "commissions": sum(b["commissions"] for b in buckets.values()),
+        "forwarded": sum(b["forwarded"] for b in buckets.values()),
+        "dnas": sum(b["dnas"] for b in buckets.values()),
+    }
+    return {
+        "days": days,
+        "start": series[0]["date"] if series else None,
+        "end": series[-1]["date"] if series else None,
+        "series": series,
+        "totals": totals,
+    }
+
+
 # ---- Test translation (admin debug, exercises the Claude integration) ----
 class TestTranslateBody(BaseModel):
     text: str

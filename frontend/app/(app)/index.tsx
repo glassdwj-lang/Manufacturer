@@ -21,6 +21,7 @@ import { confirmAction } from "@/src/utils/confirm";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { DateField } from "@/src/components/DateField";
+import { HomeDailyChart } from "@/src/components/HomeDailyChart";
 import { useI18n } from "@/src/i18n";
 
 export default function HomeScreen() {
@@ -534,6 +535,9 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
       )}
+
+      {/* Daily activity chart — commissions/forward/DNA pulse for staff. */}
+      {showFilters && <HomeDailyChart />}
 
       {showFilters && filtersOpen && (
         <View style={styles.filterPanel}>

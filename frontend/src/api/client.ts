@@ -250,6 +250,21 @@ export const api = {
       igi: number;
       renders: number;
     }>(`/admin/pending-counts`),
+  // Daily commission activity for the home-dashboard bar chart.
+  adminInsightsDaily: (days = 30) =>
+    request<{
+      days: number;
+      start: string | null;
+      end: string | null;
+      series: Array<{
+        date: string;
+        commissions: number;
+        forwarded: number;
+        dnas: number;
+        total: number;
+      }>;
+      totals: { commissions: number; forwarded: number; dnas: number };
+    }>(`/admin/insights/daily?days=${days}`),
   listRecycledPhotos: () => request<any>(`/photos/recycled`, { method: "GET" }),
   approvePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
     request<any>(`/photos/approve`, { method: "POST", body: JSON.stringify(body) }),

@@ -103,6 +103,36 @@ const STRINGS = {
     fr: "Tableau de bord",
     it: "Dashboard",
   },
+  "home.chart.eyebrow": {
+    en: "ATELIER · PULSE",
+    zh: "工作室 · 动态",
+    fr: "ATELIER · PULSATIONS",
+    it: "ATELIER · PULSO",
+  },
+  "home.chart.title": {
+    en: "LAST {n} DAYS",
+    zh: "最近 {n} 天",
+    fr: "{n} DERNIERS JOURS",
+    it: "ULTIMI {n} GIORNI",
+  },
+  "home.chart.legend.commissions": {
+    en: "New commissions",
+    zh: "新建委托",
+    fr: "Nouvelles commandes",
+    it: "Nuove commissioni",
+  },
+  "home.chart.legend.forwarded": {
+    en: "Steps forwarded",
+    zh: "已转交步骤",
+    fr: "Étapes transmises",
+    it: "Fasi inoltrate",
+  },
+  "home.chart.legend.dnas": {
+    en: "Digital DNAs ready",
+    zh: "数字 DNA 完成",
+    fr: "ADN numériques prêts",
+    it: "DNA digitali pronti",
+  },
   "home.link.activity_log": {
     en: "Activity Log",
     zh: "活动日志",
