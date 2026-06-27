@@ -507,28 +507,19 @@ export const api = {
   // ---- Admin CAD Library (cross-order) ------------------------------------
   adminListAllCadFiles: (params?: {
     manufacturer_id?: string | null;
+    client_id?: string | null;
     q?: string | null;
     date_from?: string | null;
     date_to?: string | null;
   }) => {
     const qs = new URLSearchParams();
     if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.client_id) qs.set("client_id", params.client_id);
     if (params?.q) qs.set("q", params.q);
     if (params?.date_from) qs.set("date_from", params.date_from);
     if (params?.date_to) qs.set("date_to", params.date_to);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return request<
-      (CadFile & {
-        order_id: string;
-        order_ref: string | null;
-        jewelry_name: string | null;
-        manufacturer_id: string | null;
-        manufacturer_name: string | null;
-        manufacturer_alias: string | null;
-        client_id: string | null;
-        client_name: string | null;
-      })[]
-    >(`/admin/cad-files${suffix}`);
+    return request<DocLibraryRow[]>(`/admin/cad-files${suffix}`);
   },
   adminEmailCrossOrderCadFiles: (payload: {
     recipients: string[];
@@ -552,28 +543,24 @@ export const api = {
   // `cad_renderer_id` (the vendor) instead of `manufacturer_id`.
   adminListAllRenders: (params?: {
     cad_renderer_id?: string | null;
+    manufacturer_id?: string | null;
+    client_id?: string | null;
     q?: string | null;
     date_from?: string | null;
     date_to?: string | null;
   }) => {
     const qs = new URLSearchParams();
     if (params?.cad_renderer_id) qs.set("cad_renderer_id", params.cad_renderer_id);
+    if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.client_id) qs.set("client_id", params.client_id);
     if (params?.q) qs.set("q", params.q);
     if (params?.date_from) qs.set("date_from", params.date_from);
     if (params?.date_to) qs.set("date_to", params.date_to);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return request<
-      (CadFile & {
-        order_id: string;
-        order_ref: string | null;
-        jewelry_name: string | null;
-        manufacturer_id: string | null;
-        manufacturer_name: string | null;
-        manufacturer_alias: string | null;
+      (DocLibraryRow & {
         cad_renderer_id: string | null;
         cad_renderer_name: string | null;
-        client_id: string | null;
-        client_name: string | null;
       })[]
     >(`/admin/renders${suffix}`);
   },
@@ -600,12 +587,14 @@ export const api = {
   // shape with the parent commission context folded in.
   adminListAllIgiCertificates: (params?: {
     manufacturer_id?: string | null;
+    client_id?: string | null;
     q?: string | null;
     date_from?: string | null;
     date_to?: string | null;
   }) => {
     const qs = new URLSearchParams();
     if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.client_id) qs.set("client_id", params.client_id);
     if (params?.q) qs.set("q", params.q);
     if (params?.date_from) qs.set("date_from", params.date_from);
     if (params?.date_to) qs.set("date_to", params.date_to);
@@ -619,12 +608,14 @@ export const api = {
     }),
   adminListAllAirwayBillFiles: (params?: {
     manufacturer_id?: string | null;
+    client_id?: string | null;
     q?: string | null;
     date_from?: string | null;
     date_to?: string | null;
   }) => {
     const qs = new URLSearchParams();
     if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.client_id) qs.set("client_id", params.client_id);
     if (params?.q) qs.set("q", params.q);
     if (params?.date_from) qs.set("date_from", params.date_from);
     if (params?.date_to) qs.set("date_to", params.date_to);
@@ -638,12 +629,14 @@ export const api = {
     }),
   adminListAllCustomsFiles: (params?: {
     manufacturer_id?: string | null;
+    client_id?: string | null;
     q?: string | null;
     date_from?: string | null;
     date_to?: string | null;
   }) => {
     const qs = new URLSearchParams();
     if (params?.manufacturer_id) qs.set("manufacturer_id", params.manufacturer_id);
+    if (params?.client_id) qs.set("client_id", params.client_id);
     if (params?.q) qs.set("q", params.q);
     if (params?.date_from) qs.set("date_from", params.date_from);
     if (params?.date_to) qs.set("date_to", params.date_to);

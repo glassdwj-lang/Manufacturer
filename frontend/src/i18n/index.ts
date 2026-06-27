@@ -337,6 +337,55 @@ const STRINGS = {
     fr: "OUVRIR",
     it: "APRI",
   },
+  // ---- Shared library copy (dropdowns + date presets) -------------------
+  "lib.all_workshops": {
+    en: "All workshops",
+    zh: "所有工坊",
+    fr: "Tous les ateliers",
+    it: "Tutti i laboratori",
+  },
+  "lib.all_studios": {
+    en: "All studios",
+    zh: "所有工作室",
+    fr: "Tous les studios",
+    it: "Tutti gli studi",
+  },
+  "lib.all_clients": {
+    en: "All clients",
+    zh: "所有客户",
+    fr: "Tous les clients",
+    it: "Tutti i clienti",
+  },
+  "lib.daily_report": {
+    en: "DAILY REPORT",
+    zh: "每日报告",
+    fr: "RAPPORT QUOTIDIEN",
+    it: "REPORT GIORNALIERO",
+  },
+  "lib.preset_day": {
+    en: "DAY",
+    zh: "日",
+    fr: "JOUR",
+    it: "GIORNO",
+  },
+  "lib.preset_week": {
+    en: "WEEK",
+    zh: "周",
+    fr: "SEMAINE",
+    it: "SETTIMANA",
+  },
+  "lib.preset_month": {
+    en: "MONTH",
+    zh: "月",
+    fr: "MOIS",
+    it: "MESE",
+  },
+  "lib.preset_custom": {
+    en: "CUSTOM",
+    zh: "自定义",
+    fr: "PERSO.",
+    it: "PERSON.",
+  },
   // ---- Admin · IGI / Airway / Customs cross-order libraries -------------
   "home.link.igi_library": {
     en: "IGI LIBRARY",

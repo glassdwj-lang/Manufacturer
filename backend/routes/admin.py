@@ -583,6 +583,7 @@ async def seed_extended():
 async def admin_list_all_cad_files(
     user=Depends(require_roles("admin")),
     manufacturer_id: str | None = None,
+    client_id: str | None = None,
     q: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -593,6 +594,7 @@ async def admin_list_all_cad_files(
 
     Filters (all optional):
     * ``manufacturer_id`` — only files from the named workshop
+    * ``client_id``       — only files for the named client (orthogonal axis)
     * ``q``               — case-insensitive substring against file name OR
                             jewelry name OR order ref
     * ``date_from`` /
@@ -609,6 +611,8 @@ async def admin_list_all_cad_files(
     query: dict = {"$and": [not_deleted, {"cad_files": {"$exists": True, "$ne": []}}]}
     if manufacturer_id:
         query["$and"].append({"manufacturer_id": manufacturer_id})
+    if client_id:
+        query["$and"].append({"client_id": client_id})
 
     rows: list[dict] = []
     needle = (q or "").strip().lower()
@@ -770,6 +774,8 @@ async def admin_email_cross_order_cad_files(
 async def admin_list_all_renders(
     user=Depends(require_roles("admin")),
     cad_renderer_id: str | None = None,
+    manufacturer_id: str | None = None,
+    client_id: str | None = None,
     q: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -781,6 +787,8 @@ async def admin_list_all_renders(
 
     Filters (all optional):
     * ``cad_renderer_id`` — narrow to a specific CAD/Render vendor
+    * ``manufacturer_id`` — narrow to a specific workshop (orthogonal axis)
+    * ``client_id``       — narrow to a specific client (orthogonal axis)
     * ``q``               — case-insensitive substring against render name,
                             jewelry name or order ref
     * ``date_from`` /
@@ -796,6 +804,10 @@ async def admin_list_all_renders(
     query: dict = {"$and": [not_deleted, {"renders": {"$exists": True, "$ne": []}}]}
     if cad_renderer_id:
         query["$and"].append({"cad_renderer_id": cad_renderer_id})
+    if manufacturer_id:
+        query["$and"].append({"manufacturer_id": manufacturer_id})
+    if client_id:
+        query["$and"].append({"client_id": client_id})
 
     rows: list[dict] = []
     needle = (q or "").strip().lower()
@@ -954,6 +966,7 @@ async def _list_cross_order_doc_files(
     *,
     field_path: tuple[str, ...],
     manufacturer_id: str | None,
+    client_id: str | None,
     q: str | None,
     date_from: str | None,
     date_to: str | None,
@@ -962,9 +975,9 @@ async def _list_cross_order_doc_files(
     ``field_path`` (e.g. ``("igi_certificates",)`` or
     ``("customs", "airway_bill_files")``).
 
-    Same filter semantics as ``admin_list_all_cad_files``: workshop, free-text
-    against (jewelry_name | order_ref | file name), and an inclusive
-    ``uploaded_at`` date window.
+    Same filter semantics as ``admin_list_all_cad_files``: workshop, client,
+    free-text against (jewelry_name | order_ref | file name), and an
+    inclusive ``uploaded_at`` date window.
     """
     not_deleted = {
         "$or": [
@@ -976,6 +989,8 @@ async def _list_cross_order_doc_files(
     query: dict = {"$and": [not_deleted]}
     if manufacturer_id:
         query["$and"].append({"manufacturer_id": manufacturer_id})
+    if client_id:
+        query["$and"].append({"client_id": client_id})
 
     needle = (q or "").strip().lower()
     df = (date_from or "").strip()
@@ -1035,6 +1050,7 @@ async def _list_cross_order_doc_files(
 async def admin_list_all_igi_certificates(
     user=Depends(require_roles("admin")),
     manufacturer_id: str | None = None,
+    client_id: str | None = None,
     q: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -1044,6 +1060,7 @@ async def admin_list_all_igi_certificates(
     return await _list_cross_order_doc_files(
         field_path=("igi_certificates",),
         manufacturer_id=manufacturer_id,
+        client_id=client_id,
         q=q,
         date_from=date_from,
         date_to=date_to,
@@ -1054,6 +1071,7 @@ async def admin_list_all_igi_certificates(
 async def admin_list_all_airway_bill_files(
     user=Depends(require_roles("admin")),
     manufacturer_id: str | None = None,
+    client_id: str | None = None,
     q: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -1063,6 +1081,7 @@ async def admin_list_all_airway_bill_files(
     return await _list_cross_order_doc_files(
         field_path=("customs", "airway_bill_files"),
         manufacturer_id=manufacturer_id,
+        client_id=client_id,
         q=q,
         date_from=date_from,
         date_to=date_to,
@@ -1073,6 +1092,7 @@ async def admin_list_all_airway_bill_files(
 async def admin_list_all_customs_files(
     user=Depends(require_roles("admin")),
     manufacturer_id: str | None = None,
+    client_id: str | None = None,
     q: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -1082,6 +1102,7 @@ async def admin_list_all_customs_files(
     return await _list_cross_order_doc_files(
         field_path=("customs", "customs_files"),
         manufacturer_id=manufacturer_id,
+        client_id=client_id,
         q=q,
         date_from=date_from,
         date_to=date_to,

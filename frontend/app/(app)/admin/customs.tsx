@@ -1,7 +1,5 @@
 /**
  * Admin · Cross-Order Customs Library
- *
- * Thin wrapper around the shared `CrossOrderLibrary` shell.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -11,11 +9,19 @@ const config: LibraryConfig = {
   slug: "customs-library",
   kind: "customs",
   icon: "document-text-outline",
-  chipRole: "manufacturer",
+  primary: {
+    role: "manufacturer",
+    placeholderKey: "lib.all_workshops",
+    icon: "business-outline",
+  },
+  secondary: {
+    role: "client",
+    placeholderKey: "lib.all_clients",
+    icon: "person-outline",
+  },
   copy: {
     eyebrow: "customs_lib.eyebrow",
     title: "customs_lib.title",
-    allChip: "cad_lib.all_workshops",
     searchPlaceholder: "customs_lib.search_placeholder",
     empty: "customs_lib.empty",
     emptyHint: "customs_lib.empty_hint",
@@ -25,8 +31,14 @@ const config: LibraryConfig = {
     emailCtaPlural: "customs_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: ({ chipId, q }) =>
-    api.adminListAllCustomsFiles({ manufacturer_id: chipId, q }),
+  fetchRows: ({ primaryId, secondaryId, q, date_from, date_to }) =>
+    api.adminListAllCustomsFiles({
+      manufacturer_id: primaryId,
+      client_id: secondaryId,
+      q,
+      date_from,
+      date_to,
+    }),
   sendEmail: (payload) => api.adminEmailCrossOrderCustoms(payload),
 };
 

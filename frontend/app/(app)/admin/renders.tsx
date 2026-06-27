@@ -1,10 +1,8 @@
 /**
  * Admin · Cross-Order Renders Library
  *
- * Was previously a ~620-line bespoke implementation. Refactored onto the
- * shared `CrossOrderLibrary` shell. The one twist vs CAD/IGI/Airway/
- * Customs is that the chip rail filters by `cad_renderer` role (the
- * external render studios), not by manufacturer workshops.
+ * Primary filter: CAD/render studio (cad_renderer role).
+ * Secondary filter: workshop (manufacturer) for cross-axis filtering.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -14,11 +12,19 @@ const config: LibraryConfig = {
   slug: "renders-library",
   kind: "cad",
   icon: "images-outline",
-  chipRole: "cad_renderer",
+  primary: {
+    role: "cad_renderer",
+    placeholderKey: "lib.all_studios",
+    icon: "images-outline",
+  },
+  secondary: {
+    role: "manufacturer",
+    placeholderKey: "lib.all_workshops",
+    icon: "business-outline",
+  },
   copy: {
     eyebrow: "renders_lib.eyebrow",
     title: "renders_lib.title",
-    allChip: "renders_lib.all_studios",
     searchPlaceholder: "renders_lib.search_placeholder",
     empty: "renders_lib.empty",
     emptyHint: "renders_lib.empty_hint",
@@ -28,8 +34,14 @@ const config: LibraryConfig = {
     emailCtaPlural: "renders_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: ({ chipId, q }) =>
-    api.adminListAllRenders({ cad_renderer_id: chipId, q }),
+  fetchRows: ({ primaryId, secondaryId, q, date_from, date_to }) =>
+    api.adminListAllRenders({
+      cad_renderer_id: primaryId,
+      manufacturer_id: secondaryId,
+      q,
+      date_from,
+      date_to,
+    }),
   sendEmail: (payload) => api.adminEmailCrossOrderRenders(payload),
 };
 

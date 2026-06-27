@@ -1,7 +1,5 @@
 /**
  * Admin · Cross-Order Airway Bill Library
- *
- * Thin wrapper around the shared `CrossOrderLibrary` shell.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -11,11 +9,19 @@ const config: LibraryConfig = {
   slug: "airway-library",
   kind: "airway_bill",
   icon: "airplane-outline",
-  chipRole: "manufacturer",
+  primary: {
+    role: "manufacturer",
+    placeholderKey: "lib.all_workshops",
+    icon: "business-outline",
+  },
+  secondary: {
+    role: "client",
+    placeholderKey: "lib.all_clients",
+    icon: "person-outline",
+  },
   copy: {
     eyebrow: "airway_lib.eyebrow",
     title: "airway_lib.title",
-    allChip: "cad_lib.all_workshops",
     searchPlaceholder: "airway_lib.search_placeholder",
     empty: "airway_lib.empty",
     emptyHint: "airway_lib.empty_hint",
@@ -25,8 +31,14 @@ const config: LibraryConfig = {
     emailCtaPlural: "airway_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: ({ chipId, q }) =>
-    api.adminListAllAirwayBillFiles({ manufacturer_id: chipId, q }),
+  fetchRows: ({ primaryId, secondaryId, q, date_from, date_to }) =>
+    api.adminListAllAirwayBillFiles({
+      manufacturer_id: primaryId,
+      client_id: secondaryId,
+      q,
+      date_from,
+      date_to,
+    }),
   sendEmail: (payload) => api.adminEmailCrossOrderAirwayBills(payload),
 };
 

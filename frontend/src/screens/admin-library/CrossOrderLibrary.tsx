@@ -1,16 +1,25 @@
 /**
  * Generic cross-order document library shell.
  *
- * Powers three admin-only screens that all share the same UX:
- *   - IGI Certificates library      (kind = "igi")
- *   - Airway Bill library           (kind = "airway_bill")
- *   - Customs library               (kind = "customs")
+ * Powers five admin-only screens that all share the same UX:
+ *   - CAD Library                   (kind = "cad", primary = workshop)
+ *   - Renders Library               (kind = "cad", primary = render studio)
+ *   - IGI Certificates Library      (kind = "igi", primary = workshop)
+ *   - Airway Bill Library           (kind = "airway_bill", primary = workshop)
+ *   - Customs Library               (kind = "customs", primary = workshop)
  *
- * The original CAD/Renders libraries were each ~600-line single-page
- * implementations. This component captures their entire surface
- * (workshop filter chips, debounced search, grouped list by commission,
- * multi-select + bulk email via EmailFilesModal) behind a single
- * `LibraryConfig` object so adding a fourth kind is a 30-line page wrapper.
+ * Filter UI (Daily-Report inspired):
+ *   ┌──────────────────────────────┬──────────────────────────────┐
+ *   │ PRIMARY DROPDOWN             │ SECONDARY DROPDOWN           │
+ *   │ (workshop OR studio)         │ (client OR workshop)         │
+ *   └──────────────────────────────┴──────────────────────────────┘
+ *   ┌──────────────────────────────────────────────────────────────┐
+ *   │ DAILY REPORT │ DAY │ WEEK │ MONTH │ CUSTOM                   │
+ *   └──────────────────────────────────────────────────────────────┘
+ *
+ * Plus a debounced free-text search input, multi-select rows, and a
+ * sticky bottom CTA that opens the shared `EmailFilesModal` for bulk
+ * cross-order email.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -18,7 +27,6 @@ import {
   FlatList,
   Linking,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -43,6 +51,25 @@ import { EmailFilesModal, EmailKind } from "@/src/components/EmailFilesModal";
 import { notify } from "@/src/utils/confirm";
 import { useI18n } from "@/src/i18n";
 
+import { LibraryDropdown } from "./LibraryDropdown";
+import {
+  DateRangePresets,
+  DateRangeValue,
+  EMPTY_DATE_RANGE,
+} from "./DateRangePresets";
+
+/** Roles that can populate a filter dropdown. */
+type FilterRole = "manufacturer" | "cad_renderer" | "client" | "associate";
+
+/** Shared shape used by both primary and secondary dropdowns. */
+export type FilterSpec = {
+  role: FilterRole;
+  /** i18n key for the empty-state placeholder ("All workshops" etc.). */
+  placeholderKey: string;
+  /** Ionicon shown inside the touchable. */
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
 export type LibraryConfig = {
   /** Stable slug used for testIDs (e.g. "igi-library", "airway-library"). */
   slug: string;
@@ -50,20 +77,14 @@ export type LibraryConfig = {
   kind: EmailKind;
   /** Lucide/Ionicon name shown next to the title. */
   icon: keyof typeof Ionicons.glyphMap;
-  /**
-   * Which user role powers the filter chip rail. For CAD/IGI/airway/customs
-   * this is `"manufacturer"`; for the renders library it's `"cad_renderer"`.
-   */
-  chipRole: "manufacturer" | "cad_renderer";
-  /** i18n keys for all copy. Each must already be added to /src/i18n/index.ts. */
+  /** Primary filter (always present — workshop or studio). */
+  primary: FilterSpec;
+  /** Optional secondary axis — client (for cad/igi/airway/customs) or
+   *  workshop (for renders). Pass `null` to hide. */
+  secondary: FilterSpec | null;
   copy: {
     eyebrow: string;
     title: string;
-    /**
-     * Chip "all" label key. Use `cad_lib.all_workshops` for manufacturer-
-     * scoped libraries and `renders_lib.all_studios` for renderer-scoped.
-     */
-    allChip: string;
     searchPlaceholder: string;
     empty: string;
     emptyHint: string;
@@ -73,15 +94,14 @@ export type LibraryConfig = {
     emailCtaPlural: string;
     open: string;
   };
-  /**
-   * Cross-order list fetcher. Receives `chipId` (whichever workshop or
-   * studio is selected, null = all) + the debounced search needle.
-   */
+  /** Cross-order list fetcher. */
   fetchRows: (params: {
-    chipId?: string | null;
+    primaryId?: string | null;
+    secondaryId?: string | null;
     q?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
   }) => Promise<DocLibraryRow[]>;
-  /** Cross-order bulk-email sender. */
   sendEmail: (payload: DocLibraryEmailPayload) => Promise<DocLibraryEmailResponse>;
 };
 
@@ -100,7 +120,6 @@ function extOf(name: string, format?: string | null): string {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "?";
 }
-
 function formatBytes(b?: number | null): string {
   if (b == null) return "—";
   if (b < 1024) return `${b} B`;
@@ -108,7 +127,6 @@ function formatBytes(b?: number | null): string {
   if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
   return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
-
 function formatWhen(iso?: string | null): string {
   if (!iso) return "";
   try {
@@ -122,18 +140,30 @@ function formatWhen(iso?: string | null): string {
   }
 }
 
+/** Build a flat dropdown option list out of a User[] from the API. */
+function toOptions(users: User[]) {
+  return users.map((u) => ({
+    id: u.id,
+    label: u.alias || u.name || u.email,
+    sublabel: u.email,
+  }));
+}
+
 export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
   const { copy, slug, kind, icon } = config;
   const router = useRouter();
   const safeBack = useSafeBack();
   const { t } = useI18n();
 
-  const [workshops, setWorkshops] = useState<User[]>([]);
+  const [primaryUsers, setPrimaryUsers] = useState<User[]>([]);
+  const [secondaryUsers, setSecondaryUsers] = useState<User[]>([]);
   const [rows, setRows] = useState<DocLibraryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [chipId, setChipId] = useState<string | null>(null);
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+  const [secondaryId, setSecondaryId] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeValue>(EMPTY_DATE_RANGE);
   const [searchInput, setSearchInput] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
 
@@ -141,19 +171,48 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
   const [emailOpen, setEmailOpen] = useState(false);
 
   // ---- Data loading -------------------------------------------------------
-  const loadWorkshops = useCallback(async () => {
-    try {
-      setWorkshops(await api.listUsers(config.chipRole));
-    } catch (e) {
-      console.warn(`[${slug}] load chip options:`, e);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.listUsers(config.primary.role);
+        if (!cancelled) setPrimaryUsers(list);
+      } catch (e) {
+        console.warn(`[${slug}] load primary users:`, e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.primary.role, slug]);
+
+  useEffect(() => {
+    if (!config.secondary) {
+      setSecondaryUsers([]);
+      return;
     }
-  }, [slug, config.chipRole]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.listUsers(config.secondary!.role);
+        if (!cancelled) setSecondaryUsers(list);
+      } catch (e) {
+        console.warn(`[${slug}] load secondary users:`, e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.secondary, slug]);
 
   const loadRows = useCallback(async () => {
     try {
       const list = await config.fetchRows({
-        chipId: chipId,
+        primaryId,
+        secondaryId,
         q: searchDebounced || null,
+        date_from: dateRange.date_from || null,
+        date_to: dateRange.date_to || null,
       });
       setRows(list);
     } catch (e: any) {
@@ -163,11 +222,7 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [config, chipId, searchDebounced, slug]);
-
-  useEffect(() => {
-    loadWorkshops();
-  }, [loadWorkshops]);
+  }, [config, primaryId, secondaryId, searchDebounced, dateRange, slug]);
 
   useEffect(() => {
     setLoading(true);
@@ -231,6 +286,14 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
     [rows, selectedIds],
   );
 
+  const selectedCount = selectedIds.size;
+
+  const primaryOptions = useMemo(() => toOptions(primaryUsers), [primaryUsers]);
+  const secondaryOptions = useMemo(
+    () => toOptions(secondaryUsers),
+    [secondaryUsers],
+  );
+
   // ---- Render -------------------------------------------------------------
   const renderItem = ({ item }: { item: ListItem }) => {
     if (item.kind === "header") {
@@ -292,8 +355,6 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
     );
   };
 
-  const selectedCount = selectedIds.size;
-
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <BrandStrip />
@@ -319,43 +380,42 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
         )}
       </View>
 
-      {/* Workshop filter chips */}
-      <View style={styles.chipsWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsRow}
-        >
-          <TouchableOpacity
-            testID={`${slug}-chip-all`}
-            onPress={() => setChipId(null)}
-            style={[styles.chip, chipId == null && styles.chipSel]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                chipId == null && styles.chipTextSel,
-              ]}
-            >
-              {t(copy.allChip as any)}
-            </Text>
-          </TouchableOpacity>
-          {workshops.map((w) => {
-            const sel = chipId === w.id;
-            return (
-              <TouchableOpacity
-                key={w.id}
-                testID={`${slug}-chip-${w.id}`}
-                onPress={() => setChipId(w.id)}
-                style={[styles.chip, sel && styles.chipSel]}
-              >
-                <Text style={[styles.chipText, sel && styles.chipTextSel]}>
-                  {(w.alias || w.name || "").toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+      {/* Filter strip: primary + secondary dropdowns */}
+      <View style={styles.filterStrip}>
+        <View style={styles.dropdownsRow}>
+          <LibraryDropdown
+            testID={`${slug}-primary`}
+            icon={config.primary.icon}
+            placeholder={t(config.primary.placeholderKey as any)}
+            allLabel={t(config.primary.placeholderKey as any)}
+            options={primaryOptions}
+            selectedId={primaryId}
+            onChange={setPrimaryId}
+          />
+          {config.secondary && (
+            <LibraryDropdown
+              testID={`${slug}-secondary`}
+              icon={config.secondary.icon}
+              placeholder={t(config.secondary.placeholderKey as any)}
+              allLabel={t(config.secondary.placeholderKey as any)}
+              options={secondaryOptions}
+              selectedId={secondaryId}
+              onChange={setSecondaryId}
+            />
+          )}
+        </View>
+        <DateRangePresets
+          testID={`${slug}-daterange`}
+          value={dateRange}
+          onChange={setDateRange}
+          labels={{
+            daily_report: t("lib.daily_report" as any),
+            day: t("lib.preset_day" as any),
+            week: t("lib.preset_week" as any),
+            month: t("lib.preset_month" as any),
+            custom: t("lib.preset_custom" as any),
+          }}
+        />
       </View>
 
       {/* Search */}
@@ -505,34 +565,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
   },
-  chipsWrap: {
-    height: 52,
+  filterStrip: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderSubtle,
-  },
-  chipsRow: {
-    paddingHorizontal: spacing.lg,
-    alignItems: "center",
     gap: spacing.sm,
   },
-  chip: {
-    height: 32,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+  dropdownsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
   },
-  chipSel: { borderColor: theme.primary },
-  chipText: { color: theme.textSecondary, fontSize: 10, letterSpacing: 2 },
-  chipTextSel: { color: theme.primary },
   searchWrap: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderSubtle,
   },

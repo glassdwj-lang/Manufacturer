@@ -1,11 +1,8 @@
 /**
  * Admin · Cross-Order CAD Library
  *
- * Was previously a ~620-line bespoke implementation. Refactored onto the
- * shared `CrossOrderLibrary` shell along with the IGI/Airway/Customs
- * libraries. Behaviour preserved: workshop chip filter, debounced search,
- * grouped list per commission, multi-select + bulk email via
- * `EmailFilesModal`.
+ * Primary filter: workshop (manufacturer).
+ * Secondary filter: client.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -15,11 +12,19 @@ const config: LibraryConfig = {
   slug: "cad-library",
   kind: "cad",
   icon: "cube-outline",
-  chipRole: "manufacturer",
+  primary: {
+    role: "manufacturer",
+    placeholderKey: "lib.all_workshops",
+    icon: "business-outline",
+  },
+  secondary: {
+    role: "client",
+    placeholderKey: "lib.all_clients",
+    icon: "person-outline",
+  },
   copy: {
     eyebrow: "cad_lib.eyebrow",
     title: "cad_lib.title",
-    allChip: "cad_lib.all_workshops",
     searchPlaceholder: "cad_lib.search_placeholder",
     empty: "cad_lib.empty",
     emptyHint: "cad_lib.empty_hint",
@@ -29,8 +34,14 @@ const config: LibraryConfig = {
     emailCtaPlural: "cad_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: ({ chipId, q }) =>
-    api.adminListAllCadFiles({ manufacturer_id: chipId, q }),
+  fetchRows: ({ primaryId, secondaryId, q, date_from, date_to }) =>
+    api.adminListAllCadFiles({
+      manufacturer_id: primaryId,
+      client_id: secondaryId,
+      q,
+      date_from,
+      date_to,
+    }),
   sendEmail: (payload) => api.adminEmailCrossOrderCadFiles(payload),
 };
 
