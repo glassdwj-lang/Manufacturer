@@ -346,7 +346,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/approvals")}
           >
             <Ionicons name="shield-checkmark-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>MEDIA APPROVALS</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.media_approvals")}</Text>
             {approvalsCount > 0 && (
               <View style={styles.approvalsBadge}>
                 <Text style={styles.approvalsBadgeText}>{approvalsCount}</Text>
@@ -382,7 +382,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/approvals")}
           >
             <Ionicons name="shield-checkmark-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>MEDIA APPROVALS</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.media_approvals")}</Text>
             {approvalsCount > 0 && (
               <View style={styles.approvalsBadge}>
                 <Text style={styles.approvalsBadgeText}>{approvalsCount}</Text>
@@ -405,7 +405,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/dashboard")}
           >
             <Ionicons name="stats-chart-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>Dashboard</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.dashboard")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -423,7 +423,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/(app)/activity-log")}
           >
             <Ionicons name="document-text-outline" size={16} color={theme.primary} />
-            <Text style={styles.linkBtnText}>Activity Log</Text>
+            <Text style={styles.linkBtnText}>{t("home.link.activity_log")}</Text>
             <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -474,7 +474,7 @@ export default function HomeScreen() {
                   activeFilterCount > 0 && { color: theme.primary },
                 ]}
               >
-                FILTERS
+                {t("home.filters.label")}
               </Text>
               {activeFilterCount > 0 && (
                 <View style={styles.filterCount}>

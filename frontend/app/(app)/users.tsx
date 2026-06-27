@@ -12,19 +12,21 @@ import { theme, spacing, ROLE_LABELS } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { useI18n } from "@/src/i18n";
 
-const ROLE_FILTERS: { key: string; label: string }[] = [
-  { key: "manufacturer", label: "WORKSHOPS" },
-  { key: "cad_renderer", label: "CAD & RENDERS" },
-  { key: "associate", label: "ASSOCIATES" },
-  { key: "client", label: "CLIENTS" },
-  { key: "admin", label: "ATELIER" },
+const ROLE_FILTERS: { key: string; labelKey: any }[] = [
+  { key: "manufacturer", labelKey: "users.tab.workshops" },
+  { key: "cad_renderer", labelKey: "users.tab.cad_renders" },
+  { key: "associate", labelKey: "users.tab.associates" },
+  { key: "client", labelKey: "users.tab.clients" },
+  { key: "admin", labelKey: "users.tab.atelier" },
 ];
 
 export default function UsersScreen() {
   const router = useRouter();
   const safeBack = useSafeBack();
   const { user: me } = useAuth();
+  const { t } = useI18n();
   const [users, setUsers] = useState<User[]>([]);
   const [filter, setFilter] = useState("manufacturer");
   const [loading, setLoading] = useState(true);
@@ -164,7 +166,7 @@ export default function UsersScreen() {
                 onPress={() => setFilter(f.key)}
                 style={[styles.chip, isSel && styles.chipSel]}
               >
-                <Text style={[styles.chipText, isSel && styles.chipTextSel]}>{f.label}</Text>
+                <Text style={[styles.chipText, isSel && styles.chipTextSel]}>{t(f.labelKey)}</Text>
               </TouchableOpacity>
             );
           })}

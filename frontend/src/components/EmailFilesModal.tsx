@@ -40,6 +40,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api, CadFile, User } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { notify } from "@/src/utils/confirm";
+import { useI18n } from "@/src/i18n";
 
 /** Minimum file shape needed by the modal. Compatible with `CadFile`,
  *  `CustomsFile`, and any other Cloudinary-backed record. */
@@ -68,26 +69,26 @@ export type EmailSendResult = {
   provider_id: string | null;
 };
 
-const KIND_LABELS: Record<EmailKind, { title: string; noun: string; subjectPrefix: string }> = {
+const KIND_LABELS: Record<EmailKind, { titleKey: any; nounKey: any; subjectPrefixKey: any }> = {
   cad: {
-    title: "EMAIL CAD FILES",
-    noun: "CAD file",
-    subjectPrefix: "CAD files",
+    titleKey: "email.title.cad",
+    nounKey: "email.noun.cad",
+    subjectPrefixKey: "email.subject_prefix.cad",
   },
   igi: {
-    title: "EMAIL IGI CERTIFICATES",
-    noun: "certificate",
-    subjectPrefix: "IGI certificates",
+    titleKey: "email.title.igi",
+    nounKey: "email.noun.igi",
+    subjectPrefixKey: "email.subject_prefix.igi",
   },
   customs: {
-    title: "EMAIL CUSTOMS DOCS",
-    noun: "customs file",
-    subjectPrefix: "Customs documents",
+    titleKey: "email.title.customs",
+    nounKey: "email.noun.customs",
+    subjectPrefixKey: "email.subject_prefix.customs",
   },
   airway_bill: {
-    title: "EMAIL AIRWAY BILL",
-    noun: "airway-bill file",
-    subjectPrefix: "Airway bill",
+    titleKey: "email.title.airway_bill",
+    nounKey: "email.noun.airway_bill",
+    subjectPrefixKey: "email.subject_prefix.airway_bill",
   },
 };
 
@@ -117,6 +118,7 @@ export function EmailFilesModal({
   onClose,
   onSent,
 }: EmailFilesModalProps) {
+  const { t } = useI18n();
   const [recipients, setRecipients] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [subject, setSubject] = useState("");
@@ -130,6 +132,8 @@ export function EmailFilesModal({
   const [directoryQuery, setDirectoryQuery] = useState("");
 
   const labels = KIND_LABELS[kind];
+  const nounText = t(labels.nounKey);
+  const subjectPrefixText = t(labels.subjectPrefixKey);
 
   // Reset state every time the sheet opens so a previous send doesn't
   // leak into the next.
@@ -199,18 +203,16 @@ export function EmailFilesModal({
 
   const allSelected = selectedIds.size === files.length && files.length > 0;
   const subjectPlaceholder = useMemo(() => {
-    if (jewelryName) return `${labels.subjectPrefix} — ${jewelryName}`;
-    return `Optional subject (defaults to ${labels.subjectPrefix} for commission)`;
-  }, [jewelryName, labels.subjectPrefix]);
+    if (jewelryName)
+      return t("email.subject.placeholder_with_jewel", { prefix: subjectPrefixText, name: jewelryName });
+    return t("email.subject.placeholder_generic", { prefix: subjectPrefixText });
+  }, [jewelryName, subjectPrefixText, t]);
 
   const tryCommitDraft = (value: string): boolean => {
     const v = value.trim().replace(/[,;]+$/, "");
     if (!v) return false;
     if (!EMAIL_RE.test(v)) {
-      notify(
-        "Invalid email",
-        `"${v}" doesn't look like a valid email address.`,
-      );
+      notify(t("email.error.invalid_email"), t("email.error.invalid_email_msg", { value: v }));
       return false;
     }
     if (recipients.some((r) => r.toLowerCase() === v.toLowerCase())) {
@@ -264,11 +266,11 @@ export function EmailFilesModal({
       }
     }
     if (finalRecipients.length === 0) {
-      notify("Add a recipient", "Enter at least one email address.");
+      notify(t("email.error.no_recipient_title"), t("email.error.no_recipient_msg"));
       return;
     }
     if (selectedIds.size === 0) {
-      notify("Select files", `Pick at least one ${labels.noun} to forward.`);
+      notify(t("email.error.no_files_title"), t("email.error.no_files_msg", { noun: nounText }));
       return;
     }
 
@@ -281,13 +283,19 @@ export function EmailFilesModal({
         message: message.trim() || null,
       });
       notify(
-        "Email sent",
-        `Forwarded ${result.file_count} ${labels.noun}${result.file_count === 1 ? "" : "s"} to ${result.recipients.length} recipient${result.recipients.length === 1 ? "" : "s"}.`,
+        t("email.success.title"),
+        t("email.success.msg", {
+          fileCount: result.file_count,
+          noun: nounText,
+          ps: result.file_count === 1 ? "" : "s",
+          recipCount: result.recipients.length,
+          rs: result.recipients.length === 1 ? "" : "s",
+        }),
       );
       onSent?.(result);
       onClose();
     } catch (err: any) {
-      notify("Send failed", err?.message || "Could not forward files.");
+      notify(t("email.error.send_title"), err?.message || t("email.error.send_msg"));
     } finally {
       setSending(false);
     }
@@ -313,7 +321,7 @@ export function EmailFilesModal({
             >
               <Ionicons name="close" size={22} color={theme.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>{labels.title}</Text>
+            <Text style={styles.headerTitle}>{t(labels.titleKey)}</Text>
             <View style={{ width: 22 }} />
           </View>
 
@@ -322,7 +330,7 @@ export function EmailFilesModal({
             keyboardShouldPersistTaps="handled"
           >
             {/* Recipients */}
-            <Text style={styles.label}>TO</Text>
+            <Text style={styles.label}>{t("email.field.to")}</Text>
             <View style={styles.chipWrap}>
               {recipients.map((r) => (
                 <TouchableOpacity
@@ -346,8 +354,8 @@ export function EmailFilesModal({
                 }}
                 placeholder={
                   recipients.length === 0
-                    ? "name@example.com (press Enter)"
-                    : "add another…"
+                    ? t("email.recipient.placeholder_first")
+                    : t("email.recipient.placeholder_more")
                 }
                 placeholderTextColor={theme.textMuted}
                 autoCapitalize="none"
@@ -360,7 +368,7 @@ export function EmailFilesModal({
               />
             </View>
             <Text style={styles.helper}>
-              Tap a chip to remove. Press Enter, space or comma to add another.
+              {t("email.recipient.helper")}
             </Text>
             <TouchableOpacity
               testID="email-directory-picker"
@@ -369,13 +377,13 @@ export function EmailFilesModal({
             >
               <Ionicons name="book-outline" size={14} color={theme.primary} />
               <Text style={styles.directoryBtnText}>
-                PICK FROM DIRECTORY
+                {t("email.directory.button")}
               </Text>
             </TouchableOpacity>
 
             {/* Subject */}
             <Text style={[styles.label, { marginTop: spacing.lg }]}>
-              SUBJECT
+              {t("email.field.subject")}
             </Text>
             <TextInput
               value={subject}
@@ -388,12 +396,12 @@ export function EmailFilesModal({
 
             {/* Message */}
             <Text style={[styles.label, { marginTop: spacing.lg }]}>
-              MESSAGE
+              {t("email.field.message")}
             </Text>
             <TextInput
               value={message}
               onChangeText={setMessage}
-              placeholder="Optional note shown above the file list…"
+              placeholder={t("email.message.placeholder")}
               placeholderTextColor={theme.textMuted}
               multiline
               numberOfLines={4}
@@ -405,11 +413,11 @@ export function EmailFilesModal({
             {/* Files */}
             <View style={styles.filesHeader}>
               <Text style={[styles.label, { marginBottom: 0 }]}>
-                FILES TO INCLUDE ({selectedIds.size}/{files.length})
+                {t("email.field.files", { selected: selectedIds.size, total: files.length })}
               </Text>
               <TouchableOpacity onPress={toggleAll} testID="files-toggle-all">
                 <Text style={styles.toggleAllText}>
-                  {allSelected ? "DESELECT ALL" : "SELECT ALL"}
+                  {allSelected ? t("email.toggle.deselect_all") : t("email.toggle.select_all")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -447,9 +455,7 @@ export function EmailFilesModal({
             </View>
 
             <Text style={styles.disclaimer}>
-              Recipients receive clickable download links pointing to the
-              files on Cloudinary. Nothing is attached, so very large
-              files forward without issue.
+              {t("email.disclaimer")}
             </Text>
           </ScrollView>
 
@@ -465,7 +471,7 @@ export function EmailFilesModal({
               ) : (
                 <>
                   <Ionicons name="paper-plane-outline" size={16} color="#0A0A0A" />
-                  <Text style={styles.sendBtnText}>SEND EMAIL</Text>
+                  <Text style={styles.sendBtnText}>{t("email.send")}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -487,14 +493,14 @@ export function EmailFilesModal({
             <TouchableOpacity onPress={() => setDirectoryOpen(false)}>
               <Ionicons name="close" size={22} color={theme.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>DIRECTORY</Text>
+            <Text style={styles.headerTitle}>{t("email.directory.title")}</Text>
             <View style={{ width: 22 }} />
           </View>
           <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
             <TextInput
               value={directoryQuery}
               onChangeText={setDirectoryQuery}
-              placeholder="Search by name, alias, or email…"
+              placeholder={t("email.directory.search")}
               placeholderTextColor={theme.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -569,8 +575,7 @@ export function EmailFilesModal({
             )}
             {!directoryLoading && (directoryUsers || []).length === 0 && (
               <Text style={styles.emptyDir}>
-                No workshops or CAD/Render vendors found yet. Create them from
-                Admin → Users.
+                {t("email.directory.empty")}
               </Text>
             )}
           </ScrollView>

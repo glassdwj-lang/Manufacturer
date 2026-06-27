@@ -230,15 +230,17 @@ export default function OrderDetail() {
               <Ionicons name="images-outline" size={18} color={theme.primary} />
               <View style={{ flex: 1, marginLeft: spacing.sm }}>
                 <Text style={styles.customsTitle}>
-                  Renders{renderCount > 0 ? ` (${renderCount})` : ""}
+                  {renderCount > 0
+                    ? t("renders.card.title_count", { n: renderCount })
+                    : t("renders.card.title")}
                   {user?.role === "admin" && pendingCount > 0
-                    ? `  •  ${pendingCount} pending`
+                    ? t("renders.card.pending_suffix", { n: pendingCount })
                     : ""}
                 </Text>
                 <Text style={styles.customsSub}>
                   {user?.role === "cad_renderer"
-                    ? "Upload your finished renders here for admin review"
-                    : "Finished render images approved for the client"}
+                    ? t("renders.card.sub_vendor")
+                    : t("renders.card.sub_default")}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />

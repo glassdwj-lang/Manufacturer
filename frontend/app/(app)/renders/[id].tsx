@@ -37,6 +37,7 @@ import { uploadCadFile } from "@/src/api/cloudinaryUpload";
 import { confirmAction, notify } from "@/src/utils/confirm";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import { useI18n } from "@/src/i18n";
 
 function formatBytes(b?: number | null): string {
   if (!b && b !== 0) return "—";
@@ -52,6 +53,7 @@ export default function RendersScreen() {
   const orderId = String(params.id || "");
   const safeBack = useSafeBack(`/(app)/order/${orderId}`);
   const { user } = useAuth();
+  const { t } = useI18n();
 
   const [live, setLive] = useState<CadFile[]>([]);
   const [pending, setPending] = useState<CadFile[]>([]);
@@ -122,8 +124,8 @@ export default function RendersScreen() {
       await load();
       if (isVendor) {
         notify(
-          "Submitted for review",
-          "Your renders have been queued for admin approval.",
+          t("renders.toast.submitted_title"),
+          t("renders.toast.submitted_msg"),
         );
       }
     } finally {
@@ -145,8 +147,8 @@ export default function RendersScreen() {
 
   const rejectOne = async (r: CadFile) => {
     const ok = await confirmAction(
-      "Reject render?",
-      `"${r.name}" will be removed from the pending queue. This cannot be undone.`,
+      t("renders.confirm.reject_title"),
+      t("renders.confirm.reject_msg", { name: r.name }),
       "Reject",
     );
     if (!ok) return;
@@ -163,8 +165,13 @@ export default function RendersScreen() {
 
   const deleteOne = async (r: CadFile, isPending: boolean) => {
     const ok = await confirmAction(
-      "Delete render?",
-      `"${r.name}" will be removed${isPending ? " from your pending queue" : " from the commission"}.`,
+      t("renders.confirm.delete_title"),
+      t(
+        isPending
+          ? "renders.confirm.delete_msg_pending"
+          : "renders.confirm.delete_msg_live",
+        { name: r.name },
+      ),
       "Delete",
     );
     if (!ok) return;
@@ -272,7 +279,7 @@ export default function RendersScreen() {
         <TouchableOpacity onPress={safeBack} testID="renders-back">
           <Ionicons name="arrow-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>RENDERS</Text>
+        <Text style={styles.headerTitle}>{t("renders.title")}</Text>
         <View style={{ width: 22 }} />
       </View>
 
@@ -289,14 +296,14 @@ export default function RendersScreen() {
           />
           <Text style={styles.vendorBarText}>
             {vendorName
-              ? `ASSIGNED TO ${vendorName.toUpperCase()}`
-              : "ASSIGN CAD / RENDER VENDOR"}
+              ? t("renders.assign.current", { name: vendorName.toUpperCase() })
+              : t("renders.assign.empty")}
           </Text>
           <Ionicons name="chevron-down" size={14} color={theme.primary} />
         </TouchableOpacity>
       ) : (
         vendorName && (
-          <Text style={styles.vendorPill}>Assigned to {vendorName}</Text>
+          <Text style={styles.vendorPill}>{t("renders.assign.current", { name: vendorName })}</Text>
         )
       )}
 
@@ -313,7 +320,7 @@ export default function RendersScreen() {
             <>
               <Ionicons name="cloud-upload-outline" size={16} color="#0A0A0A" />
               <Text style={styles.uploadBtnText}>
-                {isVendor ? "SUBMIT RENDERS FOR REVIEW" : "UPLOAD RENDERS"}
+                {isVendor ? t("renders.upload.vendor") : t("renders.upload.admin")}
               </Text>
             </>
           )}
@@ -340,12 +347,12 @@ export default function RendersScreen() {
             {pending.length > 0 && (
               <>
                 <Text style={styles.sectionLabel}>
-                  PENDING APPROVAL ({pending.length})
+                  {t("renders.section.pending", { n: pending.length })}
                 </Text>
                 <Text style={styles.sectionHint}>
                   {isAdmin
-                    ? "Approve to publish to the commission; reject to discard."
-                    : "Your submissions are waiting for the studio to review them. You can delete an entry below before approval if needed."}
+                    ? t("renders.section.pending_hint_admin")
+                    : t("renders.section.pending_hint_vendor")}
                 </Text>
                 {pending.map((r) => renderRow(r, true))}
               </>
@@ -356,15 +363,15 @@ export default function RendersScreen() {
                 pending.length > 0 && { marginTop: spacing.xl },
               ]}
             >
-              APPROVED RENDERS ({live.length})
+              {t("renders.section.live", { n: live.length })}
             </Text>
             {live.length === 0 && !loading && (
               <Text style={styles.emptyText}>
                 {isAdmin
-                  ? "No renders published yet. Upload above or wait for the assigned vendor to submit theirs for review."
+                  ? t("renders.empty.admin")
                   : isVendor
-                  ? "Your approved renders will appear here once an admin reviews them."
-                  : "No renders have been published for this commission yet."}
+                  ? t("renders.empty.vendor")
+                  : t("renders.empty.viewer")}
               </Text>
             )}
             {live.map((r) => renderRow(r, false))}
@@ -389,7 +396,7 @@ export default function RendersScreen() {
             <TouchableOpacity onPress={() => setAssignOpen(false)}>
               <Ionicons name="close" size={22} color={theme.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>ASSIGN VENDOR</Text>
+            <Text style={styles.headerTitle}>{t("renders.assign.modal_title")}</Text>
             <View style={{ width: 22 }} />
           </View>
           <FlatList
@@ -405,7 +412,7 @@ export default function RendersScreen() {
                 >
                   <Ionicons name="close-circle" size={20} color="#FF6B6B" />
                   <Text style={[styles.name, { color: "#FF6B6B" }]}>
-                    Unassign current vendor
+                    {t("renders.assign.unassign")}
                   </Text>
                 </Pressable>
               ) : null
@@ -415,7 +422,7 @@ export default function RendersScreen() {
                 <ActivityIndicator color={theme.primary} style={{ marginTop: spacing.xl }} />
               ) : (
                 <Text style={styles.emptyText}>
-                  No CAD/Render vendors exist yet. Create one from Admin → Users.
+                  {t("renders.assign.empty_directory")}
                 </Text>
               )
             }
