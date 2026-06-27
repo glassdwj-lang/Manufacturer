@@ -325,6 +325,31 @@ export const api = {
     request<any>(`/photos/reject`, { method: "POST", body: JSON.stringify(body) }),
   reinstatePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
     request<any>(`/photos/reinstate`, { method: "POST", body: JSON.stringify(body) }),
+  /** Send a HOLD or REJECT moderation email to the original uploader.
+   *  When `also_action` is true (default on server) the backend will also
+   *  execute the matching hold/reject mutation atomically — so this single
+   *  call can replace direct `holdPhoto` / `rejectPhoto` invocations. */
+  sendModerationEmail: (body: {
+    order_id: string;
+    step_number: number;
+    photo_url: string;
+    kind: "hold" | "reject";
+    recipient_email?: string;
+    subject?: string;
+    message?: string;
+    also_action?: boolean;
+  }) =>
+    request<{
+      ok: boolean;
+      recipient: string;
+      sent_at: string;
+      deadline: string | null;
+      email: any;
+      action: any;
+    }>(`/photos/moderation-email`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   purgeExpiredPhotos: () => request<any>(`/photos/purge`, { method: "POST" }),
   // ---- Admin settings (feature flags) ----
   getAppSettings: () => request<any>(`/admin/settings`, { method: "GET" }),

@@ -197,13 +197,20 @@ async def list_pending_photos(user=Depends(get_current_user)):
             "jewelry_name": 1,
             "manufacturer_alias": 1,
             "manufacturer_name": 1,
+            "manufacturer_id": 1,
             "associate_id": 1,
             "steps": 1,
         },
     )
 
+    # First pass: build the queue while collecting manufacturer ids so we
+    # can resolve their email addresses in a single round-trip below.
     queue: list[dict] = []
+    mfg_ids: set[str] = set()
     async for o in cursor:
+        mfg_id = o.get("manufacturer_id")
+        if mfg_id:
+            mfg_ids.add(mfg_id)
         for s in o.get("steps") or []:
             for status_field, status_label in (
                 ("pending_photos", "pending"),
@@ -220,6 +227,7 @@ async def list_pending_photos(user=Depends(get_current_user)):
                                 o.get("manufacturer_alias")
                                 or o.get("manufacturer_name")
                             ),
+                            "manufacturer_id": mfg_id,
                             "step_number": s["step_number"],
                             "step_title": s.get("title"),
                             "step_phase": s.get("phase"),
@@ -227,6 +235,21 @@ async def list_pending_photos(user=Depends(get_current_user)):
                             "status": status_label,
                         }
                     )
+
+    # Batched manufacturer-email join so the front-end's moderation email
+    # modal can show "Sending to …" without making a second round-trip.
+    if mfg_ids:
+        mfgs = await db.users.find(
+            {"id": {"$in": list(mfg_ids)}},
+            {"_id": 0, "id": 1, "email": 1, "name": 1},
+        ).to_list(len(mfg_ids))
+        by_id = {m["id"]: m for m in mfgs if m.get("id")}
+        for it in queue:
+            mfg = by_id.get(it.get("manufacturer_id") or "")
+            it["manufacturer_email"] = (mfg or {}).get("email") or ""
+            it["manufacturer_name"] = (mfg or {}).get("name") or it.get(
+                "manufacturer_alias"
+            )
 
     return {
         "count": len(queue),
@@ -403,6 +426,126 @@ async def reject_photo(body: PhotoApprovalAction, user=Depends(get_current_user)
         to_field=None,
         extra_log=log_entry,
     )
+
+
+# ----------------------------------------------------------------------------
+# Moderation email — notifies the uploader that their image has been put on
+# hold or rejected, with optional inline execution of the underlying action.
+# ----------------------------------------------------------------------------
+
+class ModerationEmailBody(PhotoApprovalAction):
+    kind: str  # "hold" | "reject"
+    recipient_email: str | None = None
+    subject: str | None = None
+    message: str | None = None
+    # When True, the moderation action (hold or reject) is executed atomically
+    # right after the email send succeeds. When False the endpoint only sends.
+    also_action: bool = True
+
+
+@router.post("/photos/moderation-email")
+async def send_photo_moderation_email(
+    body: ModerationEmailBody, user=Depends(get_current_user)
+):
+    """Send a HOLD or REJECT email to the uploader, then optionally perform
+    the action. The action is gated by the same moderation rules as the
+    direct /photos/hold and /photos/reject endpoints."""
+    from _email import send_moderation_email
+
+    if body.kind not in ("hold", "reject"):
+        raise HTTPException(status_code=400, detail="kind must be 'hold' or 'reject'")
+
+    order = await db.orders.find_one(
+        {"id": body.order_id},
+        {
+            "_id": 0,
+            "id": 1,
+            "order_ref": 1,
+            "jewelry_name": 1,
+            "manufacturer_id": 1,
+            "manufacturer_alias": 1,
+            "associate_id": 1,
+            "steps": 1,
+        },
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not _can_moderate(user, order, await get_settings()):
+        raise HTTPException(status_code=403, detail="Cannot moderate this order")
+
+    step = next(
+        (s for s in (order.get("steps") or []) if s["step_number"] == body.step_number),
+        None,
+    )
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    # Resolve recipient — caller can override, otherwise we use the order's
+    # manufacturer's email on file.
+    recipient = (body.recipient_email or "").strip()
+    if not recipient and order.get("manufacturer_id"):
+        mfg = await db.users.find_one(
+            {"id": order["manufacturer_id"]}, {"_id": 0, "email": 1, "name": 1}
+        )
+        recipient = (mfg or {}).get("email") or ""
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="No recipient email available — please provide one explicitly.",
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    sent_at_iso = now_utc.strftime("%Y-%m-%d %H:%M UTC")
+    deadline_iso = (
+        (now_utc + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M UTC")
+        if body.kind == "reject"
+        else None
+    )
+
+    try:
+        result = send_moderation_email(
+            kind=body.kind,
+            recipient_email=recipient,
+            photo_url=body.photo_url,
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            step_number=step.get("step_number"),
+            step_title=step.get("title"),
+            moderator_name=user.get("name") or user.get("email"),
+            moderator_email=user.get("email"),
+            message=body.message,
+            sent_at_iso=sent_at_iso,
+            deadline_iso=deadline_iso,
+            subject_override=body.subject,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Moderation email failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail=f"Email failed: {exc}"
+        ) from exc
+
+    action_result = None
+    if body.also_action:
+        action_payload = PhotoApprovalAction(
+            order_id=body.order_id,
+            step_number=body.step_number,
+            photo_url=body.photo_url,
+        )
+        if body.kind == "hold":
+            action_result = await hold_photo(action_payload, user)
+        else:
+            action_result = await reject_photo(action_payload, user)
+
+    return {
+        "ok": True,
+        "email": result,
+        "recipient": recipient,
+        "sent_at": sent_at_iso,
+        "deadline": deadline_iso,
+        "action": action_result,
+    }
 
 
 @router.post("/photos/reinstate")

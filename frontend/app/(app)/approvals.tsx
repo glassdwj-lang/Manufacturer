@@ -23,6 +23,11 @@ import { theme, spacing } from "@/src/theme";
 import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import { BrandStrip } from "@/src/components/BrandStrip";
+import {
+  MediaModerationModal,
+  type ModerationKind,
+  type ModerationTarget,
+} from "@/src/components/MediaModerationModal";
 import { useI18n } from "@/src/i18n";
 
 type QueueItem = {
@@ -31,6 +36,8 @@ type QueueItem = {
   client_name: string;
   jewelry_name: string;
   manufacturer_alias?: string;
+  manufacturer_email?: string;
+  manufacturer_name?: string;
   step_number: number;
   step_title: string;
   step_phase: string;
@@ -73,6 +80,11 @@ export default function ApprovalsScreen() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [associateApprovalEnabled, setAssociateApprovalEnabled] = useState<boolean | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  // Moderation email modal — null when closed.
+  const [moderation, setModeration] = useState<
+    | { kind: ModerationKind; target: ModerationTarget }
+    | null
+  >(null);
 
   const canModerate = user?.role === "admin" || user?.role === "associate";
   const isAdmin = user?.role === "admin";
@@ -156,27 +168,23 @@ export default function ApprovalsScreen() {
       it.photo_url,
     );
 
-  const hold = (it: QueueItem) =>
-    act(
-      () =>
-        api.holdPhoto({
-          order_id: it.order_id,
-          step_number: it.step_number,
-          photo_url: it.photo_url,
-        }),
-      it.photo_url,
-    );
-
-  const reject = (it: QueueItem) =>
-    act(
-      () =>
-        api.rejectPhoto({
-          order_id: it.order_id,
-          step_number: it.step_number,
-          photo_url: it.photo_url,
-        }),
-      it.photo_url,
-    );
+  const openModerationModal = (kind: ModerationKind, it: QueueItem) => {
+    setModeration({
+      kind,
+      target: {
+        order_id: it.order_id,
+        order_ref: it.order_ref,
+        jewelry_name: it.jewelry_name,
+        step_number: it.step_number,
+        step_title: it.step_title,
+        photo_url: it.photo_url,
+        manufacturer_email: it.manufacturer_email,
+        manufacturer_name: it.manufacturer_name || it.manufacturer_alias,
+      },
+    });
+  };
+  const hold = (it: QueueItem) => openModerationModal("hold", it);
+  const reject = (it: QueueItem) => openModerationModal("reject", it);
 
   const reinstate = (it: QueueItem) =>
     act(
@@ -400,6 +408,16 @@ export default function ApprovalsScreen() {
         visible={!!lightboxUrls}
         initialIndex={lightboxIndex}
         onClose={() => setLightboxUrls(null)}
+      />
+      <MediaModerationModal
+        visible={!!moderation}
+        kind={moderation?.kind || "hold"}
+        target={moderation?.target || null}
+        onClose={() => setModeration(null)}
+        onCompleted={() => {
+          setModeration(null);
+          load();
+        }}
       />
     </SafeAreaView>
   );

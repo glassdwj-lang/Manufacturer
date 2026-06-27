@@ -270,3 +270,229 @@ def send_cad_files_email(**kwargs) -> dict:
     """Backwards-compatible shim for the original CAD-only entry point."""
     kwargs.pop("kind", None)
     return send_files_email(kind="cad", **kwargs)
+
+
+# ============================================================================
+# Moderation emails — HOLD / REJECT notifications sent to the uploader (the
+# manufacturer who pushed the photo into the approval queue) when an admin
+# or associate moderator places a photo on hold or rejects it.
+#
+# These emails are intentionally direct and operational — they tell the
+# manufacturer exactly what went wrong and what to do next. The REJECT
+# variant always carries a hard 24-hour deadline (computed by the caller).
+# ============================================================================
+
+def _moderation_email_html(
+    *,
+    kind: str,              # "hold" | "reject"
+    photo_url: str,
+    order_ref: str | None,
+    jewelry_name: str | None,
+    step_number: int | None,
+    step_title: str | None,
+    moderator_name: str | None,
+    message: str | None,
+    sent_at_iso: str | None,
+    deadline_iso: str | None,  # only used for "reject"
+) -> str:
+    is_reject = kind == "reject"
+    pill_color = "#D9362C" if is_reject else "#D89A3F"  # red vs amber
+    pill_label = "REJECTED · QA/QC FAIL" if is_reject else "ON HOLD · REDO REQUESTED"
+
+    headline = (
+        "An image has failed our internal QA/QC standards."
+        if is_reject
+        else "An image you uploaded has been placed on hold."
+    )
+    body_line = (
+        "Please upload a replacement image within the next 24 hours. "
+        "After that window the rejection is final."
+        if is_reject
+        else "Please either re-shoot the same view or select an alternative "
+             "image and re-upload — the current shot didn't quite clear our "
+             "review."
+    )
+
+    safe_msg = escape(message.strip()) if message and message.strip() else ""
+    note_html = (
+        f'<p style="margin:12px 0 16px 0;color:#444;white-space:pre-wrap;'
+        f'border-left:3px solid {pill_color};padding:8px 12px;background:#FAFAFA;">'
+        f"{safe_msg}</p>"
+        if safe_msg
+        else ""
+    )
+
+    # Step / order header rows
+    rows: list[str] = []
+    if order_ref:
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Commission</td>'
+            f'<td style="padding:4px 0;color:#222;font-weight:600;">'
+            f"{escape(str(order_ref))}</td></tr>"
+        )
+    if jewelry_name:
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Jewelry</td>'
+            f'<td style="padding:4px 0;color:#222;font-weight:600;">'
+            f"{escape(str(jewelry_name))}</td></tr>"
+        )
+    if step_number is not None:
+        step_str = f"Step {step_number:02d}"
+        if step_title:
+            step_str += f" · {step_title}"
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Step</td>'
+            f'<td style="padding:4px 0;color:#222;font-weight:600;">'
+            f"{escape(step_str)}</td></tr>"
+        )
+    if moderator_name:
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Reviewer</td>'
+            f'<td style="padding:4px 0;color:#222;font-weight:600;">'
+            f"{escape(str(moderator_name))}</td></tr>"
+        )
+    if sent_at_iso:
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Sent</td>'
+            f'<td style="padding:4px 0;color:#222;font-weight:600;">'
+            f"{escape(str(sent_at_iso))}</td></tr>"
+        )
+    if is_reject and deadline_iso:
+        rows.append(
+            f'<tr><td style="padding:4px 8px 4px 0;color:#888;font-size:11px;'
+            f'letter-spacing:1.5px;text-transform:uppercase;">Replacement By</td>'
+            f'<td style="padding:4px 0;color:{pill_color};font-weight:700;">'
+            f"{escape(str(deadline_iso))}</td></tr>"
+        )
+    table_html = (
+        '<table style="border-collapse:collapse;margin:0 0 16px 0;font-size:13px;">'
+        + "".join(rows)
+        + "</table>"
+    ) if rows else ""
+
+    # Inline image preview (Cloudinary URL or any direct media URL). We
+    # serve a small 320px-wide rendition so the email body stays light.
+    preview_url = photo_url
+    if "cloudinary.com" in photo_url and "/image/upload/" in photo_url:
+        # Inject a light w_480,q_auto transformation for the preview.
+        preview_url = photo_url.replace(
+            "/image/upload/", "/image/upload/w_480,q_auto,f_auto/"
+        )
+    preview_html = (
+        f'<div style="text-align:center;margin:0 0 20px 0;">'
+        f'<img src="{escape(preview_url)}" alt="moderated media" '
+        f'style="max-width:100%;width:100%;max-height:320px;'
+        f'object-fit:contain;border:1px solid #EEE;background:#FAFAFA;" />'
+        f"</div>"
+    )
+
+    return f"""<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFF;">
+    <div style="max-width:560px;margin:0 auto;">
+      <div style="text-align:center;margin-bottom:24px;">
+        <h1 style="font-size:18px;letter-spacing:4px;color:#B87333;margin:0;font-weight:600;">SOMNIO.CO</h1>
+        <p style="margin:4px 0 0 0;font-size:11px;letter-spacing:2px;color:#888;text-transform:uppercase;">Media Review</p>
+      </div>
+      <div style="background:{pill_color};color:#FFFFFF;font-size:11px;letter-spacing:2.5px;
+                  text-align:center;padding:10px 12px;margin-bottom:20px;font-weight:700;">
+        {pill_label}
+      </div>
+      <p style="margin:0 0 6px 0;color:#222;font-size:15px;font-weight:600;">{escape(headline)}</p>
+      <p style="margin:0 0 16px 0;color:#444;">{escape(body_line)}</p>
+      {table_html}
+      {preview_html}
+      {note_html}
+      <p style="font-size:11px;color:#888;margin-top:32px;border-top:1px solid #EEE;padding-top:16px;">
+        This email was sent by the Somnio Atelier moderation system. Replies go
+        directly to the reviewer who flagged this media.
+      </p>
+    </div>
+  </body>
+</html>"""
+
+
+def send_moderation_email(
+    *,
+    kind: str,
+    recipient_email: str,
+    photo_url: str,
+    order_ref: str | None,
+    jewelry_name: str | None,
+    step_number: int | None,
+    step_title: str | None,
+    moderator_name: str | None,
+    moderator_email: str | None,
+    message: str | None,
+    sent_at_iso: str,
+    deadline_iso: str | None,
+    subject_override: str | None = None,
+) -> dict:
+    """Send a HOLD or REJECT moderation email to the original uploader."""
+    _ensure_resend()
+    import resend  # safe — _ensure_resend imported it already
+
+    if not recipient_email or not recipient_email.strip():
+        raise ValueError("Recipient email is required.")
+    if kind not in ("hold", "reject"):
+        raise ValueError(f"Unsupported moderation kind: {kind}")
+
+    html = _moderation_email_html(
+        kind=kind,
+        photo_url=photo_url,
+        order_ref=order_ref,
+        jewelry_name=jewelry_name,
+        step_number=step_number,
+        step_title=step_title,
+        moderator_name=moderator_name,
+        message=message,
+        sent_at_iso=sent_at_iso,
+        deadline_iso=deadline_iso,
+    )
+
+    if subject_override and subject_override.strip():
+        subj = subject_override.strip()
+    else:
+        ref_part = ""
+        if order_ref and jewelry_name:
+            ref_part = f" — {jewelry_name} ({order_ref})"
+        elif order_ref:
+            ref_part = f" — {order_ref}"
+        elif jewelry_name:
+            ref_part = f" — {jewelry_name}"
+        step_part = (
+            f" · Step {step_number:02d}" if step_number is not None else ""
+        )
+        if kind == "reject":
+            subj = f"REJECTED — replacement required in 24h{ref_part}{step_part}"
+        else:
+            subj = f"On hold — please redo or re-select{ref_part}{step_part}"
+
+    params = {
+        "from": RESEND_FROM,
+        "to": [recipient_email.strip()],
+        "subject": subj,
+        "html": html,
+    }
+    if moderator_email and moderator_email.strip():
+        params["reply_to"] = moderator_email.strip()
+    elif RESEND_REPLY_TO:
+        params["reply_to"] = RESEND_REPLY_TO
+
+    try:
+        response = resend.Emails.send(params)
+        logger.info(
+            "Resend moderation email | kind=%s | to=%s | id=%s",
+            kind,
+            recipient_email,
+            (response or {}).get("id") if isinstance(response, dict) else response,
+        )
+        return response if isinstance(response, dict) else {"raw": str(response)}
+    except Exception as exc:  # noqa: BLE001 — surface upstream details
+        logger.exception("Resend moderation send failed: %s", exc)
+        raise
