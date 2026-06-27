@@ -249,7 +249,53 @@ export default function DashboardScreen() {
           <HomeDailyChart />
         </View>
 
-        {/* TOP MANUFACTURERS */}
+        {/* TOP MANUFACTURERS moved below NEW USERS per UX preference. */}
+
+        {/* APPROVALS + MISSING CONTACTS (pending work tiles) */}
+        <View style={styles.cardRow}>
+          <TouchableOpacity
+            style={[styles.miniCard, styles.miniCardWarn]}
+            onPress={() => router.push("/(app)/approvals")}
+          >
+            <Ionicons name="hourglass-outline" size={20} color="#C8A044" />
+            <Text style={styles.miniValue}>{data.approvals_pending}</Text>
+            <Text style={styles.miniLabel}>PENDING APPROVALS</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.miniCard}
+            onPress={() => router.push("/(app)/users")}
+          >
+            <Ionicons name="alert-circle-outline" size={20} color={theme.primary} />
+            <Text style={styles.miniValue}>
+              {data.missing_contacts} / {data.workshops_total}
+            </Text>
+            <Text style={styles.miniLabel}>MISSING CONTACTS</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* NEW USERS */}
+        <View style={styles.card}>
+          <Text style={styles.cardEyebrow}>NEW USERS</Text>
+          <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
+            <View style={styles.newCol}>
+              <Text style={styles.newColTitle}>CLIENTS</Text>
+              <Text style={styles.newColPrimary}>{nu.client_7d}</Text>
+              <Text style={styles.newColSub}>last 7d  ·  {nu.client_30d} in 30d</Text>
+            </View>
+            <View style={styles.newCol}>
+              <Text style={styles.newColTitle}>WORKSHOPS</Text>
+              <Text style={styles.newColPrimary}>{nu.manufacturer_7d}</Text>
+              <Text style={styles.newColSub}>last 7d  ·  {nu.manufacturer_30d} in 30d</Text>
+            </View>
+            <View style={styles.newCol}>
+              <Text style={styles.newColTitle}>ASSOCIATES</Text>
+              <Text style={styles.newColPrimary}>{nu.associate_7d}</Text>
+              <Text style={styles.newColSub}>last 7d  ·  {nu.associate_30d} in 30d</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* TOP MANUFACTURERS (sits below NEW USERS for a quieter top-of-page) */}
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardEyebrow}>TOP WORKSHOPS</Text>
@@ -300,50 +346,6 @@ export default function DashboardScreen() {
               );
             })
           )}
-        </View>
-
-        {/* APPROVALS + MISSING CONTACTS (pending work tiles) */}
-        <View style={styles.cardRow}>
-          <TouchableOpacity
-            style={[styles.miniCard, styles.miniCardWarn]}
-            onPress={() => router.push("/(app)/approvals")}
-          >
-            <Ionicons name="hourglass-outline" size={20} color="#C8A044" />
-            <Text style={styles.miniValue}>{data.approvals_pending}</Text>
-            <Text style={styles.miniLabel}>PENDING APPROVALS</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.miniCard}
-            onPress={() => router.push("/(app)/users")}
-          >
-            <Ionicons name="alert-circle-outline" size={20} color={theme.primary} />
-            <Text style={styles.miniValue}>
-              {data.missing_contacts} / {data.workshops_total}
-            </Text>
-            <Text style={styles.miniLabel}>MISSING CONTACTS</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* NEW USERS */}
-        <View style={styles.card}>
-          <Text style={styles.cardEyebrow}>NEW USERS</Text>
-          <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
-            <View style={styles.newCol}>
-              <Text style={styles.newColTitle}>CLIENTS</Text>
-              <Text style={styles.newColPrimary}>{nu.client_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.client_30d} in 30d</Text>
-            </View>
-            <View style={styles.newCol}>
-              <Text style={styles.newColTitle}>WORKSHOPS</Text>
-              <Text style={styles.newColPrimary}>{nu.manufacturer_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.manufacturer_30d} in 30d</Text>
-            </View>
-            <View style={styles.newCol}>
-              <Text style={styles.newColTitle}>ASSOCIATES</Text>
-              <Text style={styles.newColPrimary}>{nu.associate_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.associate_30d} in 30d</Text>
-            </View>
-          </View>
         </View>
 
         {/* RECENT ACTIVITY */}
