@@ -1,8 +1,7 @@
 /**
  * Admin · Cross-Order Airway Bill Library
- * ---------------------------------------
- * Lists every airway-bill document across every commission. Same pattern
- * as CAD/Renders/IGI — mirrors the unified library shell.
+ *
+ * Thin wrapper around the shared `CrossOrderLibrary` shell.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -12,10 +11,11 @@ const config: LibraryConfig = {
   slug: "airway-library",
   kind: "airway_bill",
   icon: "airplane-outline",
+  chipRole: "manufacturer",
   copy: {
     eyebrow: "airway_lib.eyebrow",
     title: "airway_lib.title",
-    allWorkshops: "cad_lib.all_workshops",
+    allChip: "cad_lib.all_workshops",
     searchPlaceholder: "airway_lib.search_placeholder",
     empty: "airway_lib.empty",
     emptyHint: "airway_lib.empty_hint",
@@ -25,7 +25,8 @@ const config: LibraryConfig = {
     emailCtaPlural: "airway_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: (params) => api.adminListAllAirwayBillFiles(params),
+  fetchRows: ({ chipId, q }) =>
+    api.adminListAllAirwayBillFiles({ manufacturer_id: chipId, q }),
   sendEmail: (payload) => api.adminEmailCrossOrderAirwayBills(payload),
 };
 

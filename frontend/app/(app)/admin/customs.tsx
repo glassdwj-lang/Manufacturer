@@ -1,8 +1,7 @@
 /**
  * Admin · Cross-Order Customs Library
- * -----------------------------------
- * Lists every customs document across every commission. Mirrors the
- * CAD/Renders/IGI/Airway library shell.
+ *
+ * Thin wrapper around the shared `CrossOrderLibrary` shell.
  */
 import React from "react";
 import { api } from "@/src/api/client";
@@ -12,10 +11,11 @@ const config: LibraryConfig = {
   slug: "customs-library",
   kind: "customs",
   icon: "document-text-outline",
+  chipRole: "manufacturer",
   copy: {
     eyebrow: "customs_lib.eyebrow",
     title: "customs_lib.title",
-    allWorkshops: "cad_lib.all_workshops",
+    allChip: "cad_lib.all_workshops",
     searchPlaceholder: "customs_lib.search_placeholder",
     empty: "customs_lib.empty",
     emptyHint: "customs_lib.empty_hint",
@@ -25,7 +25,8 @@ const config: LibraryConfig = {
     emailCtaPlural: "customs_lib.email_cta_plural",
     open: "cad_lib.open",
   },
-  fetchRows: (params) => api.adminListAllCustomsFiles(params),
+  fetchRows: ({ chipId, q }) =>
+    api.adminListAllCustomsFiles({ manufacturer_id: chipId, q }),
   sendEmail: (payload) => api.adminEmailCrossOrderCustoms(payload),
 };
 

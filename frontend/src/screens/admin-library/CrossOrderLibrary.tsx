@@ -50,11 +50,20 @@ export type LibraryConfig = {
   kind: EmailKind;
   /** Lucide/Ionicon name shown next to the title. */
   icon: keyof typeof Ionicons.glyphMap;
+  /**
+   * Which user role powers the filter chip rail. For CAD/IGI/airway/customs
+   * this is `"manufacturer"`; for the renders library it's `"cad_renderer"`.
+   */
+  chipRole: "manufacturer" | "cad_renderer";
   /** i18n keys for all copy. Each must already be added to /src/i18n/index.ts. */
   copy: {
     eyebrow: string;
     title: string;
-    allWorkshops: string;
+    /**
+     * Chip "all" label key. Use `cad_lib.all_workshops` for manufacturer-
+     * scoped libraries and `renders_lib.all_studios` for renderer-scoped.
+     */
+    allChip: string;
     searchPlaceholder: string;
     empty: string;
     emptyHint: string;
@@ -64,9 +73,12 @@ export type LibraryConfig = {
     emailCtaPlural: string;
     open: string;
   };
-  /** Cross-order list fetcher. */
+  /**
+   * Cross-order list fetcher. Receives `chipId` (whichever workshop or
+   * studio is selected, null = all) + the debounced search needle.
+   */
   fetchRows: (params: {
-    manufacturer_id?: string | null;
+    chipId?: string | null;
     q?: string | null;
   }) => Promise<DocLibraryRow[]>;
   /** Cross-order bulk-email sender. */
@@ -121,7 +133,7 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [workshopFilter, setWorkshopFilter] = useState<string | null>(null);
+  const [chipId, setChipId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
 
@@ -131,16 +143,16 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
   // ---- Data loading -------------------------------------------------------
   const loadWorkshops = useCallback(async () => {
     try {
-      setWorkshops(await api.listUsers("manufacturer"));
+      setWorkshops(await api.listUsers(config.chipRole));
     } catch (e) {
-      console.warn(`[${slug}] load workshops:`, e);
+      console.warn(`[${slug}] load chip options:`, e);
     }
-  }, [slug]);
+  }, [slug, config.chipRole]);
 
   const loadRows = useCallback(async () => {
     try {
       const list = await config.fetchRows({
-        manufacturer_id: workshopFilter,
+        chipId: chipId,
         q: searchDebounced || null,
       });
       setRows(list);
@@ -151,7 +163,7 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [config, workshopFilter, searchDebounced, slug]);
+  }, [config, chipId, searchDebounced, slug]);
 
   useEffect(() => {
     loadWorkshops();
@@ -316,25 +328,25 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
         >
           <TouchableOpacity
             testID={`${slug}-chip-all`}
-            onPress={() => setWorkshopFilter(null)}
-            style={[styles.chip, workshopFilter == null && styles.chipSel]}
+            onPress={() => setChipId(null)}
+            style={[styles.chip, chipId == null && styles.chipSel]}
           >
             <Text
               style={[
                 styles.chipText,
-                workshopFilter == null && styles.chipTextSel,
+                chipId == null && styles.chipTextSel,
               ]}
             >
-              {t(copy.allWorkshops as any)}
+              {t(copy.allChip as any)}
             </Text>
           </TouchableOpacity>
           {workshops.map((w) => {
-            const sel = workshopFilter === w.id;
+            const sel = chipId === w.id;
             return (
               <TouchableOpacity
                 key={w.id}
                 testID={`${slug}-chip-${w.id}`}
-                onPress={() => setWorkshopFilter(w.id)}
+                onPress={() => setChipId(w.id)}
                 style={[styles.chip, sel && styles.chipSel]}
               >
                 <Text style={[styles.chipText, sel && styles.chipTextSel]}>
