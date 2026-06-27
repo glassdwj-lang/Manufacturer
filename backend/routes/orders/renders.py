@@ -158,10 +158,12 @@ async def add_render(
     order_id: str,
     body: RenderFilePayload,
     request: Request,
-    user=Depends(require_roles("admin", "cad_renderer")),
+    user=Depends(require_roles("admin", "associate", "cad_renderer")),
 ):
-    """Attach a render. Admin uploads land in ``renders`` (live); CAD/Render
-    vendor uploads land in ``pending_renders`` awaiting admin approval.
+    """Attach a render. Admin/Associate uploads land in ``renders`` (live);
+    CAD/Render vendor uploads land in ``pending_renders`` awaiting an
+    admin/associate approval. Mirrors the CAD-file pipeline so the
+    moderation mental model stays consistent across the app.
 
     Vendors must be the *assigned* vendor for the commission, otherwise 403.
     """
@@ -189,7 +191,9 @@ async def add_render(
         "uploaded_by_email": user.get("email"),
         "uploaded_by_role": user["role"],
     }
-    target_field = "renders" if user["role"] == "admin" else "pending_renders"
+    target_field = (
+        "renders" if user["role"] in ("admin", "associate") else "pending_renders"
+    )
     await db.orders.update_one(
         {"id": order_id},
         {"$push": {target_field: entry}},
@@ -216,9 +220,9 @@ async def approve_render(
     order_id: str,
     render_id: str,
     request: Request,
-    user=Depends(require_roles("admin")),
+    user=Depends(require_roles("admin", "associate")),
 ):
-    """Promote a pending render to live. Admin only."""
+    """Promote a pending render to live. Admin or associate."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -260,7 +264,7 @@ async def reject_render(
     order_id: str,
     render_id: str,
     request: Request,
-    user=Depends(require_roles("admin")),
+    user=Depends(require_roles("admin", "associate")),
 ):
     """Reject a pending render. Removes it from the pending queue. The
     Cloudinary asset itself is intentionally NOT touched so admins can

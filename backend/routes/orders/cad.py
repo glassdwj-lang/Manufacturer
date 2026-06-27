@@ -33,14 +33,32 @@ class CadFilePayload(BaseModel):
 
 @router.get("/orders/{order_id}/cad-files")
 async def list_cad_files(
-    order_id: str, user=Depends(require_roles("admin", "manufacturer"))
+    order_id: str,
+    user=Depends(require_roles("admin", "associate", "manufacturer")),
 ):
+    """Returns ``{cad_files, pending_cad_files}``.
+
+    Visibility rules:
+    * **admin / associate** — see everything (live + every pending entry)
+    * **manufacturer** — sees live + ONLY pending entries they themselves
+      uploaded, so they can still delete their own queued submissions but
+      can't peek into other workshops' pending uploads.
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
         raise HTTPException(status_code=403)
-    return order.get("cad_files", [])
+
+    live = order.get("cad_files") or []
+    pending_all = order.get("pending_cad_files") or []
+    if user["role"] in ("admin", "associate"):
+        pending = pending_all
+    elif user["role"] == "manufacturer":
+        pending = [p for p in pending_all if p.get("uploaded_by") == user["id"]]
+    else:
+        pending = []
+    return {"cad_files": live, "pending_cad_files": pending}
 
 
 @router.post("/orders/{order_id}/cad-files")
@@ -48,12 +66,15 @@ async def add_cad_file(
     order_id: str,
     body: CadFilePayload,
     request: Request,
-    user=Depends(require_roles("admin", "manufacturer")),
+    user=Depends(require_roles("admin", "associate", "manufacturer")),
 ):
-    """Register a CAD file *after* it has been uploaded directly to Cloudinary
-    via the signed-upload flow. Stores the metadata on the order so the
-    front-end can render the file list / handle deletes. Admin can manage
-    every order; manufacturer is scoped to their own commissions."""
+    """Register a CAD file *after* it has been uploaded directly to Cloudinary.
+
+    Approval flow (mirrors step-photo + render pipelines):
+    * **admin / associate** uploads land directly in ``cad_files`` (live).
+    * **manufacturer** uploads land in ``pending_cad_files`` and must be
+      promoted by an admin/associate before clients/customs can see them.
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -72,25 +93,109 @@ async def add_cad_file(
         "uploaded_at": now_china_iso(),
         "uploaded_by": user["id"],
         "uploaded_by_email": user.get("email"),
+        "uploaded_by_role": user["role"],
     }
+    target_field = "cad_files" if user["role"] in ("admin", "associate") else "pending_cad_files"
     await db.orders.update_one(
         {"id": order_id},
-        {"$push": {"cad_files": entry}},
+        {"$push": {target_field: entry}},
     )
     await record_event(
         db,
         request,
-        "order.cad_file.added",
+        f"order.cad_file.{'added' if target_field == 'cad_files' else 'submitted'}",
         user=user,
         meta={
             "order_id": order_id,
             "file_name": entry["name"],
             "format": entry["format"],
             "bytes": entry["bytes"],
+            "queue": target_field,
         },
     )
     request.state.activity_logged = True
-    return entry
+    return {"file": entry, "queue": target_field}
+
+
+@router.post("/orders/{order_id}/cad-files/{file_id}/approve")
+async def approve_cad_file(
+    order_id: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin", "associate")),
+):
+    """Promote a pending CAD file to live. Admin or associate."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    pending = order.get("pending_cad_files") or []
+    target = next((p for p in pending if p.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Pending CAD file not found")
+
+    promoted = {
+        **target,
+        "approved_at": now_china_iso(),
+        "approved_by": user.get("id"),
+        "approved_by_email": user.get("email"),
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$pull": {"pending_cad_files": {"id": file_id}},
+            "$push": {"cad_files": promoted},
+        },
+    )
+    await record_event(
+        db,
+        request,
+        "order.cad_file.approved",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_id": file_id,
+            "file_name": target.get("name"),
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True, "file": promoted}
+
+
+@router.post("/orders/{order_id}/cad-files/{file_id}/reject")
+async def reject_cad_file(
+    order_id: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin", "associate")),
+):
+    """Reject a pending CAD file. Removes it from the pending queue. The
+    Cloudinary asset itself is intentionally NOT deleted so admins can
+    inspect or re-upload manually (matches the photo soft-bin pattern)."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    pending = order.get("pending_cad_files") or []
+    target = next((p for p in pending if p.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Pending CAD file not found")
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {"pending_cad_files": {"id": file_id}}},
+    )
+    await record_event(
+        db,
+        request,
+        "order.cad_file.rejected",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_id": file_id,
+            "file_name": target.get("name"),
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True}
 
 
 @router.delete("/orders/{order_id}/cad-files/{file_id}")

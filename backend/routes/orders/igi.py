@@ -36,14 +36,29 @@ class IgiCertFilePayload(BaseModel):
 
 @router.get("/orders/{order_id}/igi-certificates")
 async def list_igi_certificates(
-    order_id: str, user=Depends(require_roles("admin", "manufacturer"))
+    order_id: str,
+    user=Depends(require_roles("admin", "associate", "manufacturer")),
 ):
+    """Returns ``{igi_certificates, pending_igi_certificates}``.
+
+    Visibility mirrors the CAD pipeline:
+    * **admin / associate** see everything
+    * **manufacturer** sees live + only their own pending submissions
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if user["role"] == "manufacturer" and order["manufacturer_id"] != user["id"]:
         raise HTTPException(status_code=403)
-    return order.get("igi_certificates", [])
+    live = order.get("igi_certificates") or []
+    pending_all = order.get("pending_igi_certificates") or []
+    if user["role"] in ("admin", "associate"):
+        pending = pending_all
+    elif user["role"] == "manufacturer":
+        pending = [p for p in pending_all if p.get("uploaded_by") == user["id"]]
+    else:
+        pending = []
+    return {"igi_certificates": live, "pending_igi_certificates": pending}
 
 
 @router.post("/orders/{order_id}/igi-certificates")
@@ -51,10 +66,11 @@ async def add_igi_certificate(
     order_id: str,
     body: IgiCertFilePayload,
     request: Request,
-    user=Depends(require_roles("admin", "manufacturer")),
+    user=Depends(require_roles("admin", "associate", "manufacturer")),
 ):
-    """Attach an IGI certificate (already uploaded to Cloudinary) to the order.
-    """
+    """Attach an IGI certificate to the order. Admin/Associate uploads land
+    directly in ``igi_certificates`` (live); Manufacturer uploads land in
+    ``pending_igi_certificates`` until promoted by an admin/associate."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -73,25 +89,113 @@ async def add_igi_certificate(
         "uploaded_at": now_china_iso(),
         "uploaded_by": user["id"],
         "uploaded_by_email": user.get("email"),
+        "uploaded_by_role": user["role"],
     }
+    target_field = (
+        "igi_certificates"
+        if user["role"] in ("admin", "associate")
+        else "pending_igi_certificates"
+    )
     await db.orders.update_one(
         {"id": order_id},
-        {"$push": {"igi_certificates": entry}},
+        {"$push": {target_field: entry}},
     )
     await record_event(
         db,
         request,
-        "order.igi_certificate.added",
+        f"order.igi_certificate.{'added' if target_field == 'igi_certificates' else 'submitted'}",
         user=user,
         meta={
             "order_id": order_id,
             "file_name": entry["name"],
             "format": entry["format"],
             "bytes": entry["bytes"],
+            "queue": target_field,
         },
     )
     request.state.activity_logged = True
-    return entry
+    return {"file": entry, "queue": target_field}
+
+
+@router.post("/orders/{order_id}/igi-certificates/{file_id}/approve")
+async def approve_igi_certificate(
+    order_id: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin", "associate")),
+):
+    """Promote a pending IGI certificate to live. Admin or associate."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    pending = order.get("pending_igi_certificates") or []
+    target = next((p for p in pending if p.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(
+            status_code=404, detail="Pending IGI certificate not found"
+        )
+    promoted = {
+        **target,
+        "approved_at": now_china_iso(),
+        "approved_by": user.get("id"),
+        "approved_by_email": user.get("email"),
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$pull": {"pending_igi_certificates": {"id": file_id}},
+            "$push": {"igi_certificates": promoted},
+        },
+    )
+    await record_event(
+        db,
+        request,
+        "order.igi_certificate.approved",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_id": file_id,
+            "file_name": target.get("name"),
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True, "file": promoted}
+
+
+@router.post("/orders/{order_id}/igi-certificates/{file_id}/reject")
+async def reject_igi_certificate(
+    order_id: str,
+    file_id: str,
+    request: Request,
+    user=Depends(require_roles("admin", "associate")),
+):
+    """Reject a pending IGI certificate. Removes it from the pending queue."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    pending = order.get("pending_igi_certificates") or []
+    target = next((p for p in pending if p.get("id") == file_id), None)
+    if not target:
+        raise HTTPException(
+            status_code=404, detail="Pending IGI certificate not found"
+        )
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$pull": {"pending_igi_certificates": {"id": file_id}}},
+    )
+    await record_event(
+        db,
+        request,
+        "order.igi_certificate.rejected",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "file_id": file_id,
+            "file_name": target.get("name"),
+        },
+    )
+    request.state.activity_logged = True
+    return {"ok": True}
 
 
 @router.delete("/orders/{order_id}/igi-certificates/{file_id}")

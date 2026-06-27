@@ -190,11 +190,16 @@ class TestCadFiles:
     def test_list_cad_files_seed(self, admin_headers):
         r = requests.get(f"{API}/orders/{SEED_ORDER_ID}/cad-files", headers=admin_headers, timeout=20)
         assert r.status_code == 200, r.text
-        assert isinstance(r.json(), list)
+        body = r.json()
+        # Returns the {cad_files, pending_cad_files} envelope (live + pending).
+        assert isinstance(body, dict)
+        assert "cad_files" in body and "pending_cad_files" in body
+        assert isinstance(body["cad_files"], list)
+        assert isinstance(body["pending_cad_files"], list)
 
     def test_cad_file_full_lifecycle(self, throwaway_order, admin_headers):
         oid = throwaway_order["id"]
-        # add
+        # admin upload → goes straight to `cad_files` (live)
         r = requests.post(
             f"{API}/orders/{oid}/cad-files",
             json={
@@ -206,13 +211,16 @@ class TestCadFiles:
             timeout=20,
         )
         assert r.status_code == 200, r.text
-        entry = r.json()
+        resp = r.json()
+        assert resp["queue"] == "cad_files"
+        entry = resp["file"]
         file_id = entry["id"]
         assert entry["name"] == "TEST_cad.stl"
 
-        # list shows new file
+        # list shows new file in the live array
         r = requests.get(f"{API}/orders/{oid}/cad-files", headers=admin_headers, timeout=20)
-        assert any(f["id"] == file_id for f in r.json())
+        body = r.json()
+        assert any(f["id"] == file_id for f in body["cad_files"])
 
         # email (only delivered@resend.dev allowed)
         r = requests.post(
@@ -233,7 +241,7 @@ class TestCadFiles:
         )
         assert r.status_code == 200, r.text
         r = requests.get(f"{API}/orders/{oid}/cad-files", headers=admin_headers, timeout=20)
-        assert not any(f["id"] == file_id for f in r.json())
+        assert not any(f["id"] == file_id for f in r.json()["cad_files"])
 
 
 # ---------- 5. IGI certificates ---------------------------------------------
@@ -244,7 +252,9 @@ class TestIgi:
         r = requests.get(
             f"{API}/orders/{oid}/igi-certificates", headers=admin_headers, timeout=20
         )
-        assert r.status_code == 200 and isinstance(r.json(), list)
+        assert r.status_code == 200
+        body = r.json()
+        assert "igi_certificates" in body and "pending_igi_certificates" in body
 
         r = requests.post(
             f"{API}/orders/{oid}/igi-certificates",
@@ -257,7 +267,9 @@ class TestIgi:
             timeout=20,
         )
         assert r.status_code == 200, r.text
-        file_id = r.json()["id"]
+        resp = r.json()
+        assert resp["queue"] == "igi_certificates"
+        file_id = resp["file"]["id"]
 
         r = requests.post(
             f"{API}/orders/{oid}/igi-certificates/email",

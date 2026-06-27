@@ -299,25 +299,61 @@ export const api = {
       { method: "DELETE" },
     ),
   // ---- IGI Certificates ----------------------------------------------------
+  // ---- IGI Certificates (per-order) --------------------------------------
+  // Same approval flow as CAD: manufacturer uploads land in pending.
   listIgiCertificates: (orderId: string) =>
-    request<CadFile[]>(`/orders/${orderId}/igi-certificates`),
+    request<{
+      igi_certificates: CadFile[];
+      pending_igi_certificates: CadFile[];
+    }>(`/orders/${orderId}/igi-certificates`),
   addIgiCertificate: (orderId: string, payload: CadFilePayload) =>
-    request<CadFile>(`/orders/${orderId}/igi-certificates`, {
+    request<{
+      file: CadFile;
+      queue: "igi_certificates" | "pending_igi_certificates";
+    }>(`/orders/${orderId}/igi-certificates`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  approveIgiCertificate: (orderId: string, fileId: string) =>
+    request<{ ok: boolean; file: CadFile }>(
+      `/orders/${orderId}/igi-certificates/${fileId}/approve`,
+      { method: "POST" },
+    ),
+  rejectIgiCertificate: (orderId: string, fileId: string) =>
+    request<{ ok: boolean }>(
+      `/orders/${orderId}/igi-certificates/${fileId}/reject`,
+      { method: "POST" },
+    ),
   removeIgiCertificate: (orderId: string, fileId: string) =>
     request<{ ok: boolean }>(
       `/orders/${orderId}/igi-certificates/${fileId}`,
       { method: "DELETE" },
     ),
+  // ---- CAD files (per-order) ---------------------------------------------
+  // Returns {cad_files, pending_cad_files}. Manufacturer uploads land in
+  // pending until an admin/associate approves.
   listCadFiles: (orderId: string) =>
-    request<CadFile[]>(`/orders/${orderId}/cad-files`),
+    request<{ cad_files: CadFile[]; pending_cad_files: CadFile[] }>(
+      `/orders/${orderId}/cad-files`,
+    ),
   addCadFile: (orderId: string, payload: CadFilePayload) =>
-    request<CadFile>(`/orders/${orderId}/cad-files`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+    request<{ file: CadFile; queue: "cad_files" | "pending_cad_files" }>(
+      `/orders/${orderId}/cad-files`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  approveCadFile: (orderId: string, fileId: string) =>
+    request<{ ok: boolean; file: CadFile }>(
+      `/orders/${orderId}/cad-files/${fileId}/approve`,
+      { method: "POST" },
+    ),
+  rejectCadFile: (orderId: string, fileId: string) =>
+    request<{ ok: boolean }>(
+      `/orders/${orderId}/cad-files/${fileId}/reject`,
+      { method: "POST" },
+    ),
   removeCadFile: (orderId: string, fileId: string) =>
     request<{ ok: boolean }>(`/orders/${orderId}/cad-files/${fileId}`, {
       method: "DELETE",

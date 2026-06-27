@@ -63,6 +63,7 @@ export default function IgiCertificatesScreen() {
   const safeBack = useSafeBack(`/(app)/order/${orderId}`);
   const { user } = useAuth();
   const [files, setFiles] = useState<CadFile[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<CadFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -71,10 +72,15 @@ export default function IgiCertificatesScreen() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [jewelryName, setJewelryName] = useState<string | null>(null);
 
-  // Same access policy as customs: admin + manufacturer only. Anyone
-  // else gets bounced home so they never see a 403.
+  // Access: admin, associate (pass-through), manufacturer (goes pending).
+  // Other roles bounce home so they never see a 403.
   useEffect(() => {
-    if (user && user.role !== "admin" && user.role !== "manufacturer") {
+    if (
+      user &&
+      user.role !== "admin" &&
+      user.role !== "associate" &&
+      user.role !== "manufacturer"
+    ) {
       router.replace("/(app)");
     }
   }, [user, router]);
@@ -82,8 +88,9 @@ export default function IgiCertificatesScreen() {
   const load = useCallback(async () => {
     if (!orderId) return;
     try {
-      const list = await api.listIgiCertificates(orderId);
-      setFiles(list);
+      const data = await api.listIgiCertificates(orderId);
+      setFiles(data.igi_certificates || []);
+      setPendingFiles(data.pending_igi_certificates || []);
     } catch (e) {
       console.warn("igi load", e);
     } finally {
@@ -123,7 +130,7 @@ export default function IgiCertificatesScreen() {
       });
       if (res.canceled || !res.assets || res.assets.length === 0) return;
       setUploading(true);
-      const successes: CadFile[] = [];
+      const successes: { entry: CadFile; queue: string }[] = [];
       for (const asset of res.assets) {
         try {
           const up = await uploadIgiCertFile({
@@ -139,7 +146,7 @@ export default function IgiCertificatesScreen() {
             bytes: up.bytes || null,
             resource_type: "raw",
           });
-          successes.push(saved);
+          successes.push({ entry: saved.file, queue: saved.queue });
         } catch (err: any) {
           notify(
             "Upload failed",
@@ -148,11 +155,21 @@ export default function IgiCertificatesScreen() {
         }
       }
       if (successes.length) {
-        setFiles((prev) => [...successes, ...prev]);
+        const live: CadFile[] = [];
+        const pending: CadFile[] = [];
+        successes.forEach((s) => {
+          if (s.queue === "igi_certificates") live.push(s.entry);
+          else pending.push(s.entry);
+        });
+        if (live.length) setFiles((prev) => [...live, ...prev]);
+        if (pending.length) setPendingFiles((prev) => [...pending, ...prev]);
         notify(
           successes.length === 1
             ? "1 certificate uploaded"
             : `${successes.length} certificates uploaded`,
+          user?.role === "manufacturer"
+            ? "Pending atelier review — visible to clients once approved."
+            : undefined,
         );
       }
     } finally {

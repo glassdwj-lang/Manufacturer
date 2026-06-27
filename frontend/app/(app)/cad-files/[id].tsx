@@ -67,16 +67,24 @@ export default function CadFilesScreen() {
   const { user } = useAuth();
   const { t } = useI18n();
   const [files, setFiles] = useState<CadFile[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<CadFile[]>([]);
+  const isReviewer = user?.role === "admin" || user?.role === "associate";
+  const isManufacturer = user?.role === "manufacturer";
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [jewelryName, setJewelryName] = useState<string | null>(null);
 
-  // CAD upload is open to admin + manufacturer (mfg scoped to own order
-  // server-side). Bounce other roles back home so they never see a 403.
+  // CAD upload is open to admin, associate (pass-through) and manufacturer
+  // (goes pending). Other roles get bounced home.
   useEffect(() => {
-    if (user && user.role !== "admin" && user.role !== "manufacturer") {
+    if (
+      user &&
+      user.role !== "admin" &&
+      user.role !== "associate" &&
+      user.role !== "manufacturer"
+    ) {
       router.replace("/(app)");
     }
   }, [user, router]);
@@ -84,8 +92,9 @@ export default function CadFilesScreen() {
   const load = useCallback(async () => {
     if (!orderId) return;
     try {
-      const list = await api.listCadFiles(orderId);
-      setFiles(list);
+      const data = await api.listCadFiles(orderId);
+      setFiles(data.cad_files || []);
+      setPendingFiles(data.pending_cad_files || []);
     } catch (e) {
       console.warn("cad files load", e);
     } finally {
@@ -125,7 +134,7 @@ export default function CadFilesScreen() {
       });
       if (res.canceled || !res.assets || res.assets.length === 0) return;
       setUploading(true);
-      const successes: CadFile[] = [];
+      const successes: { entry: CadFile; queue: string }[] = [];
       for (const asset of res.assets) {
         try {
           const up = await uploadCadFile({
@@ -141,7 +150,7 @@ export default function CadFilesScreen() {
             bytes: up.bytes || null,
             resource_type: "raw",
           });
-          successes.push(saved);
+          successes.push({ entry: saved.file, queue: saved.queue });
         } catch (err: any) {
           notify(
             "Upload failed",
@@ -150,9 +159,24 @@ export default function CadFilesScreen() {
         }
       }
       if (successes.length) {
-        setFiles((prev) => [...successes, ...prev]);
+        // Split into live vs pending so each list updates in place.
+        const live: CadFile[] = [];
+        const pending: CadFile[] = [];
+        successes.forEach((s) => {
+          if (s.queue === "cad_files") live.push(s.entry);
+          else pending.push(s.entry);
+        });
+        if (live.length) setFiles((prev) => [...live, ...prev]);
+        if (pending.length) setPendingFiles((prev) => [...pending, ...prev]);
+        const totalMsg =
+          successes.length === 1
+            ? "1 file uploaded"
+            : `${successes.length} files uploaded`;
         notify(
-          successes.length === 1 ? "1 file uploaded" : `${successes.length} files uploaded`,
+          totalMsg,
+          isManufacturer
+            ? "Pending atelier review — they'll show up to the client once approved."
+            : undefined,
         );
       }
     } finally {
