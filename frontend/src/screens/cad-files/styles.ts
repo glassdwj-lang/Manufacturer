@@ -1,0 +1,133 @@
+/**
+ * Shared StyleSheet for the per-order CAD files screen.
+ * Lifted as-is from the original 590-line monolithic file.
+ */
+import { StyleSheet } from "react-native";
+import { theme, spacing } from "@/src/theme";
+
+export const cadStyles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.background },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  headerTitle: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    letterSpacing: 4,
+    fontWeight: "600",
+  },
+  subhead: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    color: theme.textMuted,
+    fontSize: 11,
+    letterSpacing: 1.5,
+  },
+  uploadBtn: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: theme.primary,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  uploadBtnDim: { opacity: 0.6 },
+  uploadBtnText: {
+    color: "#0A0A0A",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
+  emailBtn: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emailBtnText: {
+    color: theme.primary,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
+  rowPending: {
+    borderLeftWidth: 3,
+    borderLeftColor: theme.primary,
+    paddingLeft: spacing.sm,
+  },
+  iconBtnApprove: {
+    borderColor: theme.success || "#5B9279",
+    backgroundColor: theme.success || "#5B9279",
+  },
+  iconBtnReject: { borderColor: "#FF6B6B" },
+  sectionLabel: {
+    color: theme.textPrimary,
+    fontSize: 11,
+    letterSpacing: 3,
+    textTransform: "uppercase",
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  sectionHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontStyle: "italic",
+    marginBottom: spacing.sm,
+    lineHeight: 14,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+  },
+  extBadge: {
+    minWidth: 44,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: theme.primary,
+    alignItems: "center",
+  },
+  extBadgeUnknown: { borderColor: theme.border },
+  extText: {
+    color: theme.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
+  rowMeta: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  iconBtnPrimary: { borderColor: theme.primary },
+  emptyText: {
+    textAlign: "center",
+    color: theme.textMuted,
+    paddingVertical: spacing.xxl,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: spacing.lg,
+  },
+});

@@ -85,6 +85,56 @@ export function rangeForPreset(
   return { preset, date_from: iso(from), date_to: iso(today) };
 }
 
+const MONTHS_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** "Jun 27" — short date suitable for the per-tab caption. */
+function shortDate(d: Date): string {
+  return `${MONTHS_ABBR[d.getMonth()]} ${d.getDate()}`;
+}
+
+/** Compact caption showing what calendar period each preset would cover
+ *  if tapped *right now*. Updates per render so opening the screen on a
+ *  new day immediately reflects the new ranges. */
+function captionFor(
+  preset: "day" | "week" | "month" | "quarter" | "ytd" | "custom",
+  current: DateRangeValue,
+): string {
+  if (preset === "custom") {
+    if (!current.date_from && !current.date_to) return "Pick…";
+    const fmt = (s: string) => {
+      const [y, m, d] = s.split("-").map(Number);
+      if (!y || !m || !d) return s;
+      return `${MONTHS_ABBR[m - 1]} ${d}`;
+    };
+    if (current.date_from && current.date_to)
+      return `${fmt(current.date_from)}–${fmt(current.date_to)}`;
+    if (current.date_from) return `from ${fmt(current.date_from)}`;
+    return `until ${fmt(current.date_to)}`;
+  }
+  const today = new Date();
+  if (preset === "day") return shortDate(today);
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return `${shortDate(from)}–${today.getDate()}`;
+  }
+  if (preset === "month") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 29);
+    return `${shortDate(from)}–${shortDate(today)}`;
+  }
+  if (preset === "quarter") {
+    const qStartMonth = Math.floor(today.getMonth() / 3) * 3;
+    const from = new Date(today.getFullYear(), qStartMonth, 1);
+    return `${shortDate(from)}–${shortDate(today)}`;
+  }
+  // ytd
+  return `Jan 1–${shortDate(today)}`;
+}
+
 export function DateRangePresets({
   testID,
   value,
@@ -115,6 +165,7 @@ export function DateRangePresets({
     label: string,
   ) => {
     const active = value.preset === key;
+    const caption = captionFor(key, value);
     return (
       <TouchableOpacity
         key={key}
@@ -138,6 +189,12 @@ export function DateRangePresets({
       >
         <Text style={[styles.tabText, active && styles.tabTextActive]}>
           {label}
+        </Text>
+        <Text
+          style={[styles.tabCaption, active && styles.tabCaptionActive]}
+          numberOfLines={1}
+        >
+          {caption}
         </Text>
       </TouchableOpacity>
     );
@@ -230,6 +287,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   tabTextActive: { color: "#0A0A0A", fontWeight: "700" },
+  tabCaption: {
+    color: theme.textMuted,
+    fontSize: 7,
+    letterSpacing: 0.3,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  tabCaptionActive: { color: "#0A0A0A", opacity: 0.7 },
   customRow: {
     flexDirection: "row",
     gap: spacing.sm,
