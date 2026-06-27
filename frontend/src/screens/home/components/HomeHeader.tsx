@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme, ROLE_LABELS } from "@/src/theme";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
+import { NotificationBell } from "@/src/components/NotificationBell";
 import { useI18n } from "@/src/i18n";
 import { homeStyles } from "../styles";
 
@@ -44,6 +45,7 @@ export function HomeHeader({
           </Text>
         </View>
         <View style={homeStyles.headerActions}>
+          <NotificationBell color={theme.primary} />
           <LanguageSwitcher />
           <TouchableOpacity
             testID="logout-button"

@@ -10,6 +10,7 @@ from .admin_dashboard import router as admin_dashboard_router
 from .meta import router as meta_router
 from .uploads import router as uploads_router
 from .approvals import router as approvals_router
+from .notifications import router as notifications_router
 
 __all__ = [
     "auth_router",
@@ -20,4 +21,5 @@ __all__ = [
     "meta_router",
     "uploads_router",
     "approvals_router",
+    "notifications_router",
 ]

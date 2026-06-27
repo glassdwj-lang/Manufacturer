@@ -211,6 +211,39 @@ async def add_render(
             "queue": target_field,
         },
     )
+    # Fan out an in-app notification (best-effort) — admins + the assigned
+    # manufacturer see new renders without polling the order page.
+    try:
+        from _notifications import notify_admins_and_manufacturer
+
+        is_pending = target_field == "pending_renders"
+        await notify_admins_and_manufacturer(
+            db,
+            order=order,
+            actor_user_id=user["id"],
+            type="render.pending" if is_pending else "render.added",
+            title=(
+                "Render upload awaiting review"
+                if is_pending
+                else "Render added"
+            ),
+            body=(
+                f"{user.get('name') or user.get('email')} uploaded "
+                f"{entry['name']} on {order.get('order_ref') or order_id}"
+            ),
+            link_route="/renders/[id]",
+            link_params={"id": order_id},
+            payload={
+                "order_id": order_id,
+                "order_ref": order.get("order_ref"),
+                "jewelry_name": order.get("jewelry_name"),
+                "render_id": entry["id"],
+                "file_name": entry["name"],
+                "queue": target_field,
+            },
+        )
+    except Exception:
+        pass
     request.state.activity_logged = True
     return {"render": entry, "queue": target_field}
 

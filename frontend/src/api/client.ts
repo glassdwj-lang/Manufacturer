@@ -350,6 +350,44 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // ------------------------------------------------------------------------
+  // In-app notifications
+  // ------------------------------------------------------------------------
+  listNotifications: (params: { limit?: number; unread_only?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set("limit", String(params.limit));
+    if (params.unread_only) qs.set("unread_only", "true");
+    const tail = qs.toString();
+    return request<{
+      items: {
+        id: string;
+        user_id: string;
+        type: string;
+        title: string;
+        body: string;
+        link_route: string | null;
+        link_params: Record<string, any> | null;
+        payload: Record<string, any> | null;
+        created_at: string;
+        read_at: string | null;
+      }[];
+      unread_count: number;
+    }>(`/notifications${tail ? `?${tail}` : ""}`);
+  },
+  unreadNotificationCount: () =>
+    request<{ unread_count: number }>(`/notifications/unread-count`),
+  markNotificationRead: (id: string) =>
+    request<{ ok: boolean; unread_count: number }>(
+      `/notifications/${id}/read`,
+      { method: "POST" },
+    ),
+  markAllNotificationsRead: () =>
+    request<{ ok: boolean; marked: number; unread_count: number }>(
+      `/notifications/mark-all-read`,
+      { method: "POST" },
+    ),
+  deleteNotification: (id: string) =>
+    request<{ ok: boolean }>(`/notifications/${id}`, { method: "DELETE" }),
   purgeExpiredPhotos: () => request<any>(`/photos/purge`, { method: "POST" }),
   // ---- Admin settings (feature flags) ----
   getAppSettings: () => request<any>(`/admin/settings`, { method: "GET" }),
