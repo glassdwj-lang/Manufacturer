@@ -215,8 +215,43 @@ export function CalendarPicker({
   const rangeSummary = draftFrom && draftTo
     ? `${fmtLong(draftFrom)} → ${fmtLong(draftTo)}`
     : draftFrom
-      ? `${fmtLong(draftFrom)} → …`
+      ? `${fmtLong(draftFrom)} → tap an end date`
       : "Tap a date to begin";
+
+  // Step-by-step instruction banner so users always know the next action
+  // (and so APPLY never looks like the only option after the first tap).
+  const step: "start" | "end" | "done" = !draftFrom
+    ? "start"
+    : !draftTo
+      ? "end"
+      : "done";
+  const stepCopy: Record<typeof step, { eyebrow: string; line: string }> = {
+    start: {
+      eyebrow: "STEP 1 OF 2",
+      line: "Tap your START date on the calendar below.",
+    },
+    end: {
+      eyebrow: "STEP 2 OF 2",
+      line: "Now tap your END date — or apply as a single day.",
+    },
+    done: {
+      eyebrow: "RANGE READY",
+      line: "Tap APPLY to filter the library — or refine your dates.",
+    },
+  };
+
+  // Day-count for the dynamic APPLY label.
+  const dayCount = (() => {
+    if (!fromDate) return 0;
+    const end = toDate || fromDate;
+    const ms = end.getTime() - fromDate.getTime();
+    return Math.max(1, Math.round(ms / 86_400_000) + 1);
+  })();
+  const applyLabel = !draftFrom
+    ? "APPLY"
+    : draftTo
+      ? `APPLY · ${dayCount} DAYS`
+      : "APPLY · 1 DAY";
 
   return (
     <Modal
@@ -241,6 +276,33 @@ export function CalendarPicker({
           <Text style={styles.subtitle}>
             Pick any past day — or two — to set the range for this library.
           </Text>
+
+          {/* Step banner — always tells the user exactly what to do next. */}
+          <View
+            style={[
+              styles.stepBanner,
+              step === "end" && styles.stepBannerActive,
+              step === "done" && styles.stepBannerDone,
+            ]}
+          >
+            <Text
+              style={[
+                styles.stepEyebrow,
+                step === "end" && styles.stepEyebrowActive,
+                step === "done" && styles.stepEyebrowDone,
+              ]}
+            >
+              {stepCopy[step].eyebrow}
+            </Text>
+            <Text
+              style={[
+                styles.stepLine,
+                step === "end" && styles.stepLineActive,
+              ]}
+            >
+              {stepCopy[step].line}
+            </Text>
+          </View>
 
           {/* Calendar container */}
           <View style={styles.calCard}>
@@ -359,7 +421,7 @@ export function CalendarPicker({
               style={[styles.applyBtn, !canApply && { opacity: 0.4 }]}
             >
               <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-              <Text style={styles.applyText}>APPLY</Text>
+              <Text style={styles.applyText}>{applyLabel}</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -416,6 +478,38 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     fontFamily: typography.sans,
   },
+  stepBanner: {
+    borderWidth: 1,
+    borderColor: PARCHMENT.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    marginBottom: spacing.md,
+  },
+  stepBannerActive: {
+    borderColor: PARCHMENT.accent,
+    backgroundColor: "rgba(160, 90, 42, 0.08)",
+  },
+  stepBannerDone: {
+    borderColor: PARCHMENT.endpoint,
+    backgroundColor: "#1A1A1A",
+  },
+  stepEyebrow: {
+    color: PARCHMENT.inkMuted,
+    fontSize: 9,
+    letterSpacing: 2,
+    fontFamily: typography.sansSemi,
+    marginBottom: 3,
+  },
+  stepEyebrowActive: { color: PARCHMENT.accent },
+  stepEyebrowDone: { color: "#E0B062" },
+  stepLine: {
+    color: PARCHMENT.ink,
+    fontSize: 13,
+    fontFamily: typography.sansMedium,
+    lineHeight: 18,
+  },
+  stepLineActive: { color: PARCHMENT.ink },
   calCard: {
     backgroundColor: PARCHMENT.surface,
     borderWidth: 1,
