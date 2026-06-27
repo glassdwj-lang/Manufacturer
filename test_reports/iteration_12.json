@@ -1,0 +1,50 @@
+{
+  "summary": "Frontend-only regression after the deep decomposition of /app/frontend/app/(app)/index.tsx into src/screens/home/* (17 files). Verified the Home screen against the original behavior contract for all three staff roles (admin, associate, manufacturer). Login → home, header (brand, role badge, language switcher, logout), stats row (Active/Completed/Total), NEW COMMISSION CTA, full admin link rail (Dashboard, Media Approvals + badge=4, CAD Library, Renders Library, Manufacturers·Users, Atelier Tools), COMMISSIONS eyebrow, FILTERS toggle, Atelier Pulse chart with 7D/30D/90D and totals/bar chart, expandable filter panel (search/from/to/workshop/associate/client pickers, GO/CANCEL), URL sync (?q=ring after GO), active chip + chip ✕ removes filter, CLEAR ALL, bulk-select toggle → checkboxes + bulk-action-bar (MOVE 1 TO BIN), tap order card navigates to /(app)/order/{id} and back. Associate sees approvals-button-assoc + NEW COMMISSION + filters + chart, no admin rail. Manufacturer has no admin rail, no chart, no filters, no CTA — just their assigned commissions. All preserved testIDs (logout-button, create-order-button, dashboard-button, approvals-button, approvals-button-assoc, cad-library-button, renders-library-button, manage-users-button, atelier-tools-button, orders-section-eyebrow, toggle-commission-filters, filter-search-input, filter-date-from, filter-date-to, filter-go, filter-cancel, active-chip-query, active-chip-query-clear, clear-commission-filters, enter-select-mode, exit-select-mode, bulk-action-bar, bulk-cancel, bulk-delete, order-card-{id}, order-checkbox-{id}) resolve. Refactor passes regression — no behavioral changes detected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Filter URL sync — chip ✕ / CLEAR ALL leaves stale query params in the URL",
+        "issue": "After applying ?q=ring and then tapping the chip's ✕ (active-chip-query-clear) OR CLEAR ALL (clear-commission-filters), the in-memory `applied` state is correctly reset (chip disappears, list reloads), but the browser URL stays at `/?q=ring`. Root cause: src/screens/home/hooks/useCommissionFilters.ts:94-108 only calls `router.setParams(params)` with the non-empty subset; expo-router's setParams MERGES keys, it does not delete missing ones. To fully clear stale URL params, the effect needs to pass `undefined`/empty string for cleared keys, e.g. `router.setParams({ q: applied.q || undefined, mfg: applied.mfg || undefined, ... })` or use `router.replace({ pathname: '/', params })`. Impact: hard-refreshing after clearing a filter restores the stale filter from URL, which feels like a regression. Reference: /app/frontend/src/screens/home/hooks/useCommissionFilters.ts:94-108.",
+        "affected_testIDs": ["active-chip-query-clear", "clear-commission-filters"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Home — Atelier Pulse chart totals",
+        "issues": [
+          "Chart totals labels are truncated on a 390-wide viewport: rendered as 'New co...', 'Steps f...', 'Digital ...' instead of 'Commissions / Forwarded / DNAs' per the spec. This is inside <HomeDailyChart/> (src/components/HomeDailyChart.tsx), not the refactor scope, but worth noting since the review mentions the three totals."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "Unknown (web-only console warning)",
+        "issue": "Repeating console error on every render: 'Unexpected text node: . A text node cannot be a child of a <View>.' This warning fires both on the /login page (before any home code mounts) and on the home screen, so it is NOT introduced by this refactor — it is a pre-existing issue likely caused by stray whitespace between JSX children inside a <View> somewhere in shared components (BrandStrip / Eyebrow / LanguageSwitcher are the most likely suspects). Not blocking, but worth a follow-up to find and fix the offending source. Reference: visible in console during every page render."
+      }
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_12.json"],
+  "action_items": [
+    "Fix URL sync in src/screens/home/hooks/useCommissionFilters.ts so that clearing a filter also removes the corresponding query-string key (pass undefined for cleared values, or use router.replace with full params). Otherwise refresh restores the stale filter.",
+    "(Pre-existing, optional) Track down the 'Unexpected text node: \".\"' RN-web warning — likely a stray ' . ' or string template inside a <View> wrapper (probably in BrandStrip / Eyebrow / LanguageSwitcher).",
+    "(Pre-existing, optional) HomeDailyChart totals labels overflow on narrow screens — consider numberOfLines=1 with explicit short labels (Commissions / Forwarded / DNAs) so they don't truncate."
+  ],
+  "critical_code_review_comments": [
+    "HomeScreen.tsx is a clean orchestrator (~213 lines) — wiring only, no business logic. Hooks (useCommissionFilters, useOrdersList, useUserOptions) cleanly separate state from presentation.",
+    "All testIDs from the original monolith are preserved; selector-based regression was not affected.",
+    "useCommissionFilters URL effect is one-way (applied → URL) but is incomplete — only non-empty keys are pushed via router.setParams; cleared keys remain in the URL. See action items.",
+    "ActiveChip exposes a `${testID}-clear` child testID for the ✕ button, which is the right pattern for testable removal of individual filters.",
+    "Role gating is sound: showFilters = admin|associate; canCreateCommission = admin|associate; AdminLinks rendered only for admin; AssociateLinks (approvals-only) rendered only for associate; manufacturer/client see only the order list.",
+    "No raw text outside <Text>, no HTML primitives, no inline styles besides spacing — passes RN component hygiene.",
+    "No files exceed 700 lines; each component file is < 200 lines, hooks < 150 lines."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only per request)", "frontend": "~95% (all preserved behaviors verified; one URL-sync regression on filter clear; one pre-existing RN-web text-node warning)"},
+  "seed_data_creation": "No data created. Used existing seed accounts (admin@somnio.co, associate@somnio.co, mfg@somnio.co).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All home-screen testIDs are stable after the refactor. For full regression, re-run the three-role login matrix and the filter→GO→chip-✕ flow. The URL-sync action item above is the only behavioral gap; everything else (header, stats, CTA, link rail, chart, filters, bulk select, order navigation, role-aware visibility) is verified working.",
+  "rca_of_issue": "Stale ?q=... in URL after chip-✕ / CLEAR ALL — useCommissionFilters URL effect builds `params` from only the non-empty `applied.*` values and calls `router.setParams(params)`. expo-router's setParams merges into the existing query string and does NOT remove keys that are absent from the new params object. So once `?q=ring` has been pushed, subsequent calls with an empty params object are a no-op for that key. Fix: pass `{ q: applied.q || undefined, mfg: applied.mfg || undefined, ... }` (undefined removes the key in expo-router) OR use `router.replace({ pathname: '/(app)', params })` to fully rewrite the search string."
+}
