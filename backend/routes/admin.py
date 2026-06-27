@@ -24,11 +24,18 @@ router = APIRouter(tags=["admin"])
 @router.get("/admin/insights/daily")
 async def admin_insights_daily(
     days: int = 30,
+    date_from: str | None = None,
+    date_to: str | None = None,
     user=Depends(require_roles("admin", "associate")),
 ):
-    """Returns a 30-day (configurable via ``days``) daily volume summary for
-    the home-dashboard bar chart. Each bucket combines three atelier-wide
-    signals into a single stacked bar:
+    """Returns a daily volume summary for the home-dashboard bar chart.
+
+    Window controls (mutually exclusive — explicit range wins):
+      * ``days`` — rolling N-day window ending today (default 30, clamped 1–365)
+      * ``date_from`` / ``date_to`` — explicit inclusive YYYY-MM-DD window;
+        when present these override ``days``.
+
+    Each bucket combines three atelier-wide signals into a single stacked bar:
 
     * ``commissions`` — orders created on that day (uses ``created_at`` UTC)
     * ``forwarded``   — step forwards to the client (uses ``steps.forwarded_at``
@@ -36,15 +43,41 @@ async def admin_insights_daily(
     * ``dnas``        — orders where the *final* step (#26) was completed on
                         that day, i.e. Digital DNA officially ready to issue
 
-    Scope is atelier-wide for both admin and associate viewers — admins see
-    everything; associates do too since the dashboard is meant to give a
-    pulse of the whole studio, not just their own commissions.
-
+    Scope is atelier-wide for both admin and associate viewers.
     Soft-deleted orders are ignored.
     """
-    days = max(1, min(int(days or 30), 365))
     today = datetime.now(timezone.utc).date()
-    window_start = today - timedelta(days=days - 1)
+
+    # Resolve the window.
+    if date_from or date_to:
+        try:
+            start = (
+                datetime.fromisoformat(date_from).date()
+                if date_from
+                else today - timedelta(days=29)
+            )
+        except ValueError:
+            start = today - timedelta(days=29)
+        try:
+            end = (
+                datetime.fromisoformat(date_to).date() if date_to else today
+            )
+        except ValueError:
+            end = today
+        if end < start:
+            start, end = end, start
+        # Hard cap so the response never explodes if someone picks a huge
+        # custom range (e.g. multi-year). 366 buckets covers a full year.
+        span = (end - start).days + 1
+        if span > 366:
+            start = end - timedelta(days=365)
+            span = 366
+        days = span
+        window_start = start
+    else:
+        days = max(1, min(int(days or 30), 365))
+        window_start = today - timedelta(days=days - 1)
+        end = today
 
     # Initialise buckets so the response always has `days` rows even if
     # some days are zero. Keys are ISO date strings (YYYY-MM-DD).

@@ -62,7 +62,14 @@ function formatRange(start: string | null, end: string | null) {
   }
 }
 
-export function HomeDailyChart() {
+export function HomeDailyChart({
+  externalRange,
+}: {
+  /** When provided, overrides the internal 7D/30D/90D pills and shows
+   *  the chart for the given inclusive YYYY-MM-DD range. Pass `null` /
+   *  undefined to keep the legacy "rolling N days" picker. */
+  externalRange?: { date_from?: string; date_to?: string } | null;
+} = {}) {
   const { t } = useI18n();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,12 +77,24 @@ export function HomeDailyChart() {
   const [days, setDays] = useState<7 | 30 | 90>(30);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
 
+  // An external range (set by a parent screen's preset bar) takes precedence
+  // over the internal 7/30/90 pills. We hide the pills entirely while it's
+  // active so users don't see two competing date controls.
+  const hasExternalRange = !!(
+    externalRange && (externalRange.date_from || externalRange.date_to)
+  );
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api
-      .adminInsightsDaily(days)
+    const apiCall = hasExternalRange
+      ? api.adminInsightsDaily({
+          date_from: externalRange?.date_from,
+          date_to: externalRange?.date_to,
+        })
+      : api.adminInsightsDaily(days);
+    apiCall
       .then((d) => {
         if (cancelled) return;
         setData(d);
@@ -91,7 +110,7 @@ export function HomeDailyChart() {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [days, hasExternalRange, externalRange?.date_from, externalRange?.date_to]);
 
   const maxTotal = useMemo(() => {
     if (!data || !data.series.length) return 0;
@@ -104,29 +123,33 @@ export function HomeDailyChart() {
         <View style={{ flex: 1 }}>
           <Text style={styles.eyebrow}>{t("home.chart.eyebrow")}</Text>
           <Text style={styles.title}>
-            {t("home.chart.title", { n: days })}
+            {hasExternalRange
+              ? "Atelier Pulse"
+              : t("home.chart.title", { n: days })}
           </Text>
           {data && (
             <Text style={styles.range}>{formatRange(data.start, data.end)}</Text>
           )}
         </View>
-        <View style={styles.scopeRow}>
-          {[7, 30, 90].map((n) => {
-            const sel = days === n;
-            return (
-              <TouchableOpacity
-                key={n}
-                testID={`home-chart-scope-${n}`}
-                onPress={() => setDays(n as 7 | 30 | 90)}
-                style={[styles.scopeChip, sel && styles.scopeChipSel]}
-              >
-                <Text
-                  style={[styles.scopeText, sel && styles.scopeTextSel]}
-                >{`${n}D`}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {!hasExternalRange && (
+          <View style={styles.scopeRow}>
+            {[7, 30, 90].map((n) => {
+              const sel = days === n;
+              return (
+                <TouchableOpacity
+                  key={n}
+                  testID={`home-chart-scope-${n}`}
+                  onPress={() => setDays(n as 7 | 30 | 90)}
+                  style={[styles.scopeChip, sel && styles.scopeChipSel]}
+                >
+                  <Text
+                    style={[styles.scopeText, sel && styles.scopeTextSel]}
+                  >{`${n}D`}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       {/* Totals row — quick at-a-glance summary, mirrors the gem-gallery card */}

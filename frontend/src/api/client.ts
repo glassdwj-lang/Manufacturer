@@ -207,7 +207,15 @@ export const api = {
   },
   activityLogActions: () =>
     request<{ actions: string[] }>("/admin/activity-log/actions"),
-  getDashboard: () => request<any>("/admin/dashboard"),
+  getDashboard: (
+    params: { date_from?: string; date_to?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.date_from) qs.set("date_from", params.date_from);
+    if (params.date_to) qs.set("date_to", params.date_to);
+    const tail = qs.toString();
+    return request<any>(`/admin/dashboard${tail ? `?${tail}` : ""}`);
+  },
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
@@ -280,21 +288,34 @@ export const api = {
       igi: number;
       renders: number;
     }>(`/admin/pending-counts`),
-  // Daily commission activity for the home-dashboard bar chart.
-  adminInsightsDaily: (days = 30) =>
-    request<{
+  // Daily commission activity for the home-dashboard bar chart. Supports
+  // either a rolling `days` window or an explicit `date_from`/`date_to`.
+  adminInsightsDaily: (
+    arg:
+      | number
+      | { days?: number; date_from?: string; date_to?: string } = 30,
+  ) => {
+    const params =
+      typeof arg === "number" ? { days: arg } : arg || {};
+    const qs = new URLSearchParams();
+    if (params.date_from) qs.set("date_from", params.date_from);
+    if (params.date_to) qs.set("date_to", params.date_to);
+    if (!params.date_from && !params.date_to)
+      qs.set("days", String(params.days ?? 30));
+    return request<{
       days: number;
       start: string | null;
       end: string | null;
-      series: Array<{
+      series: {
         date: string;
         commissions: number;
         forwarded: number;
         dnas: number;
         total: number;
-      }>;
+      }[];
       totals: { commissions: number; forwarded: number; dnas: number };
-    }>(`/admin/insights/daily?days=${days}`),
+    }>(`/admin/insights/daily?${qs.toString()}`);
+  },
   listRecycledPhotos: () => request<any>(`/photos/recycled`, { method: "GET" }),
   approvePhoto: (body: { order_id: string; step_number: number; photo_url: string }) =>
     request<any>(`/photos/approve`, { method: "POST", body: JSON.stringify(body) }),

@@ -18,6 +18,11 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { HomeDailyChart } from "@/src/components/HomeDailyChart";
 import { useAuth } from "@/src/context/AuthContext";
+import {
+  DateRangePresets,
+  EMPTY_DATE_RANGE,
+  type DateRangeValue,
+} from "@/src/screens/admin-library/DateRangePresets";
 
 type Dashboard = {
   commissions: { total: number; active: number; completed: number; by_phase: Record<string, number> };
@@ -28,6 +33,7 @@ type Dashboard = {
   workshops_total: number;
   new_users: Record<string, number>;
   sync_status: { associate_sync: any; gem_gallery_meta: any };
+  range?: { active: boolean; date_from: string | null; date_to: string | null };
   generated_at: string;
 };
 
@@ -56,12 +62,16 @@ export default function DashboardScreen() {
   const [error, setError] = useState<string | null>(null);
   const [authExpired, setAuthExpired] = useState(false);
   const [forbidden, setForbidden] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRangeValue>(EMPTY_DATE_RANGE);
 
   const load = useCallback(async () => {
     setError(null);
     setForbidden(false);
     try {
-      const d = await api.getDashboard();
+      const d = await api.getDashboard({
+        date_from: dateRange.date_from || undefined,
+        date_to: dateRange.date_to || undefined,
+      });
       setData(d);
     } catch (e: any) {
       const msg = e?.message ?? String(e ?? "Failed to load dashboard");
@@ -77,7 +87,7 @@ export default function DashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [dateRange.date_from, dateRange.date_to]);
 
   // Hard guard: the dashboard is admin-only. If a non-admin somehow lands
   // here (via deep link, browser history, etc.), bounce them home so they
@@ -186,6 +196,27 @@ export default function DashboardScreen() {
   const phaseEntries = Object.entries(c.by_phase || {});
   const maxPhase = Math.max(1, ...phaseEntries.map(([, v]) => v as number));
   const nu = data.new_users;
+  const rangeActive = !!(dateRange.date_from || dateRange.date_to);
+
+  // Caption for the "NEW USERS" panel — mirrors the format used in the
+  // library cross-order views so the dashboard reads the same way.
+  const rangeCaption = (() => {
+    if (!rangeActive) return "";
+    const fmt = (s: string | undefined) => {
+      if (!s) return "";
+      const [y, m, d] = s.split("-").map(Number);
+      if (!y || !m || !d) return s;
+      const months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+      ];
+      return `${d} ${months[m - 1]} ${y}`;
+    };
+    if (dateRange.date_from && dateRange.date_to)
+      return `${fmt(dateRange.date_from)} → ${fmt(dateRange.date_to)}`;
+    if (dateRange.date_from) return `from ${fmt(dateRange.date_from)}`;
+    return `until ${fmt(dateRange.date_to)}`;
+  })();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
@@ -211,6 +242,20 @@ export default function DashboardScreen() {
           />
         }
       >
+        {/* GLOBAL DATE FILTER — applies to commissions, top workshops,
+            atelier pulse chart, and new-users counters. */}
+        <DateRangePresets
+          testID="dashboard-date-range"
+          value={dateRange}
+          onChange={setDateRange}
+          labels={{ daily_report: "PERIOD" }}
+        />
+        {rangeActive && (
+          <Text style={styles.filterCaption}>
+            Filtering all dashboard data · {rangeCaption}
+          </Text>
+        )}
+
         {/* COMMISSIONS OVERVIEW */}
         <View style={styles.card}>
           <Text style={styles.cardEyebrow}>COMMISSIONS</Text>
@@ -246,7 +291,16 @@ export default function DashboardScreen() {
         {/* Negative horizontal margin so the chart aligns to card width
             (the chart wraps itself with marginHorizontal: spacing.lg). */}
         <View style={{ marginHorizontal: -spacing.lg, marginTop: -spacing.lg }}>
-          <HomeDailyChart />
+          <HomeDailyChart
+            externalRange={
+              rangeActive
+                ? {
+                    date_from: dateRange.date_from,
+                    date_to: dateRange.date_to,
+                  }
+                : null
+            }
+          />
         </View>
 
         {/* TOP MANUFACTURERS moved below NEW USERS per UX preference. */}
@@ -275,22 +329,53 @@ export default function DashboardScreen() {
 
         {/* NEW USERS */}
         <View style={styles.card}>
-          <Text style={styles.cardEyebrow}>NEW USERS</Text>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.cardEyebrow}>NEW USERS</Text>
+            {rangeActive && (
+              <Text style={styles.cardLink} numberOfLines={1}>
+                {rangeCaption.toUpperCase()}
+              </Text>
+            )}
+          </View>
           <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
             <View style={styles.newCol}>
               <Text style={styles.newColTitle}>CLIENTS</Text>
-              <Text style={styles.newColPrimary}>{nu.client_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.client_30d} in 30d</Text>
+              <Text style={styles.newColPrimary}>
+                {rangeActive
+                  ? nu.client_in_range ?? 0
+                  : nu.client_7d}
+              </Text>
+              <Text style={styles.newColSub}>
+                {rangeActive
+                  ? "in selected period"
+                  : `last 7d  ·  ${nu.client_30d} in 30d`}
+              </Text>
             </View>
             <View style={styles.newCol}>
               <Text style={styles.newColTitle}>WORKSHOPS</Text>
-              <Text style={styles.newColPrimary}>{nu.manufacturer_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.manufacturer_30d} in 30d</Text>
+              <Text style={styles.newColPrimary}>
+                {rangeActive
+                  ? nu.manufacturer_in_range ?? 0
+                  : nu.manufacturer_7d}
+              </Text>
+              <Text style={styles.newColSub}>
+                {rangeActive
+                  ? "in selected period"
+                  : `last 7d  ·  ${nu.manufacturer_30d} in 30d`}
+              </Text>
             </View>
             <View style={styles.newCol}>
               <Text style={styles.newColTitle}>ASSOCIATES</Text>
-              <Text style={styles.newColPrimary}>{nu.associate_7d}</Text>
-              <Text style={styles.newColSub}>last 7d  ·  {nu.associate_30d} in 30d</Text>
+              <Text style={styles.newColPrimary}>
+                {rangeActive
+                  ? nu.associate_in_range ?? 0
+                  : nu.associate_7d}
+              </Text>
+              <Text style={styles.newColSub}>
+                {rangeActive
+                  ? "in selected period"
+                  : `last 7d  ·  ${nu.associate_30d} in 30d`}
+              </Text>
             </View>
           </View>
         </View>
@@ -493,6 +578,13 @@ const styles = StyleSheet.create({
   syncTime: { color: theme.textSecondary, fontSize: 11 },
   empty: { color: theme.textMuted, fontSize: 11, paddingVertical: spacing.sm, fontStyle: "italic" },
   generatedAt: { color: theme.textMuted, fontSize: 10, textAlign: "center", marginTop: spacing.lg, fontStyle: "italic" },
+  filterCaption: {
+    color: theme.primary,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    fontStyle: "italic",
+    marginTop: -spacing.sm,
+  },
   errorTitle: {
     color: theme.textPrimary,
     fontSize: 16,
