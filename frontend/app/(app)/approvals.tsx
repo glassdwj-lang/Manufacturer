@@ -258,7 +258,8 @@ export default function ApprovalsScreen() {
                 )}
                 <ActionButton
                   label={t("approvals.reject")}
-                  color={theme.danger}
+                  color="#D9362C"
+                  filled
                   loading={busyUrl === url}
                   onPress={() => reject(it)}
                 />
@@ -434,25 +435,41 @@ function TabPill({
 function ActionButton({
   label,
   color,
+  filled,
   loading,
   onPress,
 }: {
   label: string;
   color: string;
+  /** When true, paint the button with `color` and use white text. Used
+   *  for destructive actions (e.g. REJECT) so they stand out from the
+   *  outlined APPROVE / HOLD pills. */
+  filled?: boolean;
   loading?: boolean;
   onPress: () => void;
 }) {
   return (
     <TouchableOpacity
-      style={[styles.actionBtn, { borderColor: color }]}
+      style={[
+        styles.actionBtn,
+        { borderColor: color },
+        filled && { backgroundColor: color },
+      ]}
       onPress={onPress}
       disabled={loading}
       testID={`action-${label.toLowerCase()}`}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={color} />
+        <ActivityIndicator size="small" color={filled ? "#FFFFFF" : color} />
       ) : (
-        <Text style={[styles.actionBtnText, { color }]}>{label}</Text>
+        <Text
+          style={[
+            styles.actionBtnText,
+            { color: filled ? "#FFFFFF" : color },
+          ]}
+        >
+          {label}
+        </Text>
       )}
     </TouchableOpacity>
   );
