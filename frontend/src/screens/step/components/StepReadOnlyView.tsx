@@ -194,39 +194,49 @@ export function StepReadOnlyView({
           </>
         )}
       {/* Manufacturer / admin amendments on an already-finalised step.
-          Layout: PREV | UPDATE | REMOVE COMPLETE | NEXT — 4 equal-width
-          pills on a single line, per design. */}
+          Layout: two rows of two equal-width pills so the labels never
+          get squeezed on a phone-width screen:
+            Row 1 (actions)     : [UPDATE] [REMOVE COMPLETE]
+            Row 2 (navigation)  : [PREVIOUS STEP] [NEXT STEP] */}
       {canManufacturerEdit && (
-        <View style={styles.mfgAmendRow}>
-          <StepNavBtn
-            direction="prev"
-            disabled={!hasPrev}
-            onPress={onPrev}
-          />
-          <TouchableOpacity
-            testID="enter-update-button"
-            onPress={onEnterEdit}
-            style={styles.secondaryBtn}
-            disabled={saving}
-          >
-            <Ionicons name="create-outline" size={14} color={theme.primary} />
-            <Text style={styles.secondaryBtnText}>UPDATE</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="reopen-step-button"
-            onPress={onReopen}
-            style={styles.dangerBtn}
-            disabled={saving}
-          >
-            <Ionicons name="close-circle-outline" size={14} color={theme.danger} />
-            <Text style={styles.dangerBtnText}>REMOVE COMPLETE</Text>
-          </TouchableOpacity>
-          <StepNavBtn
-            direction="next"
-            disabled={!hasNext}
-            onPress={onNext}
-          />
-        </View>
+        <>
+          <View style={styles.mfgAmendRow}>
+            <TouchableOpacity
+              testID="enter-update-button"
+              onPress={onEnterEdit}
+              style={styles.secondaryBtn}
+              disabled={saving}
+            >
+              <Ionicons name="create-outline" size={14} color={theme.primary} />
+              <Text style={styles.secondaryBtnText}>UPDATE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="reopen-step-button"
+              onPress={onReopen}
+              style={styles.dangerBtn}
+              disabled={saving}
+            >
+              <Ionicons
+                name="close-circle-outline"
+                size={14}
+                color={theme.danger}
+              />
+              <Text style={styles.dangerBtnText}>REMOVE COMPLETE</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.navOnlyRow}>
+            <StepNavBtn
+              direction="prev"
+              disabled={!hasPrev}
+              onPress={onPrev}
+            />
+            <StepNavBtn
+              direction="next"
+              disabled={!hasNext}
+              onPress={onNext}
+            />
+          </View>
+        </>
       )}
       {/* View-only consumers (client / associate / anyone without edit
           rights) get a 2-button PREV / NEXT row so they can still walk

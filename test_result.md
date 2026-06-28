@@ -431,3 +431,46 @@ agent_communication:
          (PREVIOUS STEP dimmed, NEXT STEP active).
       
       Lint clean.
+
+  - agent: main
+    message: |
+      Switched the admin/workshop bottom action group from a single
+      4-button row to a 2-row x 2-button layout for mobile readability:
+        Row 1 (actions)    : [UPDATE] [REMOVE COMPLETE]
+        Row 2 (navigation) : [PREVIOUS STEP] [NEXT STEP]
+      
+      Labels now sit on a single line each — no wrapping, no
+      squeezing. View-only roles still see just the navigation row.
+      Lint clean. Visual confirmed on step 01.
+
+  - agent: main
+    message: |
+      Two PhotoLightbox bugs reported under Conceptual Rendering fixed:
+      
+      1) Slider counter ("1 / 9") not advancing on swipe.
+         Root cause: FlatList's `onMomentumScrollEnd` does not reliably
+         fire on Expo Web (pagingEnabled uses CSS scroll-snap, not the
+         native momentum mechanism).
+         Fix: added a web-only `onScroll` fallback that recomputes the
+         active page index from contentOffset.x. Verified — the counter
+         now updates as the user swipes (saw it go from 1/9 to 3/9).
+      
+      2) Videos not autoplaying when the lightbox opened.
+         Root cause: the video page was wrapped in a tap-to-dismiss
+         Pressable. That layer intercepted EVERY tap — including taps on
+         the native play button — so the user couldn't even start
+         playback manually, and autoplay was silently effectively
+         "consumed" by the wrapper.
+         Fix:
+           • Removed the Pressable around video pages (taps now reach
+             the native video controls). Tap-to-dismiss is still
+             available outside the video via the absoluteFill backdrop
+             behind the FlatList.
+           • LoopingVideo now forces `muted = true` at player init so
+             browser autoplay policies allow play(). The user's global
+             mute preference is then applied via the effect that runs
+             AFTER init (still defaults to muted).
+           • Wrapped `player.play()` in a Promise-aware try/catch so the
+             rare browser-blocked autoplay doesn't pollute the console.
+      
+      Lint clean.

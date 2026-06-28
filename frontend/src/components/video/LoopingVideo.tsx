@@ -40,10 +40,16 @@ export function LoopingVideo({
   const { muted } = useVideoPlaybackPrefs();
   const player = useVideoPlayer(uri, (p) => {
     p.loop = true;
-    p.muted = muted;
+    // Always start muted so browsers (Chrome/Safari) honor autoplay
+    // policies. The host's mute preference is then applied via the
+    // effect below — when the user explicitly un-mutes, that requires
+    // a tap which counts as a user gesture so it stays unmuted.
+    p.muted = true;
   });
 
-  // Keep the live player in sync with the global mute preference.
+  // Keep the live player in sync with the global mute preference, but
+  // only AFTER the player has had a chance to start muted. The initial
+  // setup above forces muted=true so autoplay never gets blocked.
   useEffect(() => {
     try {
       player.muted = muted;
@@ -52,12 +58,29 @@ export function LoopingVideo({
     }
   }, [muted, player]);
 
-  // Pause/resume based on the host's intent.
+  // Pause/resume based on the host's intent. We call play() through a
+  // promise wrapper because browser autoplay policies can reject the
+  // call as a NotAllowedError — swallowing the rejection prevents an
+  // uncaught-promise warning from polluting the console while leaving
+  // the video paused (the user can tap the native controls).
   useEffect(() => {
     if (isActive) {
-      player.play();
+      try {
+        const result: any = player.play();
+        if (result && typeof result.then === "function") {
+          result.catch(() => {
+            /* autoplay blocked — user must tap to start */
+          });
+        }
+      } catch {
+        /* pre-init: expo-video swallows */
+      }
     } else {
-      player.pause();
+      try {
+        player.pause();
+      } catch {
+        /* same */
+      }
     }
   }, [isActive, player]);
 

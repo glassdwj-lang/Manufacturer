@@ -88,19 +88,37 @@ export function PhotoLightbox({ photos, visible, initialIndex = 0, onClose }: Ph
           onMomentumScrollEnd={(e) =>
             setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / Math.max(width, 1)))
           }
+          // Web's `pagingEnabled` is implemented via CSS scroll-snap and
+          // does NOT reliably fire `onMomentumScrollEnd`. Fall back to a
+          // throttled `onScroll` so the counter and active-video state
+          // still update as the user swipes.
+          onScroll={
+            Platform.OS === "web"
+              ? (e) => {
+                  const next = Math.round(
+                    e.nativeEvent.contentOffset.x / Math.max(width, 1),
+                  );
+                  if (next !== activeIndex) setActiveIndex(next);
+                }
+              : undefined
+          }
+          scrollEventThrottle={Platform.OS === "web" ? 32 : undefined}
           renderItem={({ item, index }) => {
             if (isVideoUrl(item)) {
+              // No Pressable wrapper here — the video's own native
+              // controls (play/pause/scrubber/fullscreen) need to be
+              // tappable. Tap-to-dismiss is still available outside the
+              // video via the absoluteFill backdrop layer mounted
+              // above the FlatList.
               return (
                 <View style={[styles.page, { width, height }]}>
-                  <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-                    <LoopingVideo
-                      uri={item}
-                      isActive={index === activeIndex && visible}
-                      style={styles.photo}
-                      nativeControls
-                      contentFit="contain"
-                    />
-                  </Pressable>
+                  <LoopingVideo
+                    uri={item}
+                    isActive={index === activeIndex && visible}
+                    style={styles.photo}
+                    nativeControls
+                    contentFit="contain"
+                  />
                 </View>
               );
             }
