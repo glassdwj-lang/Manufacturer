@@ -25,6 +25,7 @@ from .cad import router as _cad_router
 from .igi import router as _igi_router
 from .renders import router as _renders_router
 from .digital_dna import router as _digital_dna_router
+from .client_approval import router as _client_approval_router
 
 router = APIRouter()
 router.include_router(_crud_router)
@@ -34,5 +35,6 @@ router.include_router(_cad_router)
 router.include_router(_igi_router)
 router.include_router(_renders_router)
 router.include_router(_digital_dna_router)
+router.include_router(_client_approval_router)
 
 __all__ = ["router"]

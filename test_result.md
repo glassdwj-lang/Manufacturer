@@ -474,3 +474,38 @@ agent_communication:
              rare browser-blocked autoplay doesn't pollute the console.
       
       Lint clean.
+
+  - agent: main
+    message: |
+      Phase 1 (backend) of the Client Approval flow complete.
+      
+      New module: backend/routes/orders/client_approval.py
+      Mounted under the existing orders router so endpoints sit on
+      /api/orders/...
+      
+      Endpoints:
+        • POST /orders/{id}/renders/{rid}/release-for-client (admin/assoc)
+          — toggles render.client_release boolean.
+        • GET /orders/{id}/client-renders
+          — released renders + approval state (admin/associate/client).
+        • POST /orders/{id}/client-approval/gate1 {status, message?}
+          — accepted | revision_requested. revision_requested emails
+          assigned associate + BCC all admins with the client's message
+          and creates an in-app notification for the associate.
+        • POST /orders/{id}/client-approval/gate2 {status}
+          — yes locks the order ("in production"), auto-completes step 02
+          + forwards to client, fans out in-app notifications to mfg +
+          admin + associate, generates a Design Authorisation Certificate
+          PDF via build_digital_dna_pdf and emails to client (BCC
+          admin+associate). no fans out an URGENT notification to
+          associate + admin.
+      
+      Schema additions (no migration needed — implicit on first write):
+        • order.client_approval = {gate1_status, gate1_at,
+          gate1_message, gate2_status, gate2_at}
+        • render.client_release = bool
+      
+      Smoke-tested via httpx — endpoints respond with correct status
+      codes, role guards work, validation works. Lint clean.
+      
+      Phase 2 (admin "release for client" toggle) is next.
