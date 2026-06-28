@@ -97,8 +97,19 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
   },
-  thumbBtn: { width: 56, height: 56 },
+  thumbBtn: { width: 56, height: 56, position: "relative" },
   thumb: { width: 56, height: 56, backgroundColor: "#222" },
+  // ▶ overlay shown on video thumbnails so users know taps will play.
+  thumbPlayOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.28)",
+  },
   thumbFallback: {
     alignItems: "center",
     justifyContent: "center",

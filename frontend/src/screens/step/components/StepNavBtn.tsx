@@ -22,7 +22,7 @@ export function StepNavBtn({
   testID?: string;
 }) {
   const icon = direction === "prev" ? "chevron-back" : "chevron-forward";
-  const label = direction === "prev" ? "PREV" : "NEXT";
+  const label = direction === "prev" ? "PREVIOUS STEP" : "NEXT STEP";
   return (
     <TouchableOpacity
       testID={testID || `step-${direction}`}

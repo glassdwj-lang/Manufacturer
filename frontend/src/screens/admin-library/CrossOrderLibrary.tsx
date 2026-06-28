@@ -103,6 +103,11 @@ export type LibraryConfig = {
     date_to?: string | null;
   }) => Promise<DocLibraryRow[]>;
   sendEmail: (payload: DocLibraryEmailPayload) => Promise<DocLibraryEmailResponse>;
+  /** Optional override for the "open file" tap. When set, the open icon
+   *  calls this instead of `Linking.openURL` — useful for image/video
+   *  libraries that want to open the in-app PhotoLightbox (which
+   *  autoplays the active video). */
+  onOpenFile?: (file: DocLibraryRow["files"][number]) => void;
   /** Optional upload action — when set, renders a "+ UPLOAD" button in
    *  the library header. `onPress` is invoked with a `refresh` callback
    *  the library uses to re-fetch its rows after a successful upload. */
@@ -353,7 +358,11 @@ export function CrossOrderLibrary({ config }: { config: LibraryConfig }) {
         {!!f.secure_url && (
           <TouchableOpacity
             testID={`${slug}-open-${f.id}`}
-            onPress={() => Linking.openURL(f.secure_url)}
+            onPress={() =>
+              config.onOpenFile
+                ? config.onOpenFile(f)
+                : Linking.openURL(f.secure_url)
+            }
             style={styles.previewBtn}
           >
             <Ionicons name="open-outline" size={16} color={theme.primary} />

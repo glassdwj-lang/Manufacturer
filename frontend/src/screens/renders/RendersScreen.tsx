@@ -34,6 +34,7 @@ import { confirmAction, notify } from "@/src/utils/confirm";
 import { useAuth } from "@/src/context/AuthContext";
 import { BrandStrip } from "@/src/components/BrandStrip";
 import { useI18n } from "@/src/i18n";
+import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import {
   MediaModerationModal,
   ModerationKind,
@@ -67,6 +68,23 @@ export default function RendersScreen() {
     kind: ModerationKind;
     target: ModerationTarget;
   } | null>(null);
+
+  // In-app render viewer state — array of URLs and the active index.
+  // We build the URL list (live + pending) each time a thumbnail is
+  // tapped so the lightbox supports swiping across the whole queue.
+  const [lightboxUrls, setLightboxUrls] = useState<string[] | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const openRender = (file: CadFile) => {
+    if (!file?.secure_url) return;
+    // Concatenate live + pending so users can swipe between them in the
+    // lightbox; videos in either queue will autoplay as they become
+    // the active page.
+    const urls = [...r.live, ...r.pending].map((f) => f.secure_url).filter(Boolean);
+    const idx = Math.max(0, urls.indexOf(file.secure_url));
+    setLightboxUrls(urls);
+    setLightboxIndex(idx);
+  };
 
   useEffect(() => {
     if (!orderId) return;
@@ -274,6 +292,7 @@ export default function RendersScreen() {
                       isAdmin={!!isAdmin}
                       canDelete={canDelete}
                       busyId={r.busyId}
+                      onOpen={openRender}
                       onApprove={r.approveOne}
                       onReject={onReject}
                       onDelete={(f) => onDelete(f, true)}
@@ -307,6 +326,7 @@ export default function RendersScreen() {
                 isAdmin={!!isAdmin}
                 canDelete={!!isAdmin}
                 busyId={r.busyId}
+                onOpen={openRender}
                 onApprove={r.approveOne}
                 onReject={onReject}
                 onDelete={(f) => onDelete(f, false)}
@@ -348,6 +368,16 @@ export default function RendersScreen() {
             "The uploader has been notified — render removed from the pending queue.",
           );
         }}
+      />
+
+      {/* In-app viewer for renders. PhotoLightbox already autoplays the
+          active video via LoopingVideo so any uploaded MP4 begins
+          playing the moment the user lands on it. */}
+      <PhotoLightbox
+        photos={lightboxUrls || []}
+        visible={!!lightboxUrls}
+        initialIndex={lightboxIndex}
+        onClose={() => setLightboxUrls(null)}
       />
     </SafeAreaView>
   );

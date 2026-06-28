@@ -408,3 +408,26 @@ agent_communication:
         • Header now shows only close + eyebrow + LanguageSwitcher.
       
       Lint clean.
+
+  - agent: main
+    message: |
+      Two updates:
+      
+      1) Renders + media autoplay on viewing.
+         - Per-order RendersScreen now opens an in-app PhotoLightbox on
+           thumbnail tap instead of Linking.openURL. LoopingVideo (used
+           by the lightbox) autoplays the active video.
+         - Cross-order Renders Library (admin/renders.tsx) wires an
+           onOpenFile callback so the "open" icon also opens the
+           lightbox; same autoplay behaviour.
+         - Step photo lightbox + Media Approvals lightbox already
+           autoplayed via the same component — no change needed there.
+         - RenderRow shows a ▶ overlay on video thumbnails so users know
+           the tap will play.
+      
+      2) Step nav button labels updated to "PREVIOUS STEP" / "NEXT STEP"
+         across every consumer (4-button mfgAmendRow + 2-button view-
+         only + form/forward rows). Verified visually on admin step 01
+         (PREVIOUS STEP dimmed, NEXT STEP active).
+      
+      Lint clean.

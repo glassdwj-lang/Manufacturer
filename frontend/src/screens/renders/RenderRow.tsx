@@ -1,11 +1,15 @@
 /** Single row in the renders detail screen — thumbnail, name, byte
  *  count, uploader, plus admin approve/reject buttons (when pending) or
- *  the delete bin (when allowed). */
+ *  the delete bin (when allowed).
+ *
+ *  Tapping the thumbnail bubbles up via `onOpen(file)` so the parent can
+ *  show the in-app PhotoLightbox (which autoplays videos and supports
+ *  swipe between renders).
+ */
 import React from "react";
 import {
   ActivityIndicator,
   Image,
-  Linking,
   Text,
   TouchableOpacity,
   View,
@@ -14,8 +18,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { theme } from "@/src/theme";
 import { CadFile } from "@/src/api/client";
+import { isVideoUrl } from "@/src/api/cloudinaryUpload";
 import { formatBytes } from "@/src/utils/fileFormatting";
 import { styles } from "./styles";
+import { videoPoster } from "../approvals/utils";
 
 export function RenderRow({
   file,
@@ -23,6 +29,7 @@ export function RenderRow({
   isAdmin,
   canDelete,
   busyId,
+  onOpen,
   onApprove,
   onReject,
   onDelete,
@@ -32,20 +39,32 @@ export function RenderRow({
   isAdmin: boolean;
   canDelete: boolean;
   busyId: string | null;
+  /** Tapping the thumbnail surfaces the file to the parent so it can
+   *  open the in-app PhotoLightbox (which autoplays videos). */
+  onOpen: (f: CadFile) => void;
   onApprove: (f: CadFile) => void;
   onReject: (f: CadFile) => void;
   onDelete: (f: CadFile) => void;
 }) {
   const busy = busyId === file.id;
+  const isVideo = file.secure_url && isVideoUrl(file.secure_url);
+  const thumbUri = isVideo ? videoPoster(file.secure_url) : file.secure_url;
   return (
     <View style={styles.row}>
       <TouchableOpacity
-        onPress={() => Linking.openURL(file.secure_url)}
+        onPress={() => onOpen(file)}
         style={styles.thumbBtn}
         testID={`render-thumb-${file.id}`}
       >
         {file.secure_url ? (
-          <Image source={{ uri: file.secure_url }} style={styles.thumb} />
+          <>
+            <Image source={{ uri: thumbUri }} style={styles.thumb} />
+            {isVideo && (
+              <View style={styles.thumbPlayOverlay} pointerEvents="none">
+                <Ionicons name="play" size={20} color="#fff" />
+              </View>
+            )}
+          </>
         ) : (
           <View style={[styles.thumb, styles.thumbFallback]}>
             <Ionicons name="image-outline" size={20} color={theme.textMuted} />

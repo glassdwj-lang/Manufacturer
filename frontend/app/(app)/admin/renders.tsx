@@ -23,6 +23,7 @@ import {
   OrderPickerModal,
   PickableOrder,
 } from "@/src/components/OrderPickerModal";
+import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 
 export default function RendersLibraryScreen() {
   // Imperative state shared between the library config closure and the
@@ -31,6 +32,10 @@ export default function RendersLibraryScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [refreshFn, setRefreshFn] = useState<(() => void) | null>(null);
   const [uploading, setUploading] = useState(false);
+  // In-app render viewer: a single URL is enough since cross-order rows
+  // are independent (no "swipe through all renders in the library"
+  // affordance — that would be confusing across commissions).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const config: LibraryConfig = {
     slug: "renders-library",
@@ -67,6 +72,11 @@ export default function RendersLibraryScreen() {
         date_to,
       }),
     sendEmail: (payload) => api.adminEmailCrossOrderRenders(payload),
+    // In-app viewer — PhotoLightbox autoplays the active video, so any
+    // .mp4 render begins playing the moment the user lands on it.
+    onOpenFile: (file) => {
+      if (file?.secure_url) setLightboxUrl(file.secure_url);
+    },
     // Cross-order upload entry-point — opens the order picker, then
     // the native image picker, then performs Cloudinary + addRender
     // for each selected file under the picked order.
@@ -141,6 +151,12 @@ export default function RendersLibraryScreen() {
           setPickerOpen(false);
           await runUploadFor(order);
         }}
+      />
+      {/* Single-render lightbox — autoplays videos via LoopingVideo. */}
+      <PhotoLightbox
+        photos={lightboxUrl ? [lightboxUrl] : []}
+        visible={!!lightboxUrl}
+        onClose={() => setLightboxUrl(null)}
       />
     </>
   );
