@@ -28,7 +28,7 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useAuth } from "@/src/context/AuthContext";
@@ -55,9 +55,23 @@ export default function StepActionScreen() {
     stepNumber: string;
   }>();
   const safeBack = useSafeBack();
+  const router = useRouter();
   const { user } = useAuth();
   const { t } = useI18n();
   const stepNum = parseInt(stepNumber || "0", 10);
+
+  // Prev / next step navigation — clamps to the 26-step protocol so the
+  // chevrons disable at the boundaries instead of producing a 404.
+  const TOTAL_STEPS = 26;
+  const hasPrev = stepNum > 1;
+  const hasNext = stepNum < TOTAL_STEPS;
+  const goToStep = (n: number) => {
+    if (!orderId) return;
+    if (n < 1 || n > TOTAL_STEPS) return;
+    // Use replace so the back-stack doesn't bloat as the user steps
+    // through the protocol.
+    router.replace(`/(app)/step/${orderId}/${n}`);
+  };
 
   const {
     order,
@@ -138,6 +152,36 @@ export default function StepActionScreen() {
               })}
             </Text>
           </View>
+          {/* Step prev/next nav — disabled at the 1/26 boundaries so the
+              chevrons clearly communicate the end of the protocol. */}
+          <TouchableOpacity
+            testID="step-prev"
+            onPress={() => goToStep(stepNum - 1)}
+            disabled={!hasPrev}
+            style={[styles.navIconBtn, !hasPrev && styles.navIconBtnDim]}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            accessibilityLabel="Previous step"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={hasPrev ? theme.primary : theme.textMuted}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="step-next"
+            onPress={() => goToStep(stepNum + 1)}
+            disabled={!hasNext}
+            style={[styles.navIconBtn, !hasNext && styles.navIconBtnDim]}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            accessibilityLabel="Next step"
+          >
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={hasNext ? theme.primary : theme.textMuted}
+            />
+          </TouchableOpacity>
           <LanguageSwitcher compact />
         </View>
 

@@ -364,3 +364,16 @@ agent_communication:
       now lead the queue ahead of yesterday's seed entries.
       
       Backend lint clean.
+
+  - agent: main
+    message: |
+      Added prev/next step navigation in the StepScreen header.
+      Chevrons sit on the right of the header eyebrow, just left of the
+      LanguageSwitcher. They use router.replace so the back stack stays
+      flat as the user walks the 26-step protocol. Boundaries (step 1
+      and step 26) dim and disable the corresponding chevron so it's
+      obvious you've hit the start/end of the protocol.
+      
+      Verified via screenshots on step 01 (prev dim), 02 (both gold),
+      26 (next dim), and tapping next from step 02 correctly navigated
+      to step 03 with content re-fetched. Lint clean.
