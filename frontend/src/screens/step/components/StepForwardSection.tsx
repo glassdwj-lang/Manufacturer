@@ -3,6 +3,7 @@ import React from "react";
 import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { theme } from "@/src/theme";
 import { styles } from "../styles";
+import { StepNavBtn } from "./StepNavBtn";
 
 export function StepForwardSection({
   reviewNote,
@@ -10,12 +11,20 @@ export function StepForwardSection({
   saving,
   error,
   onForward,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
 }: {
   reviewNote: string;
   setReviewNote: (s: string) => void;
   saving: boolean;
   error: string | null;
   onForward: () => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   return (
     <>
@@ -43,6 +52,20 @@ export function StepForwardSection({
           <Text style={styles.primaryBtnText}>FORWARD TO CLIENT</Text>
         )}
       </TouchableOpacity>
+      {/* Walk-the-protocol prev/next for the associate too. Disabled
+          while a forward write is in flight. */}
+      <View style={styles.navOnlyRow}>
+        <StepNavBtn
+          direction="prev"
+          disabled={!hasPrev || saving}
+          onPress={onPrev}
+        />
+        <StepNavBtn
+          direction="next"
+          disabled={!hasNext || saving}
+          onPress={onNext}
+        />
+      </View>
     </>
   );
 }

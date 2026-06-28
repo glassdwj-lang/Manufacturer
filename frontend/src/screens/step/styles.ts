@@ -13,18 +13,36 @@ export const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   iconBtn: { padding: 4, marginRight: spacing.sm },
-  navIconBtn: {
-    width: 32,
-    height: 32,
+  // ---- Step prev/next chevron pill (used in the bottom action row).
+  // Sized as `flex: 1` so when nested inside the 4-button mfgAmendRow
+  // (PREV | UPDATE | REMOVE COMPLETE | NEXT) each pill gets equal width.
+  navPillBtn: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
     borderWidth: 1,
     borderColor: theme.primary,
-    marginRight: 6,
+    minHeight: 44,
   },
-  navIconBtnDim: {
+  navPillBtnDim: {
     borderColor: theme.border,
     opacity: 0.5,
+  },
+  navPillText: {
+    color: theme.primary,
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: "600",
+  },
+  // ---- 2-button prev/next row for view-only consumers (client) and
+  // for sticking under the primary action in form/forward modes.
+  navOnlyRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xl,
   },
   headerEyebrow: { color: theme.primary, fontSize: 11, letterSpacing: 3 },
   title: { color: theme.textPrimary, fontSize: 24, fontWeight: "300", marginTop: spacing.sm, lineHeight: 30 },

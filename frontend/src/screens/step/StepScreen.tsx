@@ -152,36 +152,6 @@ export default function StepActionScreen() {
               })}
             </Text>
           </View>
-          {/* Step prev/next nav — disabled at the 1/26 boundaries so the
-              chevrons clearly communicate the end of the protocol. */}
-          <TouchableOpacity
-            testID="step-prev"
-            onPress={() => goToStep(stepNum - 1)}
-            disabled={!hasPrev}
-            style={[styles.navIconBtn, !hasPrev && styles.navIconBtnDim]}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            accessibilityLabel="Previous step"
-          >
-            <Ionicons
-              name="chevron-back"
-              size={20}
-              color={hasPrev ? theme.primary : theme.textMuted}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            testID="step-next"
-            onPress={() => goToStep(stepNum + 1)}
-            disabled={!hasNext}
-            style={[styles.navIconBtn, !hasNext && styles.navIconBtnDim]}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            accessibilityLabel="Next step"
-          >
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={hasNext ? theme.primary : theme.textMuted}
-            />
-          </TouchableOpacity>
           <LanguageSwitcher compact />
         </View>
 
@@ -216,6 +186,10 @@ export default function StepActionScreen() {
               error={error}
               onPrimary={editMode ? handleUpdate : handleComplete}
               onCancel={cancelEdit}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              onPrev={() => goToStep(stepNum - 1)}
+              onNext={() => goToStep(stepNum + 1)}
             />
           ) : null}
 
@@ -226,6 +200,10 @@ export default function StepActionScreen() {
               saving={saving}
               error={error}
               onForward={handleForward}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              onPrev={() => goToStep(stepNum - 1)}
+              onNext={() => goToStep(stepNum + 1)}
             />
           ) : null}
 
@@ -244,6 +222,10 @@ export default function StepActionScreen() {
               saving={saving}
               onEnterEdit={() => setEditMode(true)}
               onReopen={handleReopen}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              onPrev={() => goToStep(stepNum - 1)}
+              onNext={() => goToStep(stepNum + 1)}
             />
           )}
         </ScrollView>

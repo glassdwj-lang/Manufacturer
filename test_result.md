@@ -377,3 +377,34 @@ agent_communication:
       Verified via screenshots on step 01 (prev dim), 02 (both gold),
       26 (next dim), and tapping next from step 02 correctly navigated
       to step 03 with content re-fetched. Lint clean.
+
+  - agent: main
+    message: |
+      Chevrons moved from the header to the bottom action rows.
+      
+      Layout:
+        • Admin / Workshop viewing a completed step:
+          4 equal-width pills — [< PREV] [UPDATE] [REMOVE COMPLETE] [NEXT >]
+        • Client / any view-only consumer of a completed step:
+          2 equal-width pills — [< PREV] [NEXT >]
+        • Form mode (manufacturer completing or editing) AND Forward
+          mode (associate forwarding) also gain a [< PREV] [NEXT >] row
+          below the primary action, disabled while saving so a
+          mid-write nav is impossible.
+      
+      Implementation:
+        • New reusable StepNavBtn component (flex:1 pill, gold border,
+          chevron + label, dim state at protocol boundaries).
+        • New navPillBtn / navPillBtnDim / navPillText / navOnlyRow
+          styles in styles.ts; removed old header-only navIcon styles.
+        • Header chevrons removed entirely.
+        • hasPrev/hasNext + onPrev/onNext props threaded through
+          StepFormSection, StepForwardSection, StepReadOnlyView.
+      
+      Visual verification:
+        • Admin step 01 — PREV dimmed, NEXT active, UPDATE + REMOVE
+          COMPLETE in between.
+        • Client step 02 — only PREV/NEXT pills at the bottom.
+        • Header now shows only close + eyebrow + LanguageSwitcher.
+      
+      Lint clean.

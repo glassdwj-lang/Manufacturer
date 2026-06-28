@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 import { styles } from "../styles";
 import { PhotoGrid } from "./PhotoGrid";
+import { StepNavBtn } from "./StepNavBtn";
 
 export function StepFormSection({
   notes,
@@ -23,6 +24,10 @@ export function StepFormSection({
   error,
   onPrimary,
   onCancel,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
 }: {
   notes: string;
   setNotes: (s: string) => void;
@@ -38,6 +43,10 @@ export function StepFormSection({
   error: string | null;
   onPrimary: () => void;
   onCancel: () => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   return (
     <>
@@ -116,6 +125,22 @@ export function StepFormSection({
           <Text style={styles.secondaryBtnText}>CANCEL</Text>
         </TouchableOpacity>
       )}
+      {/* Walk-the-protocol prev/next available below the primary action
+          so the user can navigate without losing in-progress edits — the
+          buttons stay disabled while saving so a mid-write nav is
+          impossible. */}
+      <View style={styles.navOnlyRow}>
+        <StepNavBtn
+          direction="prev"
+          disabled={!hasPrev || saving}
+          onPress={onPrev}
+        />
+        <StepNavBtn
+          direction="next"
+          disabled={!hasNext || saving}
+          onPress={onNext}
+        />
+      </View>
     </>
   );
 }
