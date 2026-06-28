@@ -114,6 +114,47 @@ async def complete_step(
             {"id": order_id}, {"$set": {"status": "completed"}}
         )
 
+    # In-app notification fan-out — admins (+ assigned manufacturer) need
+    # to know when new photos are queued for moderation so they don't
+    # have to poll the Media Approvals page. We deliberately fire AFTER
+    # the DB write so a partially-failed write doesn't leave a stranded
+    # notification.
+    newly_pending = [u for u in final_pending if u not in existing_pending]
+    if newly_pending and user["role"] == "manufacturer":
+        try:
+            from _notifications import notify_admins_and_manufacturer
+
+            count = len(newly_pending)
+            await notify_admins_and_manufacturer(
+                db,
+                order=order,
+                actor_user_id=user["id"],
+                type="step_photo.pending",
+                title=(
+                    "1 photo awaiting approval"
+                    if count == 1
+                    else f"{count} photos awaiting approval"
+                ),
+                body=(
+                    f"{user.get('name') or user.get('email')} completed step "
+                    f"{step_number:02d} on {order.get('order_ref') or order_id}"
+                ),
+                link_route="/approvals",
+                payload={
+                    "order_id": order_id,
+                    "order_ref": order.get("order_ref"),
+                    "jewelry_name": order.get("jewelry_name"),
+                    "step_number": step_number,
+                    "count": count,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Notification failure must NEVER fail the step completion.
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to fan out step-photo pending notification: %s", exc
+            )
+
     updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
     return strip_order_for_role(updated, user)
 
@@ -185,6 +226,42 @@ async def update_completed_step(
             }
         },
     )
+    # In-app fan-out (same pattern as /complete) so admins find their
+    # moderation queue without polling the screen.
+    newly_pending = [u for u in final_pending if u not in existing_pending]
+    if newly_pending and user["role"] == "manufacturer":
+        try:
+            from _notifications import notify_admins_and_manufacturer
+
+            count = len(newly_pending)
+            await notify_admins_and_manufacturer(
+                db,
+                order=order,
+                actor_user_id=user["id"],
+                type="step_photo.pending",
+                title=(
+                    "1 photo awaiting approval"
+                    if count == 1
+                    else f"{count} photos awaiting approval"
+                ),
+                body=(
+                    f"{user.get('name') or user.get('email')} amended step "
+                    f"{step_number:02d} on {order.get('order_ref') or order_id}"
+                ),
+                link_route="/approvals",
+                payload={
+                    "order_id": order_id,
+                    "order_ref": order.get("order_ref"),
+                    "jewelry_name": order.get("jewelry_name"),
+                    "step_number": step_number,
+                    "count": count,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to fan out step-photo pending notification: %s", exc
+            )
     updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
     return strip_order_for_role(updated, user)
 

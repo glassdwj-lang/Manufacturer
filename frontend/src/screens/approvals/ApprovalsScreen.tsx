@@ -10,7 +10,7 @@
  * Heavy lifting is delegated to `useApprovalsQueue` and child components.
  * Keeps this file readable as a high-level layout document.
  */
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -21,7 +21,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useAuth } from "@/src/context/AuthContext";
@@ -55,6 +55,22 @@ export default function ApprovalsScreen() {
   const isAdmin = user?.role === "admin";
 
   const queue = useApprovalsQueue({ canModerate, isAdmin });
+
+  // Re-fetch the queue every time the screen gains focus so admins
+  // always see the latest pending uploads without pulling-to-refresh.
+  // This addresses the "I uploaded photos but they don't appear in
+  // admin for approving" UX gap: the data was queued correctly but the
+  // approvals screen was holding a stale list from its initial load.
+  useFocusEffect(
+    useCallback(() => {
+      if (canModerate) {
+        queue.load();
+      }
+      // queue.load is stable across renders; keeping it out of the dep
+      // array avoids a refresh loop when the queue state changes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canModerate]),
+  );
 
   const [tab, setTab] = useState<ApprovalsTab>("pending");
   const [lightboxUrls, setLightboxUrls] = useState<string[] | null>(null);

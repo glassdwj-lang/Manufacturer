@@ -317,3 +317,30 @@ agent_communication:
         PENDING ADMIN REVIEW (7) with all uploads visible.
       
       Lint clean.
+
+  - agent: main
+    message: |
+      Three fixes applied for the "pending photos don't appear in admin
+      for approving" flow:
+      
+      1. NEW: In-app notification fan-out on manufacturer step uploads.
+         complete_step + update_completed_step now call
+         notify_admins_and_manufacturer with type="step_photo.pending"
+         when new URLs land in pending_photos. Admin notification bell
+         badges immediately. Failures are swallowed (logged only) so a
+         broken notification never blocks the save.
+      
+      2. ApprovalsScreen now uses useFocusEffect to re-fetch the queue
+         every time the screen gains focus. Stops admins from seeing a
+         stale list when they switch tabs and come back.
+      
+      3. /photos/pending now returns latest-first ordering:
+         - Mongo cursor sorted by orders.created_at DESC
+         - Steps iterated in reverse step_number order (latest worked-on
+           segment first within each commission)
+         - Photo arrays iterated in reverse (newest-appended URL first
+           within each step)
+         Verified by python httpx round-trip + screenshot — the queue
+         now leads with newest commissions / latest step uploads.
+      
+      Backend + frontend lint clean.

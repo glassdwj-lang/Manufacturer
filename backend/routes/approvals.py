@@ -201,7 +201,11 @@ async def list_pending_photos(user=Depends(get_current_user)):
             "associate_id": 1,
             "steps": 1,
         },
-    )
+    ).sort("created_at", -1)
+    # Latest commission first → newest manufacturer activity surfaces at
+    # the top of the queue. Within each step we then iterate the photo
+    # arrays in reverse so the most-recently-appended URL appears first
+    # (uploads append to the end of pending_photos[]).
 
     # First pass: build the queue while collecting manufacturer ids so we
     # can resolve their email addresses in a single round-trip below.
@@ -211,12 +215,17 @@ async def list_pending_photos(user=Depends(get_current_user)):
         mfg_id = o.get("manufacturer_id")
         if mfg_id:
             mfg_ids.add(mfg_id)
-        for s in o.get("steps") or []:
+        # Walk steps in reverse step_number too — the highest-numbered
+        # step is usually the most recently worked-on segment of the
+        # commission.
+        for s in reversed(o.get("steps") or []):
             for status_field, status_label in (
                 ("pending_photos", "pending"),
                 ("on_hold_photos", "on_hold"),
             ):
-                for url in s.get(status_field) or []:
+                # Reverse the photo array — uploads append to the end,
+                # so reversing yields newest-first within the step.
+                for url in reversed(s.get(status_field) or []):
                     queue.append(
                         {
                             "order_id": o["id"],
