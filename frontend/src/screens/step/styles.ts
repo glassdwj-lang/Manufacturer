@@ -100,6 +100,28 @@ export const styles = StyleSheet.create({
     paddingVertical: spacing.sm, alignSelf: "flex-start",
   },
   viewOriginalText: { color: theme.primary, fontSize: 10, letterSpacing: 2 },
+  // ---- Pending-approval section (manufacturer/admin view of uploads
+  // queued for atelier moderation) ----
+  pendingBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing.lg,
+    marginBottom: 4,
+  },
+  pendingBadgeText: {
+    color: theme.primary,
+    fontSize: 10,
+    letterSpacing: 3,
+    fontWeight: "700",
+  },
+  pendingBadgeHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontStyle: "italic",
+    marginBottom: spacing.sm,
+    lineHeight: 15,
+  },
   // ---- Manual on-demand translate (CTA shown when viewer language differs
   // from the step's auto-translated language)
   translateBtn: {

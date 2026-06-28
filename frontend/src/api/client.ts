@@ -34,6 +34,15 @@ export type Step = {
   notes_translated?: string;
   notes_target_lang?: string;
   photos: string[];
+  /** Manufacturer uploads pending admin approval. Visible to admin /
+   *  associate / manufacturer but stripped from client responses. */
+  pending_photos?: string[];
+  /** Photos placed on hold by a moderator — uploader sees them so they
+   *  understand the upload landed but needs a re-shoot. */
+  on_hold_photos?: string[];
+  /** Photos hard-rejected by a moderator (frontend usually hides these
+   *  but the field is exposed for completeness). */
+  rejected_photos?: string[];
   forwarded_to_client: boolean;
   forwarded_at: string | null;
   associate_review_note?: string;

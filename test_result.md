@@ -286,3 +286,34 @@ agent_communication:
           + APPROVED RENDERS list with no regressions.
       
       Lint clean across all touched files.
+
+  - agent: main
+    message: |
+      Bug fix — "I uploaded 7 photos and they disappeared after save"
+      
+      Root cause:
+        Backend complete_step / update_completed_step intentionally routes
+        any new manufacturer photo into pending_photos (admin approval
+        queue). The frontend Step type didn't expose `pending_photos`,
+        so after load() the photos array was empty and the grid looked
+        like the uploads had vanished.
+      
+      Fix:
+        • Added pending_photos / on_hold_photos / rejected_photos to the
+          Step type in src/api/client.ts.
+        • useStep.load() and cancelEdit now merge live + pending into the
+          working photos[] so the editable form holds everything the
+          manufacturer can act on.
+        • StepReadOnlyView renders a dedicated "PENDING ADMIN REVIEW (n)"
+          section with a hourglass badge + explanatory copy whenever
+          pending_photos is non-empty.
+        • Added a one-line toast on successful complete / update for
+          manufacturers that explains "queued for atelier moderation."
+        • Fixed missing `user` destructure in useStep that crashed the
+          screen with "user is not defined" after the initial edit.
+      
+      Visual verification on the exact broken order (fc0da488 step 2):
+        manufacturer view now shows PHOTOS · APPROVED (1) +
+        PENDING ADMIN REVIEW (7) with all uploads visible.
+      
+      Lint clean.

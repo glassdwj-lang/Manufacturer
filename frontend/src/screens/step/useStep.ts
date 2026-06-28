@@ -7,11 +7,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { api, Order, Step } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
-import { confirmAction } from "@/src/utils/confirm";
+import { confirmAction, notify } from "@/src/utils/confirm";
 
 export function useStep(orderId: string | undefined, stepNum: number) {
   const router = useRouter();
-  const { languageVersion } = useAuth();
+  const { languageVersion, user } = useAuth();
 
   const [order, setOrder] = useState<Order | null>(null);
   const [step, setStep] = useState<Step | null>(null);
@@ -34,7 +34,15 @@ export function useStep(orderId: string | undefined, stepNum: number) {
       if (s) {
         setStep(s);
         setNotes(s.notes || "");
-        setPhotos(s.photos || []);
+        // Photos for the editable form must include BOTH live (approved)
+        // and pending (awaiting admin approval) entries — otherwise
+        // manufacturer uploads appear to "vanish" the moment they save,
+        // because backend complete_step / update_completed_step routes
+        // their photos into pending_photos.
+        const live = s.photos || [];
+        const pending = s.pending_photos || [];
+        const merged = [...live, ...pending.filter((u) => !live.includes(u))];
+        setPhotos(merged);
         setReviewNote(s.associate_review_note || "");
       }
     } catch (e: any) {
@@ -62,29 +70,55 @@ export function useStep(orderId: string | undefined, stepNum: number) {
     setSaving(true);
     setError(null);
     try {
+      const newCount = photos.length;
       await api.completeStep(orderId, stepNum, notes, photos);
+      // Manufacturer uploads are queued for admin approval — explain so
+      // they don't think their photos vanished after the redirect.
+      if (user?.role === "manufacturer" && newCount > 0) {
+        notify(
+          newCount === 1
+            ? "1 photo pending review"
+            : `${newCount} photos pending review`,
+          "Your uploads are queued for atelier moderation. They'll appear to the client once approved.",
+        );
+      }
       router.back();
     } catch (e: any) {
       setError(e?.message ?? "Failed");
     } finally {
       setSaving(false);
     }
-  }, [orderId, stepNum, notes, photos, router]);
+  }, [orderId, stepNum, notes, photos, router, user?.role]);
 
   const handleUpdate = useCallback(async () => {
     if (!orderId) return;
     setSaving(true);
     setError(null);
     try {
+      const beforeCount = (step?.photos?.length || 0) + (step?.pending_photos?.length || 0);
       await api.updateStep(orderId, stepNum, notes, photos);
       setEditMode(false);
       await load();
+      // Same explanation as on /complete: manufacturer uploads land in
+      // the pending queue, not the live photos array.
+      if (
+        user?.role === "manufacturer" &&
+        photos.length > beforeCount
+      ) {
+        const added = photos.length - beforeCount;
+        notify(
+          added === 1
+            ? "1 new photo pending review"
+            : `${added} new photos pending review`,
+          "Your uploads are queued for atelier moderation.",
+        );
+      }
     } catch (e: any) {
       setError(e?.message ?? "Failed");
     } finally {
       setSaving(false);
     }
-  }, [orderId, stepNum, notes, photos, load]);
+  }, [orderId, stepNum, notes, photos, load, step, user?.role]);
 
   const handleReopen = useCallback(() => {
     if (!orderId) return;
@@ -126,7 +160,13 @@ export function useStep(orderId: string | undefined, stepNum: number) {
   const cancelEdit = useCallback(() => {
     setEditMode(false);
     setNotes(step?.notes || "");
-    setPhotos(step?.photos || []);
+    const live = step?.photos || [];
+    const pending = step?.pending_photos || [];
+    // Reset to the same merged-live+pending view we use on load.
+    setPhotos([
+      ...live,
+      ...pending.filter((u) => !live.includes(u)),
+    ]);
   }, [step]);
 
   return {

@@ -137,15 +137,53 @@ export function StepReadOnlyView({
       )}
       {photos.length > 0 && (
         <>
-          <Text style={styles.formLabel}>PHOTOS</Text>
+          <Text style={styles.formLabel}>
+            {step.pending_photos && step.pending_photos.length > 0
+              ? `PHOTOS · APPROVED (${(step.photos || []).length})`
+              : "PHOTOS"}
+          </Text>
           <PhotoGrid
-            photos={photos}
+            photos={step.photos || []}
             uploadingCount={0}
             editable={false}
             onOpen={onOpenLightbox}
           />
         </>
       )}
+      {/* Pending-approval photos shown in a clearly-badged section so
+          the uploader can see their submission "landed" while it's
+          awaiting admin review. Clients never see this section because
+          backend strips pending_photos from their responses. */}
+      {!isClient &&
+        step.pending_photos &&
+        step.pending_photos.length > 0 && (
+          <>
+            <View style={styles.pendingBadgeRow}>
+              <Ionicons
+                name="hourglass-outline"
+                size={12}
+                color={theme.primary}
+              />
+              <Text style={styles.pendingBadgeText}>
+                PENDING ADMIN REVIEW ({step.pending_photos.length})
+              </Text>
+            </View>
+            <Text style={styles.pendingBadgeHint}>
+              These uploads are queued for atelier moderation — they
+              become visible to the client once approved.
+            </Text>
+            <PhotoGrid
+              photos={step.pending_photos}
+              uploadingCount={0}
+              editable={false}
+              onOpen={(idx) =>
+                // Offset by the number of approved photos so the
+                // lightbox uses the merged photos prop layout.
+                onOpenLightbox((step.photos || []).length + idx)
+              }
+            />
+          </>
+        )}
       {/* Manufacturer / admin amendments on an already-finalised step */}
       {canManufacturerEdit && (
         <View style={styles.mfgAmendRow}>
