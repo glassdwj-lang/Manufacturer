@@ -22,6 +22,7 @@ Routes:
 """
 from __future__ import annotations
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,6 +34,31 @@ from models import PhotoApprovalAction, SettingsPatch
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# Cloudinary URLs embed the upload unix timestamp directly in the path
+# as `/v<digits>/`. Parsing it gives us per-photo upload-time without
+# any schema change. Falls back to None for seed/picsum URLs which use
+# the step's completion timestamp instead.
+_CLOUDINARY_VERSION_RE = re.compile(r"/v(\d{10,})/")
+
+
+def _parse_upload_ts(url: str) -> datetime | None:
+    """Extract the Cloudinary upload timestamp from a media URL.
+
+    Cloudinary serves assets under `…/upload/v<unix>/…` — the digits are
+    the upload time (seconds-since-epoch). Returns None for non-Cloudinary
+    URLs (e.g. seed picsum links used in test fixtures).
+    """
+    if not url:
+        return None
+    m = _CLOUDINARY_VERSION_RE.search(url)
+    if not m:
+        return None
+    try:
+        return datetime.fromtimestamp(int(m.group(1)), tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
 
 RECYCLE_RETENTION_DAYS = 60
 
@@ -199,33 +225,40 @@ async def list_pending_photos(user=Depends(get_current_user)):
             "manufacturer_name": 1,
             "manufacturer_id": 1,
             "associate_id": 1,
+            "created_at": 1,
             "steps": 1,
         },
-    ).sort("created_at", -1)
-    # Latest commission first → newest manufacturer activity surfaces at
-    # the top of the queue. Within each step we then iterate the photo
-    # arrays in reverse so the most-recently-appended URL appears first
-    # (uploads append to the end of pending_photos[]).
+    )
 
     # First pass: build the queue while collecting manufacturer ids so we
     # can resolve their email addresses in a single round-trip below.
+    # Each item carries an `uploaded_at` derived from the Cloudinary
+    # version segment (vN…) — falling back to the step's completion
+    # timestamp, then the order's creation date when neither is
+    # available (seed/fixture URLs without a Cloudinary version).
     queue: list[dict] = []
     mfg_ids: set[str] = set()
     async for o in cursor:
         mfg_id = o.get("manufacturer_id")
         if mfg_id:
             mfg_ids.add(mfg_id)
-        # Walk steps in reverse step_number too — the highest-numbered
-        # step is usually the most recently worked-on segment of the
-        # commission.
-        for s in reversed(o.get("steps") or []):
+        order_created = o.get("created_at") or ""
+        for s in o.get("steps") or []:
+            step_completed = s.get("completed_at_utc") or ""
+            step_updated = s.get("updated_at_china") or ""
+            # Prefer step_updated > step_completed > order_created for
+            # the fallback timestamp on URLs without a Cloudinary
+            # version stamp.
+            fallback_ts = step_updated or step_completed or order_created
             for status_field, status_label in (
                 ("pending_photos", "pending"),
                 ("on_hold_photos", "on_hold"),
             ):
-                # Reverse the photo array — uploads append to the end,
-                # so reversing yields newest-first within the step.
-                for url in reversed(s.get(status_field) or []):
+                for url in s.get(status_field) or []:
+                    parsed = _parse_upload_ts(url)
+                    uploaded_at = (
+                        parsed.isoformat() if parsed else (fallback_ts or "")
+                    )
                     queue.append(
                         {
                             "order_id": o["id"],
@@ -242,8 +275,14 @@ async def list_pending_photos(user=Depends(get_current_user)):
                             "step_phase": s.get("phase"),
                             "photo_url": url,
                             "status": status_label,
+                            "uploaded_at": uploaded_at,
                         }
                     )
+
+    # Latest upload first across the ENTIRE queue (regardless of which
+    # commission they came from). This is what the user actually wants
+    # when triaging the moderation backlog — see most recent work first.
+    queue.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
 
     # Batched manufacturer-email join so the front-end's moderation email
     # modal can show "Sending to …" without making a second round-trip.

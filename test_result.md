@@ -344,3 +344,23 @@ agent_communication:
          now leads with newest commissions / latest step uploads.
       
       Backend + frontend lint clean.
+
+  - agent: main
+    message: |
+      Media Approvals queue now sorted by ACTUAL upload timestamp
+      (newest first across the entire queue, regardless of commission).
+      
+      Implementation:
+        • Added _parse_upload_ts() helper that extracts the Cloudinary
+          upload time from the `/v<unix>/` segment in the URL — gives
+          per-photo precision without any DB schema change.
+        • Fallback chain for non-Cloudinary URLs (e.g. seed picsum):
+          step.updated_at_china → step.completed_at_utc → order.created_at.
+        • Queue items now carry an `uploaded_at` ISO string.
+        • Final queue.sort(uploaded_at desc).
+      
+      Verified via API + screenshot — the 7 user uploads on
+      SMN-2026-105/step 02 (timestamps 00:18:52 and 00:17:4x today)
+      now lead the queue ahead of yesterday's seed entries.
+      
+      Backend lint clean.
