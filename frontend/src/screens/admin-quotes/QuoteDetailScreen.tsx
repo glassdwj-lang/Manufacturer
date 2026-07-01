@@ -770,7 +770,9 @@ export default function QuoteDetailScreen() {
               />
             ));
           })()}
-          {/* --- AUD subtotal (client-side, mirrors backend resolve logic) --- */}
+          {/* --- AUD subtotal (client-side, mirrors backend resolve logic).
+              Includes the converted USD→AUD amount so the total reflects
+              the full landed cost before margin. --- */}
           {(() => {
             const i = quote.inputs || {};
             const audConvertedTotal = usdSubtotal * Number(i.usd_to_aud_rate || 0);
@@ -778,22 +780,46 @@ export default function QuoteDetailScreen() {
               i[`${root}_mode`] === "percent"
                 ? audConvertedTotal * (Number(i[`${root}_pct`]) || 0) / 100
                 : Number(i[`${root}_aud`]) || 0;
-            const audSubtotal =
+            const audNative =
               (Number(i.custom_clearance_aud) || 0) +
               (Number(i.australian_delivery_aud) || 0) +
               resolveFlex("intl_transaction_fees") +
               resolveFlex("duty_or_chafta");
+            const audTotal = audConvertedTotal + audNative;
+            const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             return (
               <View style={{
                 marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border,
-                flexDirection: "row", justifyContent: "space-between", alignItems: "center",
               }}>
-                <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
-                  Total AUD costs
-                </Text>
-                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: "800" }}>
-                  AUD {audSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
+                {/* Breakdown lines */}
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 3 }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                    Converted from USD (USD {fmt(usdSubtotal)} × {Number(i.usd_to_aud_rate || 0).toFixed(4)})
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                    AUD {fmt(audConvertedTotal)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                    AUD-native fees (customs + delivery + intl-txn + duty)
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                    AUD {fmt(audNative)}
+                  </Text>
+                </View>
+                {/* Grand total */}
+                <View style={{
+                  flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+                  paddingTop: 6, borderTopWidth: 1, borderTopColor: "#1a1a1a",
+                }}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
+                    Total AUD amount
+                  </Text>
+                  <Text style={{ color: theme.primary, fontSize: 15, fontWeight: "800" }}>
+                    AUD {fmt(audTotal)}
+                  </Text>
+                </View>
               </View>
             );
           })()}
