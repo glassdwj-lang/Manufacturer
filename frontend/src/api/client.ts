@@ -900,4 +900,74 @@ export const api = {
   },
   digitalDnaUrl: (orderId: string) =>
     `${BASE_URL}/api/orders/${orderId}/digital-dna`,
+
+  // ---------- Manufacturer directory ----------
+  listManufacturers: (opts: { include_paused?: boolean; include_burned?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.include_paused !== undefined) q.set("include_paused", String(opts.include_paused));
+    if (opts.include_burned !== undefined) q.set("include_burned", String(opts.include_burned));
+    const tail = q.toString();
+    return request<any[]>(`/admin/manufacturers${tail ? `?${tail}` : ""}`);
+  },
+  nextManufacturerCode: () => request<{ next_code: number }>("/admin/manufacturers/next-code"),
+  createManufacturer: (body: {
+    name: string;
+    contact_email: string;
+    contact_name?: string;
+    contact_phone?: string;
+    country?: string;
+    notes?: string;
+  }) => request<any>("/admin/manufacturers", { method: "POST", body: JSON.stringify(body) }),
+  patchManufacturer: (id: string, body: any) =>
+    request<any>(`/admin/manufacturers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  changeManufacturerStatus: (id: string, status: "active" | "paused" | "burned") =>
+    request<any>(`/admin/manufacturers/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+  bootstrapManufacturers: () =>
+    request<any>("/admin/manufacturers/bootstrap", { method: "POST" }),
+  syncPendingManufacturers: () =>
+    request<any>("/admin/manufacturers/sync-pending", { method: "POST" }),
+
+  // ---------- RFQs (admin) ----------
+  listRfqs: (opts: { status?: string; origin?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.status) q.set("status", opts.status);
+    if (opts.origin) q.set("origin", opts.origin);
+    const tail = q.toString();
+    return request<any[]>(`/admin/rfqs${tail ? `?${tail}` : ""}`);
+  },
+  getRfq: (id: string) => request<any>(`/admin/rfqs/${id}`),
+  createBespokeRfq: (body: any) =>
+    request<any>("/admin/rfqs", { method: "POST", body: JSON.stringify(body) }),
+  ingestRfqsFromGemGallery: () =>
+    request<any>("/admin/rfqs/ingest-from-gem-gallery", { method: "POST" }),
+  broadcastRfq: (rfqId: string, manufacturer_ids: string[], admin_notes?: string) =>
+    request<any>(`/admin/rfqs/${rfqId}/broadcast`, {
+      method: "POST",
+      body: JSON.stringify({ manufacturer_ids, admin_notes }),
+    }),
+  extendBroadcast: (rfqId: string, broadcastId: string) =>
+    request<any>(`/admin/rfqs/${rfqId}/broadcasts/${broadcastId}/extend`, {
+      method: "POST",
+    }),
+  recordBroadcastResponse: (rfqId: string, broadcastId: string, body: any) =>
+    request<any>(`/admin/rfqs/${rfqId}/broadcasts/${broadcastId}/response`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  importBroadcastToQuote: (rfqId: string, broadcastId: string) =>
+    request<any>(
+      `/admin/rfqs/${rfqId}/import-to-quote?broadcast_id=${broadcastId}`,
+      { method: "POST" },
+    ),
+  deleteRfq: (id: string) => request<any>(`/admin/rfqs/${id}`, { method: "DELETE" }),
+
+  // ---------- RFQs (manufacturer) ----------
+  mfgListRfqs: () => request<any[]>("/manufacturer/rfqs"),
+  mfgGetRfq: (id: string) => request<any>(`/manufacturer/rfqs/${id}`),
 };

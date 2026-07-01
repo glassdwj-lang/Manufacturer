@@ -182,6 +182,52 @@ async def _start_scheduler():
             id="gem_gallery_meta_sync",
             replace_existing=True,
         )
+
+        # Hourly expiry sweep — flips any RFQ broadcasts whose
+        # `expires_at` is in the past to `status="expired"`. Also
+        # nudges the RFQ's `updated_at` so admin lists reorder.
+        async def _sweep_expired_broadcasts() -> None:
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                touched = 0
+                cursor = db.rfqs.find(
+                    {
+                        "deleted": {"$ne": True},
+                        "broadcasts": {
+                            "$elemMatch": {
+                                "status": {"$in": ["pending", "sent"]},
+                                "expires_at": {"$lt": now_iso},
+                            }
+                        },
+                    },
+                    {"_id": 0, "id": 1, "broadcasts": 1},
+                )
+                async for doc in cursor:
+                    changed = False
+                    for b in doc.get("broadcasts", []):
+                        if (
+                            b.get("status") in ("pending", "sent")
+                            and (b.get("expires_at") or "") < now_iso
+                        ):
+                            b["status"] = "expired"
+                            changed = True
+                    if changed:
+                        await db.rfqs.update_one(
+                            {"id": doc["id"]},
+                            {"$set": {"broadcasts": doc["broadcasts"], "updated_at": now_iso}},
+                        )
+                        touched += 1
+                if touched:
+                    logger.info("Broadcast expiry sweep flipped %d RFQ(s)", touched)
+            except Exception as exc:  # pragma: no cover - background task
+                logger.exception("Broadcast expiry sweep failed: %s", exc)
+
+        scheduler.add_job(
+            _sweep_expired_broadcasts,   # coroutine — AsyncIOScheduler runs it on the loop
+            CronTrigger(minute=17),   # every hour at :17
+            id="broadcast_expiry_sweep",
+            replace_existing=True,
+        )
         scheduler.start()
         logger.info(
             "Associate sync scheduled daily at %02d:%02d %s", hour, minute, tz_name
@@ -189,6 +235,7 @@ async def _start_scheduler():
         logger.info(
             "Gem-gallery meta sync scheduled monthly on day 1 at 00:05 %s", tz_name
         )
+        logger.info("Broadcast expiry sweep scheduled hourly at :17")
     except Exception as e:
         logger.warning("Could not start scheduler: %s", e)
 

@@ -90,6 +90,20 @@ export default function HomeScreen() {
         <AssociateLinks approvalsCount={list.approvalsCount} />
       )}
 
+      {user.role === "manufacturer" && (
+        <View style={homeStyles.adminLinks}>
+          <TouchableOpacity
+            testID="mfg-rfqs-button"
+            style={homeStyles.linkBtn}
+            onPress={() => router.push("/(app)/manufacturer/rfqs")}
+          >
+            <Ionicons name="mail-open-outline" size={16} color={theme.primary} />
+            <Text style={homeStyles.linkBtnText}>My RFQs</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={homeStyles.statsRow}>
         <Stat
           label={t("home.stat.active")}
