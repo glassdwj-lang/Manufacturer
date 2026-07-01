@@ -770,6 +770,33 @@ export default function QuoteDetailScreen() {
               />
             ));
           })()}
+          {/* --- AUD subtotal (client-side, mirrors backend resolve logic) --- */}
+          {(() => {
+            const i = quote.inputs || {};
+            const audConvertedTotal = usdSubtotal * Number(i.usd_to_aud_rate || 0);
+            const resolveFlex = (root: string) =>
+              i[`${root}_mode`] === "percent"
+                ? audConvertedTotal * (Number(i[`${root}_pct`]) || 0) / 100
+                : Number(i[`${root}_aud`]) || 0;
+            const audSubtotal =
+              (Number(i.custom_clearance_aud) || 0) +
+              (Number(i.australian_delivery_aud) || 0) +
+              resolveFlex("intl_transaction_fees") +
+              resolveFlex("duty_or_chafta");
+            return (
+              <View style={{
+                marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border,
+                flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+              }}>
+                <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
+                  Total AUD costs
+                </Text>
+                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: "800" }}>
+                  AUD {audSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+            );
+          })()}
         </Section>
 
         {/* --- Margin & GST --- */}
