@@ -14,6 +14,13 @@ Design:
 The rate returned here is the **raw mid-market** rate. Any per-quote
 bank-buffer / adjustment percentage is layered on top of this rate by
 the frontend (and stored on the quote itself for audit).
+
+Metals spot rates (XAU / XAG / XPT) are also fetched from a free
+keyless source (``gold-api.com``) and cached daily. Purity-adjusted
+per-gram rates for the alloys Somnio actually uses (10k / 14k / 18k
+gold, Pt950 platinum, S925 sterling silver) are computed on demand
+and snapshotted onto each new quote so the number the atelier saw at
+the time of quoting is preserved forever.
 """
 from __future__ import annotations
 
@@ -34,6 +41,26 @@ _PAIR = "USD_AUD"
 _SOURCE_PRIMARY = "open.er-api.com"
 _URL_PRIMARY = "https://open.er-api.com/v6/latest/USD"
 
+# ---------------------------------------------------------------------
+# Metals-spot constants (Somnio-specific alloy purities)
+# ---------------------------------------------------------------------
+_METAL_SOURCE = "gold-api.com"
+_METAL_URLS = {
+    "XAU": "https://api.gold-api.com/price/XAU",  # Gold
+    "XAG": "https://api.gold-api.com/price/XAG",  # Silver
+    "XPT": "https://api.gold-api.com/price/XPT",  # Platinum
+}
+# 1 troy ounce = 31.1034768 grams (industry standard).
+TROY_OZ_G = 31.1034768
+# Purity fractions of the atelier's standard alloys.
+ALLOY_PURITY: Dict[str, tuple[str, float]] = {
+    "gold_10k":       ("XAU", 10 / 24),        # 41.6667 %
+    "gold_14k":       ("XAU", 14 / 24),        # 58.3333 %
+    "gold_18k":       ("XAU", 18 / 24),        # 75.0000 %
+    "platinum_pt950": ("XPT", 0.950),          # 95.0000 %
+    "silver_s925":    ("XAG", 0.925),          # 92.5000 %
+}
+
 
 async def _fetch_upstream() -> Dict[str, Any]:
     """Fetch a fresh USD-based rate table from the primary provider."""
@@ -51,6 +78,69 @@ async def _fetch_upstream() -> Dict[str, Any]:
         "source": _SOURCE_PRIMARY,
         "upstream_updated_at": data.get("time_last_update_utc"),
     }
+
+
+async def _fetch_metals_upstream() -> Dict[str, float]:
+    """Fetch XAU / XAG / XPT spot prices (USD per troy ounce)."""
+    out: Dict[str, float] = {}
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        for sym, url in _METAL_URLS.items():
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            price = data.get("price")
+            if price is None:
+                raise RuntimeError(f"{sym}: missing price in upstream payload")
+            out[sym] = round(float(price), 4)
+    return out
+
+
+def _derive_alloy_grams(spot_toz: Dict[str, float]) -> Dict[str, float]:
+    """Turn raw spot-per-troy-ounce prices into purity-adjusted USD/g.
+
+    Formula::
+        usd_per_gram = (spot_usd_per_toz / 31.1034768) * purity_fraction
+    """
+    return {
+        alloy: round((spot_toz[base_sym] / TROY_OZ_G) * purity, 4)
+        for alloy, (base_sym, purity) in ALLOY_PURITY.items()
+    }
+
+
+async def get_metal_snapshot(force: bool = False) -> Dict[str, Any]:
+    """Public helper — returns the current (cached ≤ 24 h) metals snapshot.
+
+    Used both by the ``/fx/metal-spot`` endpoint and by ``routes.quotes``
+    when snapshotting a brand-new quote at creation time.
+    """
+    doc = await db.fx_rates.find_one({"pair": "METAL_SPOT"}, {"_id": 0})
+    now = datetime.now(timezone.utc)
+
+    if doc and not force:
+        try:
+            fetched = datetime.fromisoformat(doc["captured_at"])
+            if now - fetched < timedelta(hours=_CACHE_HOURS):
+                return {**doc, "stale": False}
+        except Exception:
+            pass
+
+    try:
+        spot_toz = await _fetch_metals_upstream()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Metals upstream fetch failed: %s", exc)
+        if doc:
+            return {**doc, "stale": True, "error": str(exc)}
+        raise HTTPException(status_code=502, detail=f"metals fetch failed: {exc}") from exc
+
+    snapshot = {
+        "pair": "METAL_SPOT",
+        "captured_at": now.isoformat(),
+        "source": _METAL_SOURCE,
+        "spot_usd_per_toz": spot_toz,
+        "usd_per_gram": _derive_alloy_grams(spot_toz),
+    }
+    await db.fx_rates.update_one({"pair": "METAL_SPOT"}, {"$set": snapshot}, upsert=True)
+    return {**snapshot, "stale": False}
 
 
 @router.get("/fx/usd-aud", summary="Live USD→AUD rate (cached 24 h)")
@@ -102,3 +192,29 @@ async def get_usd_aud_rate(
     }
     await db.fx_rates.update_one({"pair": _PAIR}, {"$set": new_doc}, upsert=True)
     return {**new_doc, "stale": False}
+
+
+
+@router.get(
+    "/fx/metal-spot",
+    summary="Live metal spot prices (XAU / XAG / XPT), cached 24 h, "
+            "with purity-adjusted USD/g for 10k, 14k, 18k gold + Pt950 + S925.",
+)
+async def get_metal_spot(
+    force: bool = False,
+    user=Depends(require_roles("admin")),
+):
+    """Response shape::
+
+        {
+          "captured_at": "2026-07-01T13:15:52+00:00",
+          "source": "gold-api.com",
+          "spot_usd_per_toz": {"XAU": 4022.30, "XAG": 58.55, "XPT": 1572.00},
+          "usd_per_gram": {
+            "gold_10k": 53.88, "gold_14k": 75.44, "gold_18k": 96.99,
+            "platinum_pt950": 48.02, "silver_s925": 1.74
+          },
+          "stale": false
+        }
+    """
+    return await get_metal_snapshot(force=force)

@@ -991,6 +991,19 @@ export const api = {
       stale?: boolean;
     }>(`/fx/usd-aud${force ? "?force=true" : ""}`),
 
+  // ---------- Metals spot (cached daily, USD/g for atelier alloys) ----------
+  getMetalSpot: (force = false) =>
+    request<{
+      captured_at: string;
+      source: string;
+      spot_usd_per_toz: { XAU: number; XAG: number; XPT: number };
+      usd_per_gram: {
+        gold_10k: number; gold_14k: number; gold_18k: number;
+        platinum_pt950: number; silver_s925: number;
+      };
+      stale?: boolean;
+    }>(`/fx/metal-spot${force ? "?force=true" : ""}`),
+
   // ---------- Client approval gates (Step 02) ----------
   releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>
     request<any>(`/orders/${orderId}/renders/${renderId}/release-for-client`, {

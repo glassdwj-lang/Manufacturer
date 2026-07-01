@@ -36,6 +36,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user, require_roles
+from routes.fx import get_metal_snapshot
 
 router = APIRouter()
 
@@ -127,6 +128,10 @@ class Quote(BaseModel):
     status: str = "draft"  # draft | ready | sent
     inputs: QuoteInputs
     totals: Optional[QuoteTotals] = None
+    # Historical snapshot of metal spot prices (USD/g for 10k/14k/18k
+    # gold, Pt950, S925) captured at the moment the quote was created.
+    # Locked forever — never updated after quote creation.
+    metal_spot_snapshot: Optional[dict] = None
     created_by: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -275,6 +280,19 @@ async def get_quote(
     q = await db.quotes.find_one({"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0})
     if not q:
         raise HTTPException(status_code=404, detail="Quote not found")
+    # Lazy backfill for pre-metal-spot legacy quotes: if the snapshot is
+    # missing, capture today's rates and persist so the value is stable
+    # from this point on.
+    if q.get("metal_spot_snapshot") is None:
+        try:
+            snap = await get_metal_snapshot()
+            snap = {k: v for k, v in snap.items() if k != "pair"}
+            await db.quotes.update_one(
+                {"id": quote_id}, {"$set": {"metal_spot_snapshot": snap}}
+            )
+            q["metal_spot_snapshot"] = snap
+        except Exception:  # noqa: BLE001 — leave null if upstream is down
+            pass
     return q
 
 

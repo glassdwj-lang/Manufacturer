@@ -462,11 +462,87 @@ export default function QuoteDetailScreen() {
           <NumRow label="USD → AUD rate (effective)" suffix="×"
             value={String(quote.inputs?.usd_to_aud_rate ?? "")}
             onChangeText={setNumeric("usd_to_aud_rate")} onBlur={commitInputs} />
-          {usdSubtotal > 0 && (
-            <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: -2 }}>
-              USD {usdSubtotal.toFixed(2)}  ×  {Number(quote.inputs?.usd_to_aud_rate || 0).toFixed(4)}  =  AUD {(usdSubtotal * Number(quote.inputs?.usd_to_aud_rate || 0)).toFixed(2)}
-            </Text>
-          )}
+
+          {/* --- Conversion summary — full breakdown at the bottom --- */}
+          {usdSubtotal > 0 && (() => {
+            const rate = Number(quote.inputs?.usd_to_aud_rate || 0);
+            const aud = usdSubtotal * rate;
+            const usdFmt = usdSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const audFmt = aud.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const showOffset = fx?.rate && Math.abs(rate - fx.rate) > 0.0001;
+            return (
+              <View style={{
+                marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border,
+              }}>
+                <Text style={{ color: theme.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                  Conversion Summary
+                </Text>
+                {showOffset ? (
+                  <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>
+                    USD {usdFmt}  ×  {fx!.rate.toFixed(4)} (live)  ×  (1 + {adjustmentPct.toFixed(2)}%)
+                  </Text>
+                ) : (
+                  <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>
+                    USD {usdFmt}  ×  {rate.toFixed(4)}
+                  </Text>
+                )}
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 12, fontWeight: "600" }}>
+                    = Effective rate {rate.toFixed(4)}
+                  </Text>
+                  <Text style={{ color: theme.primary, fontSize: 15, fontWeight: "800" }}>
+                    AUD {audFmt}
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
+        </Section>
+
+        {/* --- Metal spot rates (locked at quote creation) --- */}
+        <Section
+          title="Metal Spot Rates (locked)"
+          subtitle={
+            quote.metal_spot_snapshot?.captured_at
+              ? `Snapshot from ${new Date(quote.metal_spot_snapshot.captured_at).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })} · ${quote.metal_spot_snapshot.source || "spot"}`
+              : "Snapshot unavailable — captures on next refresh"
+          }
+        >
+          {(() => {
+            const snap = quote.metal_spot_snapshot?.usd_per_gram;
+            if (!snap) {
+              return (
+                <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                  No spot-rate snapshot on this quote yet. Reload the page to backfill from today&apos;s rates.
+                </Text>
+              );
+            }
+            const rows: { label: string; key: keyof typeof snap; sub: string }[] = [
+              { label: "10k gold",       key: "gold_10k",       sub: "41.67% Au" },
+              { label: "14k gold",       key: "gold_14k",       sub: "58.33% Au" },
+              { label: "18k gold",       key: "gold_18k",       sub: "75.00% Au" },
+              { label: "Platinum Pt950", key: "platinum_pt950", sub: "95.00% Pt" },
+              { label: "Silver S925",    key: "silver_s925",    sub: "92.50% Ag" },
+            ];
+            return rows.map((r, idx) => (
+              <View key={r.key}
+                style={{
+                  flexDirection: "row", alignItems: "center",
+                  paddingVertical: 6,
+                  borderTopWidth: idx === 0 ? 0 : 1, borderTopColor: "#1a1a1a",
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "600" }}>{r.label}</Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 10 }}>{r.sub}</Text>
+                </View>
+                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: "700" }}>
+                  ${Number(snap[r.key]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+                <Text style={{ color: theme.textMuted, fontSize: 10, marginLeft: 4, width: 30 }}>/g</Text>
+              </View>
+            ));
+          })()}
         </Section>
 
         {/* --- AUD costs --- */}
