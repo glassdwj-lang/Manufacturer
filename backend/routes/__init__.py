@@ -13,6 +13,8 @@ from .meta import router as meta_router
 from .uploads import router as uploads_router
 from .approvals import router as approvals_router
 from .notifications import router as notifications_router
+from .quotes import router as quotes_router
+from .rfqs import router as rfqs_router
 
 # Backwards-compatible alias — server.py and a few legacy imports still
 # reference `admin_router` from when admin endpoints lived in a single
@@ -32,4 +34,6 @@ __all__ = [
     "uploads_router",
     "approvals_router",
     "notifications_router",
+    "quotes_router",
+    "rfqs_router",
 ]
