@@ -353,6 +353,27 @@ export default function QuoteDetailScreen() {
   const commitInputs = () => quote && persist({ inputs: quote.inputs });
   const commitStatus = (s: string) => persist({ status: s });
 
+  /**
+   * Set a single input **and** persist it in one atomic step.
+   *
+   * Fixes a stale-closure bug: switches / pill toggles used to call
+   * ``setInput(k, v)`` immediately followed by ``setTimeout(commitInputs)``.
+   * Because ``commitInputs`` captures ``quote`` from render-time closure,
+   * that timer would PATCH the **pre-toggle** inputs, and the server
+   * response then overwrote the optimistic state — making the toggle
+   * appear to "revert" on its own.
+   *
+   * By computing ``nextInputs`` deterministically here and passing it
+   * straight to ``persist``, we avoid ever depending on React having
+   * flushed the state update first.
+   */
+  const commitField = (k: string, v: any) => {
+    if (!quote) return;
+    const nextInputs = { ...quote.inputs, [k]: v };
+    setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+    persist({ inputs: nextInputs });
+  };
+
   // ---------- Discount tier helpers ----------
   const addTier = () => {
     const current = quote.inputs?.discount_tiers || [];
@@ -500,7 +521,7 @@ export default function QuoteDetailScreen() {
             <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>Includes hidden halo pavé</Text>
             <Switch
               value={!!quote.inputs?.includes_hidden_halo_pave}
-              onValueChange={(v) => { setInput("includes_hidden_halo_pave", v); setTimeout(commitInputs, 0); }}
+              onValueChange={(v) => commitField("includes_hidden_halo_pave", v)}
             />
           </View>
           <NumRow
@@ -780,10 +801,10 @@ export default function QuoteDetailScreen() {
                 baseKey={String(quote.inputs?.[`${f.root}_base`] ?? "usd_x_fx")}
                 baseUsdXFx={usdXFx}
                 baseCostPreFees={costPreFees}
-                onModeChange={(m) => { setInput(`${f.root}_mode`, m); setTimeout(commitInputs, 0); }}
+                onModeChange={(m) => commitField(`${f.root}_mode`, m)}
                 onPctChange={setNumeric(`${f.root}_pct`)}
                 onAmountChange={setNumeric(`${f.root}_aud`)}
-                onBaseChange={(k) => { setInput(`${f.root}_base`, k); setTimeout(commitInputs, 0); }}
+                onBaseChange={(k) => commitField(`${f.root}_base`, k)}
                 onBlur={commitInputs}
               />
             ));
