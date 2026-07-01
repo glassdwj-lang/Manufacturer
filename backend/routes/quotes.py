@@ -28,6 +28,7 @@ Endpoints (all under ``/api/quotes``):
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
@@ -36,6 +37,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user, require_roles
+from routes.competitors import run_comparison_background
 from routes.fx import get_metal_snapshot, get_usd_aud_snapshot
 
 router = APIRouter()
@@ -328,6 +330,10 @@ async def create_quote(
     doc = quote.model_dump()
     await db.quotes.insert_one(doc)
     doc.pop("_id", None)
+    # Fire-and-forget competitor comparison sweep. Runs in background so
+    # the API returns instantly; results appear in the Market Anchor
+    # panel over the next 30-90s as each site resolves.
+    asyncio.create_task(run_comparison_background(doc["id"]))
     return doc
 
 

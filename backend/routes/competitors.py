@@ -87,7 +87,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "name": "Larsen Jewellery",
         "base_url": "https://larsenjewellery.com.au",
         "search_url": "https://larsenjewellery.com.au/engagement-rings",
-        "strategy": "html_llm",     # will move to playwright_llm in Phase 2
+        "strategy": "playwright_llm",
         "feasibility": "playwright_needed",
         "active": True,
     },
@@ -96,7 +96,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "name": "Savoir-Faire Jewellery",
         "base_url": "https://savoir-fairejewellery.com.au",
         "search_url": "https://savoir-fairejewellery.com.au/shop",
-        "strategy": "html_llm",     # will move to playwright_llm in Phase 2
+        "strategy": "playwright_llm",
         "feasibility": "playwright_needed",
         "active": True,
     },
@@ -151,7 +151,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "name": "Blue Nile",
         "base_url": "https://www.bluenile.com",
         "search_url": "https://www.bluenile.com/build-your-ring/select-diamond",
-        "strategy": "html_llm",
+        "strategy": "playwright_llm",
         "feasibility": "playwright_needed",
         "active": True,
     },
@@ -220,25 +220,32 @@ async def _extract_html_llm(
     site: Dict[str, Any],
     criteria: Dict[str, Any],
     prefer_haiku: bool = True,
+    prefetched_html: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch the site's search URL as HTML and let Claude extract matches.
 
     Tries Haiku 4.5 first (cheap). If Haiku returns nothing or every
     match has confidence < 0.6, retries once with Sonnet 4.5.
+
+    ``prefetched_html`` — if provided, skip the httpx fetch and use this
+    HTML instead (used by the Playwright pipeline to avoid double-fetch).
     """
-    url = site["search_url"]
-    try:
-        async with httpx.AsyncClient(
-            timeout=_TIMEOUT_SECONDS,
-            headers={"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml"},
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            html = resp.text
-    except Exception as exc:  # noqa: BLE001
-        log.warning("html fetch failed for %s: %s", site["id"], exc)
-        return []
+    if prefetched_html is not None:
+        html = prefetched_html
+    else:
+        url = site["search_url"]
+        try:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT_SECONDS,
+                headers={"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml"},
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                html = resp.text
+        except Exception as exc:  # noqa: BLE001
+            log.warning("html fetch failed for %s: %s", site["id"], exc)
+            return []
 
     # Trim HTML: strip <script>/<style>, collapse whitespace, cap size.
     html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
@@ -314,6 +321,43 @@ async def _extract_html_llm(
     return await _run("claude-sonnet-4-5-20250929")
 
 
+async def _extract_playwright_llm(site: Dict[str, Any], criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Render the search URL with Playwright first, then hand off to LLM.
+
+    Necessary for JS-heavy SPAs (Larsen, Savoir-Faire, Blue Nile) whose
+    price/product data doesn't appear in the initial HTML. We wait for
+    the DOM to settle, grab the fully-rendered ``document.body.innerHTML``,
+    then reuse the same LLM extraction as the ``html_llm`` strategy.
+    """
+    from playwright.async_api import async_playwright
+    url = site["search_url"]
+    html = ""
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            try:
+                ctx = await browser.new_context(user_agent=_UA, viewport={"width": 1440, "height": 900})
+                page = await ctx.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                # Give the SPA a moment to hydrate + render prices.
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass  # some sites never go idle — no big deal
+                html = await page.content()
+            finally:
+                await browser.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("playwright render failed for %s: %s", site["id"], exc)
+        return []
+    if not html:
+        return []
+    return await _extract_html_llm(site, criteria, prefetched_html=html)
+
+
 async def _extract_site(site: Dict[str, Any], criteria: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch to the strategy declared on the site."""
     started = datetime.now(timezone.utc)
@@ -322,6 +366,8 @@ async def _extract_site(site: Dict[str, Any], criteria: Dict[str, Any]) -> Dict[
             matches = await _extract_shopify(site, criteria)
         elif site["strategy"] == "html_llm":
             matches = await _extract_html_llm(site, criteria)
+        elif site["strategy"] == "playwright_llm":
+            matches = await _extract_playwright_llm(site, criteria)
         else:
             matches = []
         error = None
@@ -427,3 +473,54 @@ async def get_comparisons(
         {"quote_id": quote_id}, {"_id": 0}
     ).to_list(length=50)
     return {"quote_id": quote_id, "results": snaps}
+
+
+# ---------------------------------------------------------------------
+# Helper: fire-and-forget comparison for a fresh quote.
+#
+# Called from ``routes.quotes`` on quote-create. Runs in the background
+# so quote creation returns instantly to the UI; comparison results
+# populate the ``competitor_snapshots`` collection as each site
+# resolves and are visible when the atelier opens the Market Anchor
+# section on the new quote.
+# ---------------------------------------------------------------------
+async def run_comparison_background(quote_id: str) -> None:
+    """Kick off a full comparison sweep for a newly-created quote.
+
+    Silently swallows all errors — the quote must succeed even if the
+    scraper stack is temporarily broken. Each site's result is upserted
+    into ``competitor_snapshots`` so the UI shows partial progress as
+    the sweep runs.
+    """
+    try:
+        quote = await db.quotes.find_one({"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0})
+        if not quote:
+            return
+        inputs = quote.get("inputs") or {}
+        criteria = {
+            "metal": inputs.get("metal_type") or inputs.get("metal") or "",
+            "diamond_ct": inputs.get("diamond_carat") or inputs.get("ct"),
+            "shape": inputs.get("diamond_shape") or inputs.get("shape") or "",
+            "cut": inputs.get("diamond_cut") or inputs.get("cut") or "",
+            "color": inputs.get("diamond_color") or inputs.get("color") or "",
+            "clarity": inputs.get("diamond_clarity") or inputs.get("clarity") or "",
+            "piece_description": inputs.get("piece_description") or quote.get("jewelry_name") or "",
+        }
+        active_sites = [s for s in COMPETITOR_LIBRARY if s.get("active")]
+        for site in active_sites:
+            # Skip if snapshot already cached (idempotent — safe to re-fire).
+            existing = await db.competitor_snapshots.find_one(
+                {"quote_id": quote_id, "site_id": site["id"]}, {"_id": 1}
+            )
+            if existing:
+                continue
+            snap = await _extract_site(site, criteria)
+            snap["quote_id"] = quote_id
+            await db.competitor_snapshots.update_one(
+                {"quote_id": quote_id, "site_id": site["id"]},
+                {"$set": snap},
+                upsert=True,
+            )
+            await asyncio.sleep(2)  # respectful spacing
+    except Exception:  # noqa: BLE001
+        log.exception("background comparison failed for quote %s", quote_id)
