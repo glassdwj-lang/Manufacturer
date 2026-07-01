@@ -18,7 +18,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, ScrollView, Switch, Text, TextInput,
+  ActivityIndicator, Alert, Linking, ScrollView, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -266,6 +266,169 @@ function FlexRow({
     </View>
   );
 }
+
+
+/**
+ * MarketAnchorSection — competitor price-anchor comparison card.
+ *
+ * On mount it loads any cached comparisons for this quote. "Refresh"
+ * hits ``POST /api/quotes/{id}/compare`` to trigger a fresh scrape
+ * across active sites in the competitor library.
+ *
+ * Deliberately kept simple in Phase 1: manually triggered, results
+ * cached forever per (quote_id, site_id). Auto-trigger + Playwright
+ * come in Phase 2.
+ */
+function MarketAnchorSection({ quoteId }: { quoteId: string }) {
+  const [results, setResults] = useState<any[] | null>(null);
+  const [criteria, setCriteria] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadCached = useCallback(async () => {
+    try {
+      const r = await api.getQuoteComparisons(quoteId);
+      setResults(r.results || []);
+    } catch { /* silent — user can still hit refresh */ }
+  }, [quoteId]);
+
+  useEffect(() => { loadCached(); }, [loadCached]);
+
+  const refresh = async (force = false) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.compareQuote(quoteId, { force });
+      setResults(r.results || []);
+      setCriteria(r.criteria || null);
+    } catch (e: any) {
+      setError(e?.message || "Comparison failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const totalMatches = (results || []).reduce((s, r) => s + (r.match_count || 0), 0);
+  const sitesRun = (results || []).filter(r => (r.match_count || 0) > 0).length;
+
+  return (
+    <Section
+      title="Market Anchor"
+      subtitle={
+        results && results.length
+          ? `${totalMatches} pieces from ${sitesRun}/${results.length} competitor sites`
+          : "Compare this quote against a library of competitor sites"
+      }
+      collapsible
+      defaultOpen={false}
+    >
+      {/* Refresh button + status */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+        <TouchableOpacity
+          onPress={() => refresh(true)}
+          disabled={busy}
+          style={{
+            paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+            backgroundColor: theme.primary, opacity: busy ? 0.4 : 1,
+            flexDirection: "row", alignItems: "center",
+          }}
+        >
+          {busy
+            ? <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+            : <Ionicons name="refresh" size={14} color="#fff" style={{ marginRight: 6 }} />}
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>
+            {busy ? "Comparing…" : (results && results.length ? "Refresh comparisons" : "Run comparison")}
+          </Text>
+        </TouchableOpacity>
+        <Text style={{ color: theme.textMuted, fontSize: 10, marginLeft: 12, flex: 1 }}>
+          {busy ? "Fetching 5+ competitor sites — may take up to a minute." : "Cached per quote — first run costs LLM tokens."}
+        </Text>
+      </View>
+
+      {error && (
+        <Text style={{ color: "#E06666", fontSize: 11, marginBottom: 8 }}>{error}</Text>
+      )}
+
+      {criteria && (
+        <View style={{ backgroundColor: "#0a0a0a", padding: 8, borderRadius: 6, marginBottom: 10 }}>
+          <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+            Matching: {Object.entries(criteria).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join("  ·  ") || "(no RFQ specs on this quote)"}
+          </Text>
+        </View>
+      )}
+
+      {(results || []).map((r) => (
+        <View key={r.site_id} style={{
+          borderWidth: 1, borderColor: theme.border, borderRadius: 8,
+          padding: 10, marginBottom: 8, backgroundColor: "#0d0d0d",
+        }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700", flex: 1 }}>
+              {r.site_name}
+            </Text>
+            <Text style={{
+              color: r.error ? "#E06666" : (r.match_count > 0 ? theme.primary : theme.textMuted),
+              fontSize: 10, fontWeight: "600",
+            }}>
+              {r.error ? "error" : `${r.match_count} match${r.match_count === 1 ? "" : "es"}`}
+            </Text>
+          </View>
+          {r.error && (
+            <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 4 }}>{r.error}</Text>
+          )}
+          {(r.matches || []).map((m: any, idx: number) => (
+            <View key={idx} style={{
+              paddingVertical: 6,
+              borderTopWidth: idx === 0 ? 0 : 1, borderTopColor: "#1a1a1a",
+            }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 12, fontWeight: "600" }}>
+                    {m.product_name || "(unnamed)"}
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 2 }}>
+                    {[
+                      m.metal, m.diamond_ct ? `${m.diamond_ct}ct` : null,
+                      m.shape, m.cut, m.color, m.clarity,
+                    ].filter(Boolean).join(" · ") || "no spec"}
+                  </Text>
+                  {m.snippet && (
+                    <Text style={{ color: theme.textMuted, fontSize: 9, marginTop: 3, fontStyle: "italic" }} numberOfLines={2}>
+                      “{m.snippet}”
+                    </Text>
+                  )}
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={{ color: theme.primary, fontSize: 13, fontWeight: "700" }}>
+                    AUD {Number(m.price_aud || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 9 }}>
+                    conf {Math.round(Number(m.confidence || 0) * 100)}%
+                  </Text>
+                </View>
+              </View>
+              {m.url && (
+                <TouchableOpacity onPress={() => Linking.openURL(m.url).catch(() => {})}>
+                  <Text style={{ color: "#7CA8E8", fontSize: 10, marginTop: 3 }}>
+                    ▶ view source →
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ))}
+        </View>
+      ))}
+
+      {!results?.length && !busy && (
+        <Text style={{ color: theme.textMuted, fontSize: 11, textAlign: "center", padding: 12 }}>
+          No comparisons yet — tap &ldquo;Run comparison&rdquo; to fetch prices from
+          competitor sites.
+        </Text>
+      )}
+    </Section>
+  );
+}
+
 
 
 // ---------- Screen ----------
@@ -1104,6 +1267,9 @@ export default function QuoteDetailScreen() {
             </Section>
           );
         })()}
+
+        {/* --- Market Anchor — competitor price comparison --- */}
+        <MarketAnchorSection quoteId={qid} />
 
         <Text style={{ color: theme.textMuted, fontSize: 10, textAlign: "center", marginTop: 12 }}>
           Totals recompute live from your inputs. Persisted on blur.

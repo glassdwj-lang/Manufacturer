@@ -1007,6 +1007,17 @@ export const api = {
       stale?: boolean;
     }>(`/fx/metal-spot${force ? "?force=true" : ""}`),
 
+  // ---------- Competitor market anchor ----------
+  listCompetitors: () =>
+    request<any[]>(`/competitors`),
+  compareQuote: (quoteId: string, opts: { force?: boolean; sites?: string[] } = {}) =>
+    request<any>(`/quotes/${quoteId}/compare`, {
+      method: "POST",
+      body: JSON.stringify(opts),
+    }),
+  getQuoteComparisons: (quoteId: string) =>
+    request<any>(`/quotes/${quoteId}/comparisons`),
+
   // ---------- Client approval gates (Step 02) ----------
   releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>
     request<any>(`/orders/${orderId}/renders/${renderId}/release-for-client`, {
