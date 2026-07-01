@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user, require_roles
-from routes.fx import get_metal_snapshot
+from routes.fx import get_metal_snapshot, get_usd_aud_snapshot
 
 router = APIRouter()
 
@@ -132,6 +132,12 @@ class Quote(BaseModel):
     # gold, Pt950, S925) captured at the moment the quote was created.
     # Locked forever — never updated after quote creation.
     metal_spot_snapshot: Optional[dict] = None
+    # Historical snapshot of the live USD→AUD mid-market rate at the
+    # moment the quote was created. Provides an audit trail so an admin
+    # can see what the market was doing 3+ months later and compare it
+    # to the ``inputs.usd_to_aud_rate`` (which is the effective rate the
+    # atelier actually used, incl. bank buffer).
+    fx_snapshot: Optional[dict] = None
     created_by: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -292,6 +298,17 @@ async def get_quote(
             )
             q["metal_spot_snapshot"] = snap
         except Exception:  # noqa: BLE001 — leave null if upstream is down
+            pass
+    # Same lazy backfill for the USD→AUD rate snapshot.
+    if q.get("fx_snapshot") is None:
+        try:
+            snap = await get_usd_aud_snapshot()
+            snap = {k: v for k, v in snap.items() if k != "pair"}
+            await db.quotes.update_one(
+                {"id": quote_id}, {"$set": {"fx_snapshot": snap}}
+            )
+            q["fx_snapshot"] = snap
+        except Exception:  # noqa: BLE001
             pass
     return q
 

@@ -161,6 +161,16 @@ async def get_usd_aud_rate(
           "stale": false           # true only when upstream was down
         }
     """
+    return await get_usd_aud_snapshot(force=force)
+
+
+async def get_usd_aud_snapshot(force: bool = False) -> Dict[str, Any]:
+    """Public helper — returns the current (cached ≤ 24 h) USD→AUD snapshot.
+
+    Shared by the ``/fx/usd-aud`` endpoint *and* ``routes.quotes`` so that
+    creating a quote captures the exact mid-market rate we would have
+    served to the UI at that moment.
+    """
     doc = await db.fx_rates.find_one({"pair": _PAIR}, {"_id": 0})
     now = datetime.now(timezone.utc)
 

@@ -373,7 +373,7 @@ export default function QuoteDetailScreen() {
           {/* Live rate chip */}
           <View style={{
             flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-            backgroundColor: "#0F1F1F", padding: 10, borderRadius: 8, marginBottom: 10,
+            backgroundColor: "#0F1F1F", padding: 10, borderRadius: 8, marginBottom: 8,
             borderWidth: 1, borderColor: fx?.stale ? "#E0A44A" : theme.border,
           }}>
             <View style={{ flex: 1 }}>
@@ -413,6 +413,51 @@ export default function QuoteDetailScreen() {
                 : <Ionicons name="refresh" size={14} color={theme.textPrimary} />}
             </TouchableOpacity>
           </View>
+
+          {/* --- Locked at quote-creation chip — audit trail --- */}
+          {quote.fx_snapshot?.rate != null && (() => {
+            const lockedRate = Number(quote.fx_snapshot.rate);
+            const lockedAt = new Date(quote.fx_snapshot.fetched_at);
+            const drift = fx?.rate != null ? fx.rate - lockedRate : null;
+            const driftPct = drift != null && lockedRate ? (drift / lockedRate) * 100 : null;
+            const isSameRate = drift == null || Math.abs(drift) < 0.0001;
+            return (
+              <View style={{
+                flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                backgroundColor: "#141210", padding: 10, borderRadius: 8, marginBottom: 10,
+                borderWidth: 1, borderColor: "#3a2e1e",
+              }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Ionicons name="lock-closed-outline" size={13} color="#C9A96E" />
+                    <Text style={{
+                      color: "#C9A96E", fontSize: 12, fontWeight: "700", marginLeft: 4,
+                      textTransform: "uppercase", letterSpacing: 0.5,
+                    }}>
+                      Locked at creation: {lockedRate.toFixed(4)}
+                    </Text>
+                  </View>
+                  <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 2 }}>
+                    {lockedAt.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+                    {"  "}
+                    {lockedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}
+                    {"  ·  "}{quote.fx_snapshot.source}
+                  </Text>
+                </View>
+                {!isSameRate && driftPct != null && (
+                  <View style={{ alignItems: "flex-end", marginLeft: 8 }}>
+                    <Text style={{
+                      color: drift! >= 0 ? "#4CAF50" : "#E06666",
+                      fontSize: 11, fontWeight: "700",
+                    }}>
+                      {drift! >= 0 ? "▲" : "▼"} {Math.abs(driftPct).toFixed(2)}%
+                    </Text>
+                    <Text style={{ color: theme.textMuted, fontSize: 9 }}>vs today</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
 
           {/* Bank-buffer / adjustment % — allows for daily fluctuations & bank rates */}
           <NumRow
