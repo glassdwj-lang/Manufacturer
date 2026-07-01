@@ -970,4 +970,32 @@ export const api = {
   // ---------- RFQs (manufacturer) ----------
   mfgListRfqs: () => request<any[]>("/manufacturer/rfqs"),
   mfgGetRfq: (id: string) => request<any>(`/manufacturer/rfqs/${id}`),
+
+  // ---------- Quotes ----------
+  listQuotes: () => request<any[]>(`/quotes`),
+  getQuote: (id: string) => request<any>(`/quotes/${id}`),
+  patchQuote: (id: string, body: any) =>
+    request<any>(`/quotes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  computeQuoteTotals: (inputs: any) =>
+    request<any>(`/quotes/compute`, { method: "POST", body: JSON.stringify({ inputs }) }),
+  deleteQuote: (id: string) => request<any>(`/quotes/${id}`, { method: "DELETE" }),
+
+  // ---------- Client approval gates (Step 02) ----------
+  releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>
+    request<any>(`/orders/${orderId}/renders/${renderId}/release-for-client`, {
+      method: "POST",
+      body: JSON.stringify({ released }),
+    }),
+  getClientRenders: (orderId: string) =>
+    request<{ released: any[]; approval: any }>(`/orders/${orderId}/client-renders`),
+  postGate1: (orderId: string, status: "accepted" | "revision_requested", message?: string) =>
+    request<any>(`/orders/${orderId}/client-approval/gate1`, {
+      method: "POST",
+      body: JSON.stringify({ status, message }),
+    }),
+  postGate2: (orderId: string, status: "yes" | "no") =>
+    request<any>(`/orders/${orderId}/client-approval/gate2`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
 };

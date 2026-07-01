@@ -118,6 +118,15 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
+        testID="quotes-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/quotes")}
+      >
+        <Ionicons name="calculator-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>Quotes</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
         testID="igi-library-button"
         style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
         onPress={() => router.push("/(app)/admin/igi-certificates")}

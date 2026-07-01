@@ -1,0 +1,53 @@
+{
+  "summary": "Backend + frontend regression for the new RFQ / Manufacturer directory / Client-approval gates. Wrote 21-test pytest suite at /app/backend/tests/test_rfq_pipeline.py; 17 passed, 4 skipped. All manufacturer directory endpoints (list of 14 seeded workshops with codes 01/14 burned; next-code>=15; POST create with full gem-gallery mirror + gem_gallery_id populated and pending_sync=false; PATCH notes stays synced; POST /status burned then rejected active with 'permanently retired'; sync-pending idempotent; guard 403 for client/mfg) verified. All RFQ pipeline endpoints (admin-bespoke create defaults SB brand + piece_type_label=Ring + status=pending_review; origin=admin_bespoke filter surfaces the record; broadcast to burned Floral 01 returns 400 'Cannot broadcast to paused/burned manufacturers'; broadcasting to codes 06 + 07 allocates two serials with the correct triple SB-06-1-YYMM-NNN / SB 06 1 YYMM NNN / SB061YYMMNNN and stamps manufacturer_directory_id + manufacturer_gem_gallery_id + expires_at=allocated_at+14days; extend flips extension_granted=true and bumps +14d, second extend → 400 'already granted'; response records mfg reply and flips broadcast.status=responded; import-to-quote creates a Quote pre-filled with serial triple + ring_cost_usd=5000 + rfq_id; ingest-from-gem-gallery pulls remote queue with the known RFQ 72e662dc… mirrored as origin=gem_gallery; admin/rfqs 403-guarded for manufacturer role) verified. Quotes CRUD (GET, PATCH recomputes totals with real numeric fields, POST /compute preview, DELETE soft-delete) all pass. Frontend smoke on 390x844 viewport: admin quick-login works, /(app)/admin/manufacturers lists all 15 rows with codes + status pills (01/14/15 BURNED, rest ACTIVE), /(app)/admin/rfqs shows origin tabs All/gem-gallery/Bespoke + Ingest + a working header '+' entry to /(app)/admin/rfqs/new, the new-bespoke form renders piece-type chips + brand + all preference fields + admin notes + submit CTA, /(app)/admin/quotes renders empty state after cleanup, and manufacturer login → 'My RFQs' button navigates to /manufacturer/rfqs which shows the SB 06 1 2607 001 broadcast we recorded a response for as 'responded' with expiry 2026-07-29. Two pre-existing minor warnings still present (not introduced here): 'Unexpected text node' console errors + a handful of RN-web deprecation warnings.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/manufacturers",
+        "issue": "Pydantic EmailStr rejects reserved TLDs like *.test / *.example (RFC 6761). If future tests or seed data use qa@somnio.test the field validator returns 422. Test now uses qa@somnio-qa.co. Not a functional bug, just a documentation caveat for testers using RFC-reserved TLDs."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "web-only console warning (pre-existing)",
+        "issue": "Repeating console error 'Unexpected text node: . A text node cannot be a child of a <View>.' fires on / and on the (app)/admin/manufacturers, /(app)/admin/rfqs, /(app)/admin/rfqs/new, /(app)/admin/quotes screens. Not blocking — pre-existing since iteration_12 — but a bare text node is still slipping through a <View> somewhere in the shared header/brand strip. Reference: seen on every route visited during this iteration."
+      },
+      {
+        "component": "RN-web deprecation warnings (pre-existing)",
+        "issue": "Console warnings 'Image: style.resizeMode is deprecated. Please use props.resizeMode', 'Image: style.tintColor is deprecated. Please use props.tintColor', and 'props.pointerEvents is deprecated. Use style.pointerEvents' fire on every render. Non-blocking but should be migrated ahead of the next RN-web major bump."
+      }
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_13.json", "/app/backend/tests/test_rfq_pipeline.py", "/app/test_reports/pytest/iteration_13.xml"],
+  "action_items": [
+    "(Optional docs) Note in QA guides that Pydantic EmailStr rejects RFC-reserved TLDs (.test/.example/.invalid/.localhost); use *.co / *.com in fixtures.",
+    "(Optional, pre-existing) Track down the stray text node inside a <View> that produces 'Unexpected text node: .' — likely a ' · ' separator or an interpolated string with a fallback string that leaks '.'; suspect BrandStrip / Eyebrow / LanguageSwitcher shared across all these new screens.",
+    "(Optional, pre-existing) Migrate Image resizeMode/tintColor from style→props and pointerEvents from props→style to silence deprecation warnings.",
+    "(Optional) Consider exposing a POST /api/orders/{id}/renders or an admin ingestion path so QA can seed a render on a fresh client order — currently the client-gate tests skipped because client@somnio.co's only order (bfd88382-b8c8-4f6d-8732-72a04548d751) has no renders array. Client gate 1/2 endpoints themselves look correct in code review (release toggle → arrayFilters, gate1 accepted→409 dup, gate2 requires gate1=accepted, both 403-gated to owning client), but were only exercised via code inspection this iteration."
+  ],
+  "critical_code_review_comments": [
+    "manufacturers.py cleanly separates directory model, sync helpers, and endpoint handlers; guard is `require_roles('admin')` on every write and read — verified 403 from client & manufacturer roles.",
+    "manufacturers.py burn-is-terminal rule enforced in change_status (line ~286): current==burned && target!=burned → 400 with the exact 'permanently retired' copy — matches gem-gallery.",
+    "rfqs.py _allocate_serial correctly scopes counter by (brand, mfr_code, yymm) so two concurrent broadcasts to the same manufacturer within a month get distinct seq values. Verified: two broadcasts in the same call produced seq 001 + 001 for two different mfrs (independent counter docs).",
+    "rfqs.py broadcast handler stamps manufacturer_directory_id + manufacturer_gem_gallery_id on each broadcast subdoc (lines 603-604) — verified in response payload.",
+    "rfqs.py extend handler is one-shot: extension_granted flag guards a second call. Verified 400 on second extend.",
+    "quotes.py compute_totals is pure/deterministic and rounds all outputs to 2dp — nice. patch_quote correctly re-runs compute_totals on every input mutation.",
+    "client_approval.py uses arrayFilters for the release-toggle mutation (correct pattern for subdoc patch). Gate1/Gate2 both 403-gated to the owning client_id and return 409 for double-submit — matches spec.",
+    "manufacturers.py duplicate-name guard uses name_lower (case-insensitive) — good.",
+    "No mongodb _id leakage observed in any of the tested endpoints (all cursor find() calls include {'_id': 0}).",
+    "One observation: rfqs.py Broadcast Pydantic model doesn't declare manufacturer_directory_id / manufacturer_gem_gallery_id fields, they're added post-model_dump. Fine for now (dicts are stored verbatim) but the model no longer reflects the persisted shape — worth adding as Optional fields for schema clarity."
+  ],
+  "updated_files": ["/app/backend/tests/test_rfq_pipeline.py (new)"],
+  "success_rate": {"backend": "17/17 executed passing (4 client-gate tests skipped: client's only order has no renders)", "frontend": "6/6 smoke checks passing (admin quick-login, mfrs list, rfq queue, new bespoke form, quotes empty state, manufacturer→My RFQs)"},
+  "seed_data_creation": "Created + then burned TEST_QA_Atelier_1782905364 (code 15) as part of the manufacturer flow test. Created + then soft-deleted admin_bespoke RFQ d24176a3-85c9-43d1-b3eb-858753961d4d (QA Client, SB 06/07 broadcast). Created + then soft-deleted quote eadf687a-969d-4249-ae89-a40c7ff75b12. Burned mfr remains in-place per instructions (gem-gallery burn is terminal). Ingest-from-gem-gallery pulled the live queue; those docs are shared state and were not touched by cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reusable regression at /app/backend/tests/test_rfq_pipeline.py. Every future run creates a NEW TEST_QA_Atelier_<timestamp> (name is time-stamped to avoid the 409 dup-name guard) and NEW bespoke RFQ + quote; cleanup burns/soft-deletes at the end of each class. Client-gate section skips gracefully if the client account has no orders with renders — to exercise it fully, seed an order with `renders: [{id, name, ...}]` for client@somnio.co before running the suite. gem-gallery-193 preview host was responsive during this run; if it 502/503s in a later run, the test already includes a single 4-second retry.",
+  "rca_of_issue": "None. All feature endpoints behaved as specified; the one initial pytest failure was a test-side email address ('qa@somnio.test') that Pydantic's EmailStr blocks under RFC 6761. Swapped to qa@somnio-qa.co and re-ran — all 17 assertions pass. Client-gate tests were skipped (not failed) because the target order has no renders and the test suite doesn't have a seeding path for that."
+}

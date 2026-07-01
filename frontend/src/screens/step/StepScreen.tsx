@@ -47,6 +47,7 @@ import { StepCompletionTimestamp } from "./components/StepCompletionTimestamp";
 import { StepFormSection } from "./components/StepFormSection";
 import { StepForwardSection } from "./components/StepForwardSection";
 import { StepReadOnlyView } from "./components/StepReadOnlyView";
+import { ClientApprovalGates } from "@/src/components/ClientApprovalGates";
 import { styles } from "./styles";
 
 export default function StepActionScreen() {
@@ -227,6 +228,14 @@ export default function StepActionScreen() {
               onPrev={() => goToStep(stepNum - 1)}
               onNext={() => goToStep(stepNum + 1)}
             />
+          )}
+
+          {/* Step 02 (Conceptual Rendering) exposes the two-gate client
+              approval strip. Admins see release toggles + read-only
+              gate state; the client sees released renders + Accept /
+              Revision / Gate-2 controls. Any other role sees nothing. */}
+          {stepNum === 2 && (user?.role === "client" || user?.role === "admin" || user?.role === "associate") && (
+            <ClientApprovalGates orderId={String(orderId)} role={user.role} />
           )}
         </ScrollView>
       </KeyboardAvoidingView>
