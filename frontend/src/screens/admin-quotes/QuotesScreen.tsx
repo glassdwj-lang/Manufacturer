@@ -46,7 +46,7 @@ export default function QuotesScreen() {
           data={items}
           keyExtractor={(q) => q.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-          contentContainerStyle={{ padding: spacing.md }}
+          contentContainerStyle={{ padding: spacing.md, maxWidth: 520, width: "100%", alignSelf: "center" }}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />}
           renderItem={({ item }) => (
             <TouchableOpacity onPress={() => router.push(`/(app)/admin/quotes/${item.id}`)}>

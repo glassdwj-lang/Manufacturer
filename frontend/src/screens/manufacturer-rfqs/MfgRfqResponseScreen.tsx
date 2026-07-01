@@ -76,7 +76,7 @@ export default function MfgRfqResponseScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 40, maxWidth: 520, width: "100%", alignSelf: "center" }}>
         <Text style={{ color: theme.textMuted, fontSize: 12 }}>engraved: {bc.serial_engraved}</Text>
         <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 2 }}>expires: {(bc.expires_at||"").slice(0,10)}{bc.extension_granted?" (+14 admin extension)":""} · status: {bc.status}</Text>
 

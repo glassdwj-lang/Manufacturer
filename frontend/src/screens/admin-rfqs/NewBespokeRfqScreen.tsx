@@ -75,7 +75,7 @@ export default function NewBespokeRfqScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 60, maxWidth: 520, width: "100%", alignSelf: "center" }}>
         <Text style={{ color: theme.textMuted, fontSize: 12, marginBottom: 8 }}>
           For pieces not in the gem-gallery catalog. Serial numbers are allocated at broadcast time.
         </Text>

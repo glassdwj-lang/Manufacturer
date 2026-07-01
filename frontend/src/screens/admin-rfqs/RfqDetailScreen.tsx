@@ -94,7 +94,7 @@ export default function RfqDetailScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 40, maxWidth: 520, width: "100%", alignSelf: "center" }}>
         <Text style={{ color: theme.textMuted, fontSize: 12 }}>{rfq.origin === "admin_bespoke" ? "Bespoke (this app)" : "gem-gallery-193"} · status: {rfq.status}</Text>
         <Text style={{ color: theme.textPrimary, fontWeight: "700", fontSize: 18, marginTop: 4 }}>{rfq.client_name || "Unnamed client"}</Text>
 

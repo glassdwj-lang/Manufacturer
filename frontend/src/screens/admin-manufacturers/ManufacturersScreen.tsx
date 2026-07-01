@@ -152,7 +152,7 @@ export default function ManufacturersScreen() {
           data={items}
           keyExtractor={(m) => m.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-          contentContainerStyle={{ padding: spacing.md }}
+          contentContainerStyle={{ padding: spacing.md, maxWidth: 520, width: "100%", alignSelf: "center" }}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />}
           renderItem={({ item }) => (
             <TouchableOpacity onPress={() => changeStatus(item.id, item.status)}>

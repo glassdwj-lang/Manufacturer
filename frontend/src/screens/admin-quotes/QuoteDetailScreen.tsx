@@ -204,7 +204,7 @@ export default function QuoteDetailScreen() {
         {saving ? <ActivityIndicator size="small" color={theme.primary} /> : <View style={{ width: 22 }} />}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 60, maxWidth: 520, width: "100%", alignSelf: "center" }} keyboardShouldPersistTaps="handled">
         {/* --- Header card: serial + RFQ + status pills --- */}
         {(quote.serial_display || quote.rfq_id) && (
           <View style={{ backgroundColor: "#0F1F1F", padding: spacing.md, borderRadius: 10, borderLeftWidth: 3, borderLeftColor: theme.primary }}>

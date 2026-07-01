@@ -44,7 +44,7 @@ export default function MfgRfqListScreen() {
           data={items}
           keyExtractor={(r) => r.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-          contentContainerStyle={{ padding: spacing.md }}
+          contentContainerStyle={{ padding: spacing.md, maxWidth: 520, width: "100%", alignSelf: "center" }}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 8 }} />}
           renderItem={({ item }) => {
             const bc = (item.broadcasts || [])[0];
