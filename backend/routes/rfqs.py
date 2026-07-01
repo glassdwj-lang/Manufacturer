@@ -1,58 +1,83 @@
-"""Request-For-Quote (RFQ) pipeline — Phase A.
+"""Request-For-Quote (RFQ) pipeline — Option C (hybrid).
 
-The RFQ is the *unifying artefact* of the whole quoting journey. A
-client (or an associate acting on behalf of a client) creates one via
-either a preference form or by favouriting a piece and tweaking its
-attributes. The RFQ is stamped with a unique, human-readable serial
-number that follows the workpiece from intake all the way to the final
-client-facing quotation and, later, to the manufactured order.
+Two RFQ origins live side-by-side, sharing the same collection & schema:
 
-Status lifecycle
-================
+1. ``origin="gem_gallery"`` — RFQs authored by associates inside
+   **gem-gallery-193**. That app remains the source of truth for the
+   preference snapshot, the per-manufacturer serial numbers, and the
+   broadcast lifecycle. Somnio.Co mirrors those documents into its
+   local ``rfqs`` collection (via read-through ingest or the inbound
+   webhook), storing every field verbatim — we never regenerate a
+   serial for these.
+
+2. ``origin="admin_bespoke"`` — RFQs an atelier admin creates locally
+   inside Somnio.Co when a piece is *not* in the gem-gallery lookbook
+   or catalog and the admin needs manufacturer pricing on it. These
+   are minted here and follow the exact same serialisation format so
+   both origins are indistinguishable downstream.
+
+Serial format (from gem-gallery-193 production data)
+=====================================================
 
 ::
 
-    draft                    (owner still editing, not yet visible to admin)
-      │  POST /submit
-      ▼
-    submitted                (on HOLD — admin review queue)
-      │  POST /assign
-      ▼
-    sent_to_manufacturer     (one or more manufacturers can respond)
-      │  POST /variants  (up to 6 variants, restricted fields)
-      ▼
-    manufacturer_responded
-      │  POST /import-to-quote  (creates a `quotes` doc, links back)
-      ▼
-    imported_to_quote
-      │  (admin finalises the quote, marks client_quoted from the
-      │   quotes router — see quotes.py)
-      ▼
-    client_quoted            (terminal for the RFQ; commercial output
-                              lives on the linked quote / order)
+    serial_storage:  "SC-01-1-2606-002"    ← DB/API form
+    serial_display:  "SC 01 1 2606 002"    ← human-readable
+    serial_engraved: "SC0112606002"        ← for laser engraving
 
-Serial number
-=============
+    ┌────┬───────────────┬───────────────┬─────────┬────────┐
+    │ SC │ 01            │ 1             │ 2606    │ 002    │
+    ├────┼───────────────┼───────────────┼─────────┼────────┤
+    │brand│ manufacturer │ piece_type    │  YYMM   │ seq    │
+    │code │ code (2-digit)│ (int taxonomy)│         │(3-digit)│
+    └────┴───────────────┴───────────────┴─────────┴────────┘
 
-Format: ``SCO-{yyyy}-{seq:05d}``. The counter lives in the
-``counters`` collection under ``_id = "rfq_serial_{yyyy}"`` and is
-atomically incremented with `$inc + upsert=True` so concurrent
-inserts never collide.
+Rules:
 
-Role gating
-===========
+* One RFQ produces **one serial per broadcast recipient**, not one
+  per RFQ. Broadcasting to 3 manufacturers → 3 serials.
+* ``seq`` scopes by ``(brand, manufacturer_code, yymm)``.
+* Each broadcast expires after **14 days**. Admin may grant **one**
+  14-day extension (holiday allowance) via
+  ``POST /admin/rfqs/{id}/broadcasts/{bid}/extend``.
 
-* client, associate — create, view own, submit
-* admin — full CRUD, assign to manufacturer(s), import to quote
-* manufacturer — view RFQs assigned to them, submit variants only
+Endpoints (all under ``/api``)
+==============================
+
+Client / associate::
+    POST  /rfqs                     (admin_bespoke or manual test only —
+                                     production origin path is gem-gallery)
+    GET   /rfqs/mine
+
+Admin::
+    GET   /admin/rfqs               (list, filter by status/origin)
+    GET   /admin/rfqs/{id}
+    POST  /admin/rfqs               (admin-bespoke create: "call up a
+                                     preference" from admin)
+    PATCH /admin/rfqs/{id}
+    DELETE /admin/rfqs/{id}
+    POST  /admin/rfqs/{id}/broadcast                       (allocate serials)
+    POST  /admin/rfqs/{id}/broadcasts/{bid}/extend         (+14 days, one-shot)
+    POST  /admin/rfqs/{id}/broadcasts/{bid}/response       (record mfg reply)
+    POST  /admin/rfqs/{id}/import-to-quote?broadcast_id=…  (pre-fill a quote)
+    POST  /admin/rfqs/ingest-from-gem-gallery              (read-through sync)
+
+Webhook (inbound from gem-gallery-193)::
+    POST  /gem-gallery/rfq-broadcast-updated
+
+Manufacturer::
+    GET   /manufacturer/rfqs        (broadcasts assigned to me, not-expired)
+    GET   /manufacturer/rfqs/{id}
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user, require_roles
@@ -63,418 +88,433 @@ router = APIRouter()
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
-STATUS_DRAFT = "draft"
-STATUS_SUBMITTED = "submitted"
-STATUS_SENT_TO_MFG = "sent_to_manufacturer"
-STATUS_MFG_RESPONDED = "manufacturer_responded"
+# RFQ-level statuses. Kept close to gem-gallery's own vocabulary so a
+# mirrored document doesn't need translation.
+STATUS_PENDING_REVIEW = "pending_review"        # gem-gallery uses this
+STATUS_BROADCASTING = "broadcasting"
+STATUS_BROADCAST_COMPLETE = "broadcast_complete"
 STATUS_IMPORTED = "imported_to_quote"
 STATUS_CLIENT_QUOTED = "client_quoted"
 STATUS_CANCELLED = "cancelled"
+STATUS_DRAFT = "draft"                          # admin-bespoke pre-submit
 
 ALL_STATUSES = {
-    STATUS_DRAFT,
-    STATUS_SUBMITTED,
-    STATUS_SENT_TO_MFG,
-    STATUS_MFG_RESPONDED,
+    STATUS_PENDING_REVIEW,
+    STATUS_BROADCASTING,
+    STATUS_BROADCAST_COMPLETE,
     STATUS_IMPORTED,
     STATUS_CLIENT_QUOTED,
     STATUS_CANCELLED,
+    STATUS_DRAFT,
 }
 
-MAX_MFG_VARIANTS = 6
+# Broadcast-level statuses per gem-gallery.
+BC_PENDING = "pending"
+BC_SENT = "sent"
+BC_SEND_FAILED = "send_failed"
+BC_RESPONDED = "responded"
+BC_EXPIRED = "expired"
+
+BROADCAST_INITIAL_TTL_DAYS = 14
+BROADCAST_EXTENSION_DAYS = 14
+
+# Admin-bespoke brand default. Overridable via env.
+ADMIN_BESPOKE_BRAND = os.environ.get("SOMNIO_BESPOKE_BRAND_CODE", "SB")
+
+# --- Piece-type taxonomy (mirrors gem-gallery numeric ids) -----------
+PIECE_TYPES: Dict[int, str] = {
+    1: "Ring",
+    2: "Pendant",
+    3: "Earrings",
+    4: "Bracelet",
+    5: "Necklace",
+    6: "Brooch",
+    7: "Cufflinks",
+    8: "Other",
+}
 
 
 # ----------------------------------------------------------------------
 # Schemas
 # ----------------------------------------------------------------------
-class Preferences(BaseModel):
-    """Client-side preference-form payload. Deliberately generous —
-    every field is optional so a client can favourite a piece and
-    submit with almost nothing, or fill it out from scratch.
-
-    Additional bespoke fields can be dropped into ``extras`` without
-    a migration.
+class PreferenceSnapshot(BaseModel):
+    """The atelier preference form. Mirrors gem-gallery-193's shape
+    exactly so mirrored documents drop straight in.
     """
 
-    piece_type: Optional[str] = None            # ring | pendant | earrings…
-    metal_preference: Optional[str] = None      # 18k WG, PT950, …
-    stone_type: Optional[str] = None            # natural diamond, LG, moiss.
-    stone_shape: Optional[str] = None           # OV, RD, EM, …
-    stone_carat_target: Optional[float] = None
-    color_grade: Optional[str] = None           # D, E, F, …
-    clarity_grade: Optional[str] = None         # VVS1, VS1, …
+    id: Optional[str] = None
+    name: Optional[str] = None
+    ring_type: Optional[str] = None
     ring_size: Optional[str] = None
-    budget_min_aud: Optional[float] = None
-    budget_max_aud: Optional[float] = None
-    target_timeline_weeks: Optional[int] = None
-    inspiration_notes: Optional[str] = None
+    metal_preferences: List[str] = Field(default_factory=list)
+    metal_preference: Optional[str] = None          # singular gem-gallery uses
+    gold_karat: Optional[str] = None
+    main_stone_type: Optional[str] = None
+    stone_shape: Optional[str] = None
+    stone_shapes: List[str] = Field(default_factory=list)
+    carat_weight: Optional[str] = None
+    color_grade: Optional[str] = None
+    clarity_grade: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    budget_currency: Optional[str] = None
+    other_ring_elements: Optional[str] = None
+    inscription_text: Optional[str] = None
+    favourite_styles: List[str] = Field(default_factory=list)
     inspiration_image_urls: List[str] = Field(default_factory=list)
     extras: Dict[str, Any] = Field(default_factory=dict)
 
 
-class FavoriteSource(BaseModel):
-    """When the RFQ was seeded from an existing render/library asset."""
-
-    source_type: Optional[str] = None           # render | gallery | order
-    source_id: Optional[str] = None             # render id / gallery id
-    source_order_id: Optional[str] = None       # if favourited off an order
-    source_url: Optional[str] = None            # snapshot URL of the asset
-    adjustments: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ManufacturerVariant(BaseModel):
-    """One of up to :data:`MAX_MFG_VARIANTS` responses a manufacturer
-    can attach to an RFQ. Only these fields are settable by the
-    manufacturer role — everything else on the RFQ stays admin-only.
-    """
+class Broadcast(BaseModel):
+    """A single manufacturer's copy of an RFQ, uniquely serialised."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    label: Optional[str] = None                 # 'Option A', '18k YG + LG'…
+    rfq_id: str
+    manufacturer_id: str
+    manufacturer_code: int
+    manufacturer_name_internal: Optional[str] = None
+    manufacturer_email: Optional[str] = None
+
+    # Serial triple — three renderings of the same underlying number.
+    brand: str                                       # "SC" / "SA" / "SB" …
+    piece_type: int                                   # 1..8
+    yymm: str                                         # "2606"
+    seq: int                                          # scope: (brand, mfr, yymm)
+    serial_storage: str
+    serial_display: str
+    serial_engraved: str
+
+    # Lifecycle
+    allocated_at: str
+    expires_at: str
+    extension_granted: bool = False
+    extension_granted_by: Optional[str] = None
+    extension_granted_at: Optional[str] = None
+
+    status: str = BC_PENDING                          # pending/sent/send_failed/responded/expired
+    quote_url_public: Optional[str] = None
+    email_message_id: Optional[str] = None
+    email_error: Optional[str] = None
+    included_attachment_count: int = 0
+    admin_notes: Optional[str] = None
+
+    # Manufacturer's captured response (used when the broadcast is
+    # bespoke and no gem-gallery `quote_url_public` exists, or when
+    # admin transcribes an email/phone reply).
+    response: Optional[Dict[str, Any]] = None
+    response_recorded_at: Optional[str] = None
+    response_recorded_by: Optional[str] = None
+
+
+class RFQ(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    origin: str                                      # "gem_gallery" | "admin_bespoke"
+    external_id: Optional[str] = None                # gem-gallery's own id, if any
+
+    # Owner + submitter (gem-gallery-mirrored fields kept verbatim)
+    session_id: Optional[str] = None
+    entry_id: Optional[str] = None
+    user_id: Optional[str] = None                     # gem-gallery user id
+    submitted_by_email: Optional[str] = None
+    submitted_by_name: Optional[str] = None
+    client_name: Optional[str] = None
+
+    # Categorisation
+    brand: str                                       # 2-letter brand code
+    category: Optional[str] = None                   # "rings" | "pendants" …
+    piece_type: int                                  # numeric id
+    piece_type_label: Optional[str] = None
+
+    # Content
+    preference_snapshot: Optional[PreferenceSnapshot] = None
+    attachment_ids: List[str] = Field(default_factory=list)
+    admin_attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+    # Lifecycle
+    status: str = STATUS_PENDING_REVIEW
+    fingerprint: Optional[str] = None
+    submitted_at: Optional[str] = None
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_broadcast_at: Optional[str] = None
+    broadcast_count: int = 0
+    broadcasts: List[Broadcast] = Field(default_factory=list)
+
+    # Downstream links
+    linked_order_id: Optional[str] = None
+    linked_quote_id: Optional[str] = None
+
+    # Audit
+    admin_notes: Optional[str] = None
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    deleted: bool = False
+
+
+# --- Request payloads --------------------------------------------------
+class AdminBespokeCreatePayload(BaseModel):
+    """Admin "calls up a preference" for a piece that isn't in the
+    catalog/lookbook, to price it with manufacturers."""
+
+    client_name: Optional[str] = None
+    brand: Optional[str] = None                      # defaults to SB
+    piece_type: int
+    category: Optional[str] = None
+    preference_snapshot: PreferenceSnapshot
+    admin_notes: Optional[str] = None
+    submit_immediately: bool = True
+
+
+class AdminRFQPatchPayload(BaseModel):
+    client_name: Optional[str] = None
+    brand: Optional[str] = None
+    piece_type: Optional[int] = None
+    category: Optional[str] = None
+    preference_snapshot: Optional[PreferenceSnapshot] = None
+    admin_notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+class BroadcastRequestPayload(BaseModel):
+    manufacturer_ids: List[str]
+    admin_notes: Optional[str] = None
+    include_attachment_ids: List[str] = Field(default_factory=list)
+
+
+class BroadcastResponsePayload(BaseModel):
+    """Admin transcribes the manufacturer's reply, or manufacturer
+    submits directly. Uses a free-form dict so the shape can evolve
+    without a migration — canonical keys mirror gem-gallery's variant
+    fields.
+    """
+
     price_usd: Optional[float] = None
-    metal: Optional[str] = None                 # e.g. '18k YG'
-    stone_kind: Optional[str] = None            # 'lab_diamond' | 'moissanite'
+    metal: Optional[str] = None
+    stone_kind: Optional[str] = None                 # 'lab_diamond'|'moissanite'
     lab_diamond_size_ct: Optional[float] = None
     lab_diamond_color: Optional[str] = None
     lab_diamond_clarity: Optional[str] = None
     piece_weight_g: Optional[float] = None
     lead_time_days: Optional[int] = None
     notes: Optional[str] = None
-    submitted_at: Optional[str] = None
-    submitted_by: Optional[str] = None          # manufacturer user id
-
-
-class RFQ(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    serial_number: str                          # SCO-2026-00001
-    status: str = STATUS_DRAFT
-
-    # Origination -----------------------------------------------------
-    owner_id: str                               # client or associate uid
-    owner_role: str                             # 'client' | 'associate'
-    created_by: Optional[str] = None
-    origin: str = "preference"                  # 'preference' | 'favorite'
-    preferences: Optional[Preferences] = None
-    favorite_source: Optional[FavoriteSource] = None
-
-    # Assignment ------------------------------------------------------
-    assigned_manufacturer_ids: List[str] = Field(default_factory=list)
-    variants: List[ManufacturerVariant] = Field(default_factory=list)
-
-    # Downstream links -----------------------------------------------
-    linked_order_id: Optional[str] = None
-    linked_quote_id: Optional[str] = None
-
-    # Admin bookkeeping ----------------------------------------------
-    admin_notes: Optional[str] = None
-    history: List[Dict[str, Any]] = Field(default_factory=list)
-
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    updated_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    submitted_at: Optional[str] = None
-    deleted: bool = False
-
-
-# --- Request payloads --------------------------------------------------
-class RFQCreatePayload(BaseModel):
-    origin: str = "preference"                  # 'preference' | 'favorite'
-    preferences: Optional[Preferences] = None
-    favorite_source: Optional[FavoriteSource] = None
-    submit_immediately: bool = False            # skip 'draft' state
-
-
-class RFQUpdatePayload(BaseModel):
-    """Owner (client/associate) edits — only allowed while status=draft."""
-
-    preferences: Optional[Preferences] = None
-    favorite_source: Optional[FavoriteSource] = None
-
-
-class AdminAssignPayload(BaseModel):
-    manufacturer_ids: List[str]
-    admin_notes: Optional[str] = None
-
-
-class AdminNotePayload(BaseModel):
-    admin_notes: str
-
-
-class VariantSubmitPayload(BaseModel):
-    """Manufacturer submits or replaces their variants (up to 6)."""
-
-    variants: List[ManufacturerVariant]
+    extras: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-async def _next_serial() -> str:
-    """Atomically bump the yearly counter and return the formatted serial.
-
-    Uses ``findAndModify``-style upsert so two racing requests can't
-    both grab the same number.
-    """
-    year = datetime.now(timezone.utc).year
-    counter_id = f"rfq_serial_{year}"
-    result = await db.counters.find_one_and_update(
-        {"_id": counter_id},
-        {"$inc": {"seq": 1}},
-        upsert=True,
-        return_document=True,  # motor: pymongo.ReturnDocument.AFTER
-    )
-    seq = (result or {}).get("seq", 1)
-    return f"SCO-{year}-{seq:05d}"
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _now().isoformat()
 
 
-def _history_entry(user: dict, event: str, **extra: Any) -> Dict[str, Any]:
+def _yymm(dt: datetime) -> str:
+    return f"{dt.year % 100:02d}{dt.month:02d}"
+
+
+def _history(user: dict, event: str, **extra: Any) -> Dict[str, Any]:
     entry = {
         "at": _now_iso(),
         "by": user.get("id"),
         "by_role": user.get("role"),
+        "actor": user.get("email"),
         "event": event,
     }
     entry.update(extra)
     return entry
 
 
-async def _load_rfq(rfq_id: str) -> Dict[str, Any]:
-    rfq = await db.rfqs.find_one(
-        {"id": rfq_id, "deleted": {"$ne": True}}, {"_id": 0}
+def _format_serial(brand: str, mfr_code: int, piece_type: int, yymm: str, seq: int) -> Dict[str, str]:
+    """Produce the storage, display, and engraved renderings."""
+    parts = (brand.upper(), f"{mfr_code:02d}", str(piece_type), yymm, f"{seq:03d}")
+    return {
+        "serial_storage": "-".join(parts),
+        "serial_display": " ".join(parts),
+        "serial_engraved": "".join(parts),
+    }
+
+
+async def _allocate_serial(brand: str, mfr_code: int, piece_type: int) -> Dict[str, Any]:
+    """Atomically allocate the next serial for a (brand, manufacturer, yymm) scope.
+
+    We `$inc` a counter document keyed by that triple so concurrent
+    broadcasts to the same manufacturer within the same calendar month
+    never collide.
+    """
+    dt = _now()
+    yymm = _yymm(dt)
+    counter_id = f"serial_{brand.upper()}_{mfr_code:02d}_{yymm}"
+    result = await db.counters.find_one_and_update(
+        {"_id": counter_id},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
     )
+    seq = (result or {}).get("seq", 1)
+    triple = _format_serial(brand, mfr_code, piece_type, yymm, seq)
+    return {"brand": brand.upper(), "mfr_code": mfr_code, "piece_type": piece_type,
+            "yymm": yymm, "seq": seq, **triple}
+
+
+async def _load_rfq(rfq_id: str) -> Dict[str, Any]:
+    rfq = await db.rfqs.find_one({"id": rfq_id, "deleted": {"$ne": True}}, {"_id": 0})
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
     return rfq
 
 
-def _assert_owner_or_admin(rfq: dict, user: dict) -> None:
+def _assert_admin_or_owner(rfq: dict, user: dict) -> None:
     role = user.get("role")
     if role == "admin":
         return
-    if rfq.get("owner_id") == user.get("id"):
+    if rfq.get("user_id") == user.get("id"):
+        return
+    if rfq.get("submitted_by_email") and rfq["submitted_by_email"].lower() == (user.get("email") or "").lower():
         return
     raise HTTPException(status_code=403, detail="Not permitted on this RFQ")
 
 
-def _assert_assigned_manufacturer(rfq: dict, user: dict) -> None:
-    if user.get("role") != "manufacturer":
-        raise HTTPException(status_code=403, detail="Manufacturer role required")
-    if user.get("id") not in rfq.get("assigned_manufacturer_ids", []):
-        raise HTTPException(
-            status_code=403, detail="RFQ not assigned to this manufacturer"
-        )
+def _expire_dates(now: Optional[datetime] = None, days: int = BROADCAST_INITIAL_TTL_DAYS) -> str:
+    now = now or _now()
+    return (now + timedelta(days=days)).isoformat()
+
+
+def _mark_expired(broadcast: dict) -> dict:
+    """If a broadcast's expires_at has passed and it hasn't been
+    responded to, flip its status to `expired`. Returns the possibly
+    mutated dict; caller decides whether to persist.
+    """
+    if broadcast.get("status") in (BC_RESPONDED, BC_EXPIRED):
+        return broadcast
+    exp = broadcast.get("expires_at")
+    if not exp:
+        return broadcast
+    try:
+        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+    except ValueError:
+        return broadcast
+    if _now() >= exp_dt:
+        broadcast["status"] = BC_EXPIRED
+    return broadcast
 
 
 # ----------------------------------------------------------------------
-# CLIENT / ASSOCIATE endpoints — create + own list + edit while draft
+# ADMIN: bespoke create + CRUD
 # ----------------------------------------------------------------------
-@router.post("/rfqs", summary="Create a new RFQ (client or associate)")
-async def create_rfq(
-    body: RFQCreatePayload,
-    user=Depends(require_roles("client", "associate", "admin")),
+@router.post("/admin/rfqs", summary="Admin bespoke: call up a preference and create an RFQ for pricing")
+async def admin_create_bespoke_rfq(
+    body: AdminBespokeCreatePayload,
+    user=Depends(require_roles("admin")),
 ):
-    if body.origin not in ("preference", "favorite"):
-        raise HTTPException(
-            status_code=400, detail="origin must be 'preference' or 'favorite'"
-        )
-    serial = await _next_serial()
-    initial_status = STATUS_SUBMITTED if body.submit_immediately else STATUS_DRAFT
+    if body.piece_type not in PIECE_TYPES:
+        raise HTTPException(status_code=400, detail=f"piece_type must be one of {list(PIECE_TYPES)}")
+    brand = (body.brand or ADMIN_BESPOKE_BRAND).upper()
+    if len(brand) != 2 or not brand.isalpha():
+        raise HTTPException(status_code=400, detail="brand must be a 2-letter code")
+
     rfq = RFQ(
-        serial_number=serial,
-        status=initial_status,
-        owner_id=user.get("id"),
-        owner_role=user.get("role"),
-        created_by=user.get("id"),
-        origin=body.origin,
-        preferences=body.preferences,
-        favorite_source=body.favorite_source,
+        origin="admin_bespoke",
+        brand=brand,
+        client_name=body.client_name,
+        piece_type=body.piece_type,
+        piece_type_label=PIECE_TYPES[body.piece_type],
+        category=body.category,
+        preference_snapshot=body.preference_snapshot,
+        admin_notes=body.admin_notes,
+        submitted_by_email=user.get("email"),
+        submitted_by_name=user.get("name"),
+        user_id=user.get("id"),
+        status=STATUS_PENDING_REVIEW if body.submit_immediately else STATUS_DRAFT,
         submitted_at=_now_iso() if body.submit_immediately else None,
     )
-    rfq.history.append(
-        _history_entry(user, "created", origin=body.origin, status=initial_status)
-    )
+    rfq.history.append(_history(user, "admin_bespoke_created",
+                                brand=brand, piece_type=body.piece_type))
     doc = rfq.model_dump()
     await db.rfqs.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
 
-@router.get("/rfqs/mine", summary="List RFQs owned by the current user")
-async def list_my_rfqs(
-    user=Depends(require_roles("client", "associate")),
+@router.get("/admin/rfqs", summary="Admin: list RFQs (optional status/origin filters)")
+async def admin_list_rfqs(
+    status: Optional[str] = None,
+    origin: Optional[str] = None,
+    user=Depends(require_roles("admin")),
 ):
-    cursor = (
-        db.rfqs.find(
-            {"owner_id": user.get("id"), "deleted": {"$ne": True}}, {"_id": 0}
-        ).sort("updated_at", -1)
-    )
-    return [d async for d in cursor]
+    q: Dict[str, Any] = {"deleted": {"$ne": True}}
+    if status:
+        if status not in ALL_STATUSES:
+            raise HTTPException(status_code=400, detail="Unknown status filter")
+        q["status"] = status
+    if origin:
+        if origin not in ("gem_gallery", "admin_bespoke"):
+            raise HTTPException(status_code=400, detail="origin must be gem_gallery|admin_bespoke")
+        q["origin"] = origin
+    cursor = db.rfqs.find(q, {"_id": 0}).sort("updated_at", -1)
+    docs = [d async for d in cursor]
+    # Lazily flip expired broadcasts so the UI shows correct states.
+    for d in docs:
+        for bc in d.get("broadcasts", []):
+            _mark_expired(bc)
+    return docs
 
 
-@router.patch("/rfqs/{rfq_id}", summary="Edit an RFQ (owner while draft, or admin)")
-async def update_rfq(
-    rfq_id: str,
-    body: RFQUpdatePayload,
-    user=Depends(get_current_user),
-):
+@router.get("/admin/rfqs/{rfq_id}", summary="Admin: fetch a single RFQ (expiry lazily reconciled)")
+async def admin_get_rfq(rfq_id: str, user=Depends(require_roles("admin"))):
     rfq = await _load_rfq(rfq_id)
-    _assert_owner_or_admin(rfq, user)
-    if user.get("role") != "admin" and rfq.get("status") != STATUS_DRAFT:
-        raise HTTPException(
-            status_code=400,
-            detail="RFQ can only be edited by owner while status='draft'",
-        )
-    patch: Dict[str, Any] = {"updated_at": _now_iso()}
-    if body.preferences is not None:
-        patch["preferences"] = body.preferences.model_dump()
-    if body.favorite_source is not None:
-        patch["favorite_source"] = body.favorite_source.model_dump()
-    history_entry = _history_entry(user, "updated")
-    await db.rfqs.update_one(
-        {"id": rfq_id}, {"$set": patch, "$push": {"history": history_entry}}
-    )
-    rfq.update(patch)
-    rfq.setdefault("history", []).append(history_entry)
+    changed = False
+    for bc in rfq.get("broadcasts", []):
+        prev = bc.get("status")
+        _mark_expired(bc)
+        if bc.get("status") != prev:
+            changed = True
+    if changed:
+        await db.rfqs.update_one({"id": rfq_id}, {"$set": {"broadcasts": rfq["broadcasts"],
+                                                            "updated_at": _now_iso()}})
     return rfq
 
 
-@router.post("/rfqs/{rfq_id}/submit", summary="Submit a draft RFQ for admin review")
-async def submit_rfq(
+@router.patch("/admin/rfqs/{rfq_id}", summary="Admin: edit RFQ header/preference")
+async def admin_patch_rfq(
     rfq_id: str,
-    user=Depends(get_current_user),
+    body: AdminRFQPatchPayload,
+    user=Depends(require_roles("admin")),
 ):
     rfq = await _load_rfq(rfq_id)
-    _assert_owner_or_admin(rfq, user)
-    if rfq.get("status") != STATUS_DRAFT:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Only draft RFQs can be submitted (current: {rfq.get('status')})",
-        )
-    patch = {
-        "status": STATUS_SUBMITTED,
-        "submitted_at": _now_iso(),
-        "updated_at": _now_iso(),
-    }
-    entry = _history_entry(user, "submitted")
+    patch: Dict[str, Any] = {"updated_at": _now_iso()}
+    changed_fields: List[str] = []
+    for k in ("client_name", "brand", "piece_type", "category", "admin_notes"):
+        v = getattr(body, k)
+        if v is not None:
+            patch[k] = v.upper() if k == "brand" else v
+            changed_fields.append(k)
+    if body.piece_type is not None:
+        if body.piece_type not in PIECE_TYPES:
+            raise HTTPException(status_code=400, detail="Unknown piece_type")
+        patch["piece_type_label"] = PIECE_TYPES[body.piece_type]
+    if body.preference_snapshot is not None:
+        patch["preference_snapshot"] = body.preference_snapshot.model_dump()
+        changed_fields.append("preference_snapshot")
+    if body.status is not None:
+        if body.status not in ALL_STATUSES:
+            raise HTTPException(status_code=400, detail="Unknown status")
+        patch["status"] = body.status
+        changed_fields.append("status")
+    entry = _history(user, "admin_edit", fields=changed_fields)
     await db.rfqs.update_one({"id": rfq_id}, {"$set": patch, "$push": {"history": entry}})
     rfq.update(patch)
     rfq.setdefault("history", []).append(entry)
     return rfq
 
 
-# ----------------------------------------------------------------------
-# ADMIN endpoints
-# ----------------------------------------------------------------------
-@router.get("/admin/rfqs", summary="Admin: list RFQs, optional status filter")
-async def admin_list_rfqs(
-    status: Optional[str] = None,
-    user=Depends(require_roles("admin")),
-):
-    query: Dict[str, Any] = {"deleted": {"$ne": True}}
-    if status:
-        if status not in ALL_STATUSES:
-            raise HTTPException(status_code=400, detail="Unknown status filter")
-        query["status"] = status
-    cursor = db.rfqs.find(query, {"_id": 0}).sort("updated_at", -1)
-    return [d async for d in cursor]
-
-
-@router.get("/admin/rfqs/{rfq_id}", summary="Admin: fetch a single RFQ")
-async def admin_get_rfq(
-    rfq_id: str,
-    user=Depends(require_roles("admin")),
-):
-    return await _load_rfq(rfq_id)
-
-
-@router.post(
-    "/admin/rfqs/{rfq_id}/assign",
-    summary="Admin: assign RFQ to one or more manufacturers",
-)
-async def admin_assign_rfq(
-    rfq_id: str,
-    body: AdminAssignPayload,
-    user=Depends(require_roles("admin")),
-):
-    if not body.manufacturer_ids:
-        raise HTTPException(status_code=400, detail="At least one manufacturer id required")
-    rfq = await _load_rfq(rfq_id)
-    if rfq.get("status") not in (STATUS_SUBMITTED, STATUS_SENT_TO_MFG, STATUS_MFG_RESPONDED):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot assign from status '{rfq.get('status')}'",
-        )
-    # Validate all manufacturer IDs actually exist and hold that role.
-    users = await db.users.find(
-        {"id": {"$in": body.manufacturer_ids}, "role": "manufacturer"},
-        {"_id": 0, "id": 1},
-    ).to_list(length=100)
-    found_ids = {u["id"] for u in users}
-    missing = [m for m in body.manufacturer_ids if m not in found_ids]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown manufacturer ids: {', '.join(missing)}",
-        )
-    patch = {
-        "assigned_manufacturer_ids": body.manufacturer_ids,
-        "status": STATUS_SENT_TO_MFG,
-        "updated_at": _now_iso(),
-    }
-    if body.admin_notes is not None:
-        patch["admin_notes"] = body.admin_notes
-    entry = _history_entry(
-        user, "assigned", manufacturer_ids=body.manufacturer_ids
-    )
-    await db.rfqs.update_one(
-        {"id": rfq_id}, {"$set": patch, "$push": {"history": entry}}
-    )
-    rfq.update(patch)
-    rfq.setdefault("history", []).append(entry)
-    return rfq
-
-
-@router.post(
-    "/admin/rfqs/{rfq_id}/note",
-    summary="Admin: attach a free-form admin note to an RFQ",
-)
-async def admin_note_rfq(
-    rfq_id: str,
-    body: AdminNotePayload,
-    user=Depends(require_roles("admin")),
-):
-    await _load_rfq(rfq_id)  # 404 if missing
-    entry = _history_entry(user, "note")
-    await db.rfqs.update_one(
-        {"id": rfq_id},
-        {
-            "$set": {"admin_notes": body.admin_notes, "updated_at": _now_iso()},
-            "$push": {"history": entry},
-        },
-    )
-    return await _load_rfq(rfq_id)
-
-
 @router.delete("/admin/rfqs/{rfq_id}", summary="Admin: soft-delete an RFQ")
-async def admin_delete_rfq(
-    rfq_id: str,
-    user=Depends(require_roles("admin")),
-):
+async def admin_delete_rfq(rfq_id: str, user=Depends(require_roles("admin"))):
     res = await db.rfqs.update_one(
         {"id": rfq_id, "deleted": {"$ne": True}},
-        {
-            "$set": {
-                "deleted": True,
-                "deleted_at": _now_iso(),
-                "deleted_by": user.get("id"),
-            }
-        },
+        {"$set": {"deleted": True, "deleted_at": _now_iso(), "deleted_by": user.get("id")}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="RFQ not found")
@@ -482,145 +522,227 @@ async def admin_delete_rfq(
 
 
 # ----------------------------------------------------------------------
-# MANUFACTURER endpoints
+# ADMIN: broadcast (allocate serials per manufacturer)
 # ----------------------------------------------------------------------
-@router.get(
-    "/manufacturer/rfqs",
-    summary="Manufacturer: list RFQs assigned to me",
-)
-async def mfg_list_rfqs(
-    user=Depends(require_roles("manufacturer")),
-):
-    cursor = db.rfqs.find(
-        {
-            "assigned_manufacturer_ids": user.get("id"),
-            "deleted": {"$ne": True},
-        },
-        {"_id": 0},
-    ).sort("updated_at", -1)
-    return [d async for d in cursor]
-
-
-@router.get(
-    "/manufacturer/rfqs/{rfq_id}",
-    summary="Manufacturer: view a single assigned RFQ",
-)
-async def mfg_get_rfq(
-    rfq_id: str,
-    user=Depends(require_roles("manufacturer")),
-):
-    rfq = await _load_rfq(rfq_id)
-    _assert_assigned_manufacturer(rfq, user)
-    return rfq
-
-
 @router.post(
-    "/manufacturer/rfqs/{rfq_id}/variants",
-    summary="Manufacturer: submit up to 6 pricing/spec variants for the RFQ",
+    "/admin/rfqs/{rfq_id}/broadcast",
+    summary="Admin: broadcast RFQ to one or more manufacturers; each gets a fresh serial",
 )
-async def mfg_submit_variants(
+async def admin_broadcast_rfq(
     rfq_id: str,
-    body: VariantSubmitPayload,
-    user=Depends(require_roles("manufacturer")),
+    body: BroadcastRequestPayload,
+    user=Depends(require_roles("admin")),
 ):
-    if len(body.variants) == 0:
-        raise HTTPException(status_code=400, detail="At least one variant required")
-    if len(body.variants) > MAX_MFG_VARIANTS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"At most {MAX_MFG_VARIANTS} variants allowed per submission",
-        )
+    if not body.manufacturer_ids:
+        raise HTTPException(status_code=400, detail="At least one manufacturer id required")
     rfq = await _load_rfq(rfq_id)
-    _assert_assigned_manufacturer(rfq, user)
-    if rfq.get("status") not in (STATUS_SENT_TO_MFG, STATUS_MFG_RESPONDED):
+    if rfq.get("status") in (STATUS_CANCELLED,):
+        raise HTTPException(status_code=400, detail="RFQ is cancelled")
+
+    # Validate & fetch each manufacturer's stable code.
+    mfrs = await db.users.find(
+        {"id": {"$in": body.manufacturer_ids}, "role": "manufacturer"},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "manufacturer_code": 1},
+    ).to_list(length=200)
+    by_id = {m["id"]: m for m in mfrs}
+    missing = [m for m in body.manufacturer_ids if m not in by_id]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown manufacturer ids: {', '.join(missing)}")
+    no_code = [m["id"] for m in mfrs if m.get("manufacturer_code") is None]
+    if no_code:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot submit variants from status '{rfq.get('status')}'",
+            detail=(
+                "These manufacturers have no `manufacturer_code` set (required "
+                "to allocate a serial): " + ", ".join(no_code)
+            ),
         )
 
-    stamped = []
-    now = _now_iso()
-    for v in body.variants:
-        payload = v.model_dump()
-        payload["submitted_at"] = now
-        payload["submitted_by"] = user.get("id")
-        stamped.append(payload)
+    brand = rfq.get("brand") or ADMIN_BESPOKE_BRAND
+    piece_type = rfq.get("piece_type") or 8
+    now = _now()
 
-    # Replace this manufacturer's variants (identified by submitted_by),
-    # keep any variants from other manufacturers assigned to the same RFQ.
-    other = [
-        vv for vv in rfq.get("variants", [])
-        if vv.get("submitted_by") and vv["submitted_by"] != user.get("id")
-    ]
-    merged = other + stamped
-    entry = _history_entry(user, "variants_submitted", count=len(stamped))
+    # Existing broadcasts stay; we append new ones.
+    existing = list(rfq.get("broadcasts", []))
+    new_broadcasts: List[Broadcast] = []
+    for mfr_id in body.manufacturer_ids:
+        mfr = by_id[mfr_id]
+        alloc = await _allocate_serial(brand, int(mfr["manufacturer_code"]), piece_type)
+        bc = Broadcast(
+            rfq_id=rfq_id,
+            manufacturer_id=mfr_id,
+            manufacturer_code=int(mfr["manufacturer_code"]),
+            manufacturer_name_internal=mfr.get("name"),
+            manufacturer_email=mfr.get("email"),
+            brand=alloc["brand"],
+            piece_type=alloc["piece_type"],
+            yymm=alloc["yymm"],
+            seq=alloc["seq"],
+            serial_storage=alloc["serial_storage"],
+            serial_display=alloc["serial_display"],
+            serial_engraved=alloc["serial_engraved"],
+            allocated_at=now.isoformat(),
+            expires_at=_expire_dates(now, days=BROADCAST_INITIAL_TTL_DAYS),
+            status=BC_PENDING,
+            included_attachment_count=len(body.include_attachment_ids),
+            admin_notes=body.admin_notes,
+        )
+        new_broadcasts.append(bc)
+
+    merged = existing + [b.model_dump() for b in new_broadcasts]
+    entry = _history(
+        user, "broadcast",
+        manufacturer_ids=body.manufacturer_ids,
+        allocated_serials=[b.serial_storage for b in new_broadcasts],
+    )
     await db.rfqs.update_one(
         {"id": rfq_id},
         {
             "$set": {
-                "variants": merged,
-                "status": STATUS_MFG_RESPONDED,
-                "updated_at": now,
+                "broadcasts": merged,
+                "status": STATUS_BROADCAST_COMPLETE,
+                "broadcast_count": len(merged),
+                "last_broadcast_at": now.isoformat(),
+                "updated_at": now.isoformat(),
             },
             "$push": {"history": entry},
         },
     )
-    rfq["variants"] = merged
-    rfq["status"] = STATUS_MFG_RESPONDED
-    rfq["updated_at"] = now
+    rfq["broadcasts"] = merged
+    rfq["status"] = STATUS_BROADCAST_COMPLETE
+    rfq["broadcast_count"] = len(merged)
+    rfq["last_broadcast_at"] = now.isoformat()
+    rfq["updated_at"] = now.isoformat()
     rfq.setdefault("history", []).append(entry)
     return rfq
 
 
-# ----------------------------------------------------------------------
-# Import to Quote (Phase E preview)
-# ----------------------------------------------------------------------
 @router.post(
-    "/admin/rfqs/{rfq_id}/import-to-quote",
-    summary="Admin: pick one manufacturer variant and pre-fill a new quote from it",
+    "/admin/rfqs/{rfq_id}/broadcasts/{broadcast_id}/extend",
+    summary="Admin: grant one 14-day extension to a broadcast (holiday allowance, one-shot)",
 )
-async def admin_import_rfq_to_quote(
+async def admin_extend_broadcast(
     rfq_id: str,
-    variant_id: str,
+    broadcast_id: str,
     user=Depends(require_roles("admin")),
 ):
     rfq = await _load_rfq(rfq_id)
-    if rfq.get("status") not in (STATUS_MFG_RESPONDED, STATUS_IMPORTED):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "RFQ must have manufacturer responses before it can be "
-                "imported into a quote"
-            ),
-        )
-    variant = next(
-        (v for v in rfq.get("variants", []) if v.get("id") == variant_id), None
-    )
-    if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found on RFQ")
+    bcs = rfq.get("broadcasts", [])
+    target = next((b for b in bcs if b.get("id") == broadcast_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Broadcast not found on this RFQ")
+    if target.get("extension_granted"):
+        raise HTTPException(status_code=400, detail="Extension already granted for this broadcast")
+    if target.get("status") == BC_RESPONDED:
+        raise HTTPException(status_code=400, detail="Broadcast already responded — extension not applicable")
 
-    # Build a Quote pre-filled from the variant. Any missing spreadsheet
-    # inputs default to zero — admin will refine on the quote form.
-    prefs = rfq.get("preferences") or {}
-    quote_id = str(uuid4())
+    # Extend from whichever is later: current expires_at, or now.
+    try:
+        current_exp = datetime.fromisoformat((target.get("expires_at") or "").replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        current_exp = _now()
+    base = max(current_exp, _now())
+    new_exp = (base + timedelta(days=BROADCAST_EXTENSION_DAYS)).isoformat()
+
+    target["expires_at"] = new_exp
+    target["extension_granted"] = True
+    target["extension_granted_by"] = user.get("id")
+    target["extension_granted_at"] = _now_iso()
+    if target.get("status") == BC_EXPIRED:
+        # Reopen the broadcast — same URL, extended window.
+        target["status"] = BC_SENT if target.get("email_message_id") else BC_PENDING
+
+    entry = _history(user, "broadcast_extended", broadcast_id=broadcast_id, new_expires_at=new_exp)
+    await db.rfqs.update_one(
+        {"id": rfq_id},
+        {"$set": {"broadcasts": bcs, "updated_at": _now_iso()}, "$push": {"history": entry}},
+    )
+    return {"ok": True, "broadcast": target}
+
+
+@router.post(
+    "/admin/rfqs/{rfq_id}/broadcasts/{broadcast_id}/response",
+    summary="Record a manufacturer's response (admin transcribes or mfg posts directly)",
+)
+async def record_broadcast_response(
+    rfq_id: str,
+    broadcast_id: str,
+    body: BroadcastResponsePayload,
+    user=Depends(get_current_user),
+):
+    rfq = await _load_rfq(rfq_id)
+    bcs = rfq.get("broadcasts", [])
+    target = next((b for b in bcs if b.get("id") == broadcast_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Broadcast not found on this RFQ")
+
+    role = user.get("role")
+    if role == "manufacturer" and target.get("manufacturer_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Not your broadcast")
+    if role not in ("admin", "manufacturer"):
+        raise HTTPException(status_code=403, detail="Admin or manufacturer role required")
+
+    _mark_expired(target)
+    if target.get("status") == BC_EXPIRED:
+        raise HTTPException(status_code=400, detail="Broadcast has expired; grant an extension first")
+
+    target["response"] = body.model_dump()
+    target["response_recorded_at"] = _now_iso()
+    target["response_recorded_by"] = user.get("id")
+    target["status"] = BC_RESPONDED
+
+    entry = _history(user, "response_recorded", broadcast_id=broadcast_id,
+                     serial=target.get("serial_storage"))
+    await db.rfqs.update_one(
+        {"id": rfq_id},
+        {"$set": {"broadcasts": bcs, "updated_at": _now_iso()}, "$push": {"history": entry}},
+    )
+    return {"ok": True, "broadcast": target}
+
+
+# ----------------------------------------------------------------------
+# ADMIN: import a broadcast response into a Quote
+# ----------------------------------------------------------------------
+@router.post(
+    "/admin/rfqs/{rfq_id}/import-to-quote",
+    summary="Admin: turn a responded broadcast into a draft Quote",
+)
+async def admin_import_broadcast_to_quote(
+    rfq_id: str,
+    broadcast_id: str = Query(...),
+    user=Depends(require_roles("admin")),
+):
+    rfq = await _load_rfq(rfq_id)
+    bc = next((b for b in rfq.get("broadcasts", []) if b.get("id") == broadcast_id), None)
+    if not bc:
+        raise HTTPException(status_code=404, detail="Broadcast not found")
+    if not bc.get("response"):
+        raise HTTPException(status_code=400, detail="Broadcast has no recorded response yet")
+
+    prefs = rfq.get("preference_snapshot") or {}
+    resp = bc.get("response") or {}
     now = _now_iso()
+    quote_id = str(uuid4())
     quote_doc = {
         "id": quote_id,
         "rfq_id": rfq_id,
-        "rfq_serial_number": rfq.get("serial_number"),
+        "broadcast_id": broadcast_id,
+        "serial_storage": bc.get("serial_storage"),
+        "serial_display": bc.get("serial_display"),
+        "serial_engraved": bc.get("serial_engraved"),
+        "brand": bc.get("brand"),
+        "manufacturer_code": bc.get("manufacturer_code"),
+        "piece_type": bc.get("piece_type"),
+        "yymm": bc.get("yymm"),
+        "seq": bc.get("seq"),
         "order_id": rfq.get("linked_order_id"),
-        "order_ref": None,
-        "jewelry_name": prefs.get("piece_type"),
+        "jewelry_name": prefs.get("name") or rfq.get("piece_type_label"),
         "status": "draft",
         "inputs": {
-            "piece_description": prefs.get("piece_type"),
-            "metal_spec": variant.get("metal") or prefs.get("metal_preference"),
-            "stone_spec": (
-                variant.get("stone_kind")
-                or prefs.get("stone_type")
-                or None
-            ),
-            "ring_cost_usd": variant.get("price_usd") or 0.0,
+            "piece_description": prefs.get("name") or rfq.get("piece_type_label"),
+            "metal_spec": resp.get("metal") or prefs.get("metal_preference"),
+            "stone_spec": resp.get("stone_kind") or prefs.get("main_stone_type"),
+            "ring_cost_usd": resp.get("price_usd") or 0.0,
             "includes_hidden_halo_pave": False,
             "hidden_halo_pave_cost_usd": 0.0,
             "extra_cut_cost_usd": 0.0,
@@ -647,18 +769,182 @@ async def admin_import_rfq_to_quote(
     await db.quotes.insert_one(quote_doc)
     quote_doc.pop("_id", None)
 
-    entry = _history_entry(
-        user, "imported_to_quote", variant_id=variant_id, quote_id=quote_id
-    )
+    entry = _history(user, "imported_to_quote", broadcast_id=broadcast_id, quote_id=quote_id)
     await db.rfqs.update_one(
         {"id": rfq_id},
         {
-            "$set": {
-                "status": STATUS_IMPORTED,
-                "linked_quote_id": quote_id,
-                "updated_at": now,
-            },
+            "$set": {"status": STATUS_IMPORTED, "linked_quote_id": quote_id, "updated_at": now},
             "$push": {"history": entry},
         },
     )
-    return {"rfq_id": rfq_id, "quote_id": quote_id, "quote": quote_doc}
+    return {"rfq_id": rfq_id, "broadcast_id": broadcast_id, "quote_id": quote_id, "quote": quote_doc}
+
+
+# ----------------------------------------------------------------------
+# ADMIN: ingest / sync from gem-gallery-193
+# ----------------------------------------------------------------------
+async def _gg_admin_token(c: httpx.AsyncClient, base: str) -> str:
+    """Log into gem-gallery-193 using the shared admin creds."""
+    email = os.environ.get("GEM_GALLERY_ADMIN_EMAIL")
+    pw = os.environ.get("GEM_GALLERY_ADMIN_PASSWORD")
+    if not (base and email and pw):
+        raise HTTPException(
+            status_code=503,
+            detail="gem-gallery credentials not configured on this pod",
+        )
+    r = await c.post(f"{base}/api/admin/auth", json={"email": email, "password": pw})
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"gem-gallery auth failed: HTTP {r.status_code}")
+    return r.json()["access_token"]
+
+
+def _upsert_from_gem_gallery(record: dict) -> dict:
+    """Turn a gem-gallery /api/admin/rfq/{id} payload into our RFQ shape.
+
+    We keep the record's own id + fields verbatim so cross-referencing is
+    trivial, and stamp origin="gem_gallery" plus a mirror timestamp.
+    """
+    now = _now_iso()
+    doc = {
+        "id": record.get("id") or str(uuid4()),
+        "origin": "gem_gallery",
+        "external_id": record.get("id"),
+        "session_id": record.get("session_id"),
+        "entry_id": record.get("entry_id"),
+        "user_id": record.get("user_id"),
+        "submitted_by_email": record.get("submitted_by_email"),
+        "submitted_by_name": record.get("submitted_by_name"),
+        "client_name": record.get("client_name"),
+        "brand": (record.get("brand") or "").upper() or "SC",
+        "category": record.get("category"),
+        "piece_type": int(record.get("piece_type") or 8),
+        "piece_type_label": record.get("piece_type_label"),
+        "preference_snapshot": record.get("preference_snapshot"),
+        "attachment_ids": record.get("attachment_ids", []),
+        "admin_attachments": record.get("admin_attachments", []),
+        "status": record.get("status") or STATUS_PENDING_REVIEW,
+        "fingerprint": record.get("fingerprint"),
+        "submitted_at": record.get("submitted_at"),
+        "updated_at": record.get("updated_at") or now,
+        "last_broadcast_at": record.get("last_broadcast_at"),
+        "broadcast_count": record.get("broadcast_count", 0),
+        "broadcasts": record.get("broadcasts", []),  # verbatim — trusted origin
+        "admin_notes": record.get("admin_notes"),
+        "history": record.get("history", []),
+        "created_at": record.get("submitted_at") or now,
+        "deleted": False,
+        "mirrored_at": now,
+    }
+    return doc
+
+
+@router.post(
+    "/admin/rfqs/ingest-from-gem-gallery",
+    summary="Admin: pull the current RFQ queue from gem-gallery-193 and mirror locally",
+)
+async def admin_ingest_from_gem_gallery(user=Depends(require_roles("admin"))):
+    base = (os.environ.get("GEM_GALLERY_BASE_URL") or "").rstrip("/")
+    if not base:
+        raise HTTPException(status_code=503, detail="GEM_GALLERY_BASE_URL not configured")
+    async with httpx.AsyncClient(timeout=30) as c:
+        token = await _gg_admin_token(c, base)
+        H = {"Authorization": f"Bearer {token}"}
+        r = await c.get(f"{base}/api/admin/rfq/queue", headers=H)
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"queue fetch failed HTTP {r.status_code}")
+        summaries = r.json()
+        upserted = 0
+        for summary in summaries:
+            rid = summary.get("id")
+            if not rid:
+                continue
+            rd = await c.get(f"{base}/api/admin/rfq/{rid}", headers=H)
+            if rd.status_code != 200:
+                continue
+            doc = _upsert_from_gem_gallery(rd.json())
+            await db.rfqs.update_one(
+                {"id": doc["id"], "origin": "gem_gallery"},
+                {"$set": doc},
+                upsert=True,
+            )
+            upserted += 1
+    return {"ok": True, "upserted": upserted, "source": base}
+
+
+# ----------------------------------------------------------------------
+# WEBHOOK: gem-gallery-193 pushes broadcast lifecycle updates
+# ----------------------------------------------------------------------
+@router.post(
+    "/gem-gallery/rfq-broadcast-updated",
+    summary="Inbound webhook: gem-gallery pushes an RFQ or broadcast update",
+)
+async def gg_webhook(
+    payload: Dict[str, Any],
+    x_gem_gallery_signature: Optional[str] = Header(default=None, alias="X-Gem-Gallery-Signature"),
+):
+    expected = os.environ.get("GEM_GALLERY_WEBHOOK_SECRET")
+    if expected:
+        if not x_gem_gallery_signature or x_gem_gallery_signature != expected:
+            raise HTTPException(status_code=401, detail="bad signature")
+    record = payload.get("rfq") or payload
+    if not record.get("id"):
+        raise HTTPException(status_code=400, detail="payload missing rfq.id")
+    doc = _upsert_from_gem_gallery(record)
+    await db.rfqs.update_one(
+        {"id": doc["id"], "origin": "gem_gallery"},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"ok": True, "id": doc["id"]}
+
+
+# ----------------------------------------------------------------------
+# MANUFACTURER: view broadcasts assigned to me
+# ----------------------------------------------------------------------
+@router.get("/manufacturer/rfqs", summary="Manufacturer: my active broadcasts (not-expired)")
+async def mfg_list_broadcasts(user=Depends(require_roles("manufacturer"))):
+    cursor = db.rfqs.find(
+        {"deleted": {"$ne": True}, "broadcasts.manufacturer_id": user.get("id")},
+        {"_id": 0},
+    ).sort("updated_at", -1)
+    out = []
+    async for doc in cursor:
+        mine = [b for b in doc.get("broadcasts", []) if b.get("manufacturer_id") == user.get("id")]
+        for b in mine:
+            _mark_expired(b)
+        # Only surface the manufacturer's own broadcasts + the pref snapshot.
+        out.append({
+            "id": doc["id"],
+            "brand": doc.get("brand"),
+            "piece_type": doc.get("piece_type"),
+            "piece_type_label": doc.get("piece_type_label"),
+            "client_name": doc.get("client_name"),
+            "preference_snapshot": doc.get("preference_snapshot"),
+            "attachment_ids": doc.get("attachment_ids", []),
+            "broadcasts": mine,
+            "status": doc.get("status"),
+            "updated_at": doc.get("updated_at"),
+        })
+    return out
+
+
+@router.get("/manufacturer/rfqs/{rfq_id}", summary="Manufacturer: view a single assigned RFQ")
+async def mfg_get_rfq(rfq_id: str, user=Depends(require_roles("manufacturer"))):
+    rfq = await _load_rfq(rfq_id)
+    mine = [b for b in rfq.get("broadcasts", []) if b.get("manufacturer_id") == user.get("id")]
+    if not mine:
+        raise HTTPException(status_code=403, detail="RFQ not assigned to you")
+    for b in mine:
+        _mark_expired(b)
+    return {
+        "id": rfq["id"],
+        "brand": rfq.get("brand"),
+        "piece_type": rfq.get("piece_type"),
+        "piece_type_label": rfq.get("piece_type_label"),
+        "client_name": rfq.get("client_name"),
+        "preference_snapshot": rfq.get("preference_snapshot"),
+        "attachment_ids": rfq.get("attachment_ids", []),
+        "broadcasts": mine,
+        "status": rfq.get("status"),
+        "updated_at": rfq.get("updated_at"),
+    }
