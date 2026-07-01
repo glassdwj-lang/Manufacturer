@@ -122,13 +122,35 @@ export default function QuoteDetailScreen() {
   const [preview, setPreview] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<any>(null);
+  const [fx, setFx] = useState<{
+    rate: number; fetched_at: string; source: string; stale?: boolean;
+  } | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
 
   const load = useCallback(async () => {
     try { setQuote(await api.getQuote(qid)); }
     catch (e: any) { Alert.alert("Load failed", e?.message || "unknown"); }
   }, [qid]);
 
+  // Fetch (cached) live USD→AUD rate on mount. Provides the anchor for
+  // the "live rate + adjustment %" workflow. Any failure is silent —
+  // the manual field still works.
+  const loadFx = useCallback(async (force = false) => {
+    setFxLoading(true);
+    try {
+      const r = await api.getUsdAudRate(force);
+      setFx({
+        rate: r.rate,
+        fetched_at: r.fetched_at,
+        source: r.source,
+        stale: r.stale,
+      });
+    } catch { /* silent — manual field remains usable */ }
+    finally { setFxLoading(false); }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadFx(false); }, [loadFx]);
 
   // Live preview totals (debounced) — server-side authoritative
   useEffect(() => {
@@ -188,6 +210,46 @@ export default function QuoteDetailScreen() {
     () => quote?.jewelry_name || quote?.inputs?.piece_description || "Untitled quote",
     [quote]
   );
+
+  // Client-side USD subtotal — mirrors `compute_totals` on the server
+  // so the "Total USD costs" line updates instantly as the user types,
+  // even before the debounced server preview lands.
+  const usdSubtotal = useMemo(() => {
+    const i = quote?.inputs || {};
+    return (
+      (Number(i.ring_cost_usd) || 0) +
+      (i.includes_hidden_halo_pave ? (Number(i.hidden_halo_pave_cost_usd) || 0) : 0) +
+      (Number(i.extra_cut_cost_usd) || 0) +
+      (Number(i.cad_rendering_cost_usd) || 0) +
+      (Number(i.provenance_cost_usd) || 0) +
+      (Number(i.certification_cost_usd) || 0) +
+      (Number(i.box_packaging_cost_usd) || 0) +
+      (Number(i.air_freight_cost_usd) || 0)
+    );
+  }, [quote?.inputs]);
+
+  // Effective FX rate = live mid-market rate × (1 + adjustment%).
+  // Falls back gracefully when either half of the pair is missing.
+  const adjustmentPct = Number(quote?.inputs?.fx_adjustment_pct ?? 0);
+  const effectiveLiveRate = useMemo(() => {
+    if (!fx?.rate) return null;
+    return fx.rate * (1 + adjustmentPct / 100);
+  }, [fx?.rate, adjustmentPct]);
+
+  const applyLiveRate = () => {
+    if (effectiveLiveRate == null || !quote) return;
+    const rounded = Math.round(effectiveLiveRate * 10000) / 10000;
+    const nextInputs = {
+      ...quote.inputs,
+      fx_live_rate: fx?.rate,
+      fx_adjustment_pct: adjustmentPct,
+      usd_to_aud_rate: rounded,
+    };
+    setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+    // Persist directly using the freshly-built inputs so we don't race
+    // React's state batching.
+    persist({ inputs: nextInputs });
+  };
 
   if (!quote) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top"]}>
@@ -282,16 +344,121 @@ export default function QuoteDetailScreen() {
               value={String(quote.inputs?.[f.key] ?? "")}
               onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
           ))}
+
+          {/* --- Pre-FX USD subtotal (live, client-side) --- */}
+          <View style={{
+            marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border,
+            flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
+              Total USD costs (pre-FX)
+            </Text>
+            <Text style={{ color: theme.primary, fontSize: 14, fontWeight: "800" }}>
+              USD {usdSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+          </View>
         </Section>
 
         {/* --- FX --- */}
-        <Section title="Currency Conversion">
-          <NumRow label="USD → AUD rate" suffix="×"
+        <Section
+          title="Currency Conversion"
+          subtitle="Live mid-market USD→AUD, refreshed once daily, plus your bank buffer"
+        >
+          {/* Live rate chip */}
+          <View style={{
+            flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+            backgroundColor: "#0F1F1F", padding: 10, borderRadius: 8, marginBottom: 10,
+            borderWidth: 1, borderColor: fx?.stale ? "#E0A44A" : theme.border,
+          }}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons
+                  name={fx?.stale ? "warning-outline" : "trending-up-outline"}
+                  size={14}
+                  color={fx?.stale ? "#E0A44A" : theme.primary}
+                />
+                <Text style={{
+                  color: fx?.stale ? "#E0A44A" : theme.primary,
+                  fontSize: 12, fontWeight: "700", marginLeft: 4,
+                  textTransform: "uppercase", letterSpacing: 0.5,
+                }}>
+                  {fx ? `Live: ${fx.rate.toFixed(4)}` : (fxLoading ? "Fetching live rate…" : "Live rate unavailable")}
+                </Text>
+              </View>
+              {fx && (
+                <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 2 }}>
+                  {fx.stale ? "stale — upstream unreachable · " : ""}
+                  as of {new Date(fx.fetched_at).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+                  {"  ·  "}{fx.source}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              onPress={() => loadFx(true)}
+              disabled={fxLoading}
+              style={{
+                paddingHorizontal: 8, paddingVertical: 4, marginLeft: 8,
+                borderRadius: 6, borderWidth: 1, borderColor: theme.border,
+                opacity: fxLoading ? 0.4 : 1,
+              }}
+            >
+              {fxLoading
+                ? <ActivityIndicator size="small" color={theme.primary} />
+                : <Ionicons name="refresh" size={14} color={theme.textPrimary} />}
+            </TouchableOpacity>
+          </View>
+
+          {/* Bank-buffer / adjustment % — allows for daily fluctuations & bank rates */}
+          <NumRow
+            label="Bank buffer / adjustment" suffix="%"
+            value={String(quote.inputs?.fx_adjustment_pct ?? "")}
+            onChangeText={setNumeric("fx_adjustment_pct")} onBlur={commitInputs}
+          />
+
+          {/* Effective (live + buffer) — shows the delta in dollar terms */}
+          {fx?.rate != null && effectiveLiveRate != null && (
+            <View style={{
+              backgroundColor: "#0A0A0A", borderRadius: 6, padding: 8, marginBottom: 10,
+              borderLeftWidth: 2, borderLeftColor: theme.primary,
+            }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ color: theme.textMuted, fontSize: 11 }}>
+                  {fx.rate.toFixed(4)} × (1 + {adjustmentPct.toFixed(2)}%)
+                </Text>
+                <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
+                  = {effectiveLiveRate.toFixed(4)}
+                </Text>
+              </View>
+              {usdSubtotal > 0 && (
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                    Buffer worth on USD {usdSubtotal.toFixed(2)}
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                    +AUD {(usdSubtotal * (effectiveLiveRate - fx.rate)).toFixed(2)}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                onPress={applyLiveRate}
+                style={{
+                  marginTop: 6, alignSelf: "flex-end", paddingHorizontal: 10, paddingVertical: 5,
+                  borderRadius: 5, backgroundColor: theme.primary,
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 11 }}>
+                  Apply to rate below →
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <NumRow label="USD → AUD rate (effective)" suffix="×"
             value={String(quote.inputs?.usd_to_aud_rate ?? "")}
             onChangeText={setNumeric("usd_to_aud_rate")} onBlur={commitInputs} />
-          {t?.total_usd_costs != null && (
+          {usdSubtotal > 0 && (
             <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: -2 }}>
-              USD {t.total_usd_costs.toFixed(2)}  ×  {quote.inputs?.usd_to_aud_rate}  =  AUD {(t.total_cost_aud || 0).toFixed(2)}
+              USD {usdSubtotal.toFixed(2)}  ×  {Number(quote.inputs?.usd_to_aud_rate || 0).toFixed(4)}  =  AUD {(usdSubtotal * Number(quote.inputs?.usd_to_aud_rate || 0)).toFixed(2)}
             </Text>
           )}
         </Section>

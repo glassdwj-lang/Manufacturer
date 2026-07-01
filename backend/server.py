@@ -34,6 +34,7 @@ from routes import (
     manufacturers_router,
     quotes_router,
     rfqs_router,
+    fx_router,
     uploads_router,
     users_router,
 )
@@ -61,6 +62,7 @@ api_router.include_router(notifications_router)
 api_router.include_router(manufacturers_router)
 api_router.include_router(quotes_router)
 api_router.include_router(rfqs_router)
+api_router.include_router(fx_router)
 app.include_router(api_router)
 
 app.add_middleware(

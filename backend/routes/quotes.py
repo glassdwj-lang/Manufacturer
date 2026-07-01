@@ -81,7 +81,13 @@ class QuoteInputs(BaseModel):
     air_freight_cost_usd: float = 0.0
 
     # --- Currency conversion ------------------------------------------
+    # ``usd_to_aud_rate`` is the *effective* rate applied to USD costs.
+    # It defaults to the live mid-market rate + optional bank buffer,
+    # but the admin can override manually. The two optional fields below
+    # are stored purely for audit / provenance of that effective rate.
     usd_to_aud_rate: float = 1.50
+    fx_live_rate: Optional[float] = None
+    fx_adjustment_pct: Optional[float] = 0.0
 
     # --- Post-conversion AUD costs ------------------------------------
     custom_clearance_aud: float = 0.0

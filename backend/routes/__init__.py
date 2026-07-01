@@ -16,6 +16,7 @@ from .notifications import router as notifications_router
 from .manufacturers import router as manufacturers_router
 from .quotes import router as quotes_router
 from .rfqs import router as rfqs_router
+from .fx import router as fx_router
 
 # Backwards-compatible alias — server.py and a few legacy imports still
 # reference `admin_router` from when admin endpoints lived in a single
@@ -38,4 +39,5 @@ __all__ = [
     "manufacturers_router",
     "quotes_router",
     "rfqs_router",
+    "fx_router",
 ]

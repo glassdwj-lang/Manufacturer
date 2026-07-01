@@ -980,6 +980,17 @@ export const api = {
     request<any>(`/quotes/compute`, { method: "POST", body: JSON.stringify({ inputs }) }),
   deleteQuote: (id: string) => request<any>(`/quotes/${id}`, { method: "DELETE" }),
 
+  // ---------- FX (daily-cached USD → AUD rate) ----------
+  getUsdAudRate: (force = false) =>
+    request<{
+      pair: string;
+      rate: number;
+      fetched_at: string;
+      source: string;
+      upstream_updated_at?: string;
+      stale?: boolean;
+    }>(`/fx/usd-aud${force ? "?force=true" : ""}`),
+
   // ---------- Client approval gates (Step 02) ----------
   releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>
     request<any>(`/orders/${orderId}/renders/${renderId}/release-for-client`, {
