@@ -539,24 +539,33 @@ async def admin_broadcast_rfq(
     if rfq.get("status") in (STATUS_CANCELLED,):
         raise HTTPException(status_code=400, detail="RFQ is cancelled")
 
-    # Validate & fetch each manufacturer's stable code.
-    mfrs = await db.users.find(
-        {"id": {"$in": body.manufacturer_ids}, "role": "manufacturer"},
-        {"_id": 0, "id": 1, "email": 1, "name": 1, "manufacturer_code": 1},
+    # `manufacturer_ids` are DIRECTORY ids (from the `manufacturers`
+    # collection — Somnio is source of truth). Look up code, name,
+    # gem_gallery_id, and any linked login user.
+    mfrs = await db.manufacturers.find(
+        {"id": {"$in": body.manufacturer_ids}, "deleted": {"$ne": True}},
+        {"_id": 0},
     ).to_list(length=200)
     by_id = {m["id"]: m for m in mfrs}
     missing = [m for m in body.manufacturer_ids if m not in by_id]
     if missing:
-        raise HTTPException(status_code=400, detail=f"Unknown manufacturer ids: {', '.join(missing)}")
-    no_code = [m["id"] for m in mfrs if m.get("manufacturer_code") is None]
-    if no_code:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "These manufacturers have no `manufacturer_code` set (required "
-                "to allocate a serial): " + ", ".join(no_code)
-            ),
+            detail=f"Unknown manufacturer directory ids: {', '.join(missing)}",
         )
+    inactive = [m["id"] for m in mfrs if m.get("status") in ("paused", "burned")]
+    if inactive:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot broadcast to paused/burned manufacturers: {', '.join(inactive)}",
+        )
+
+    # Resolve optional Somnio login user for each directory entry.
+    linked_users = await db.users.find(
+        {"manufacturer_id": {"$in": body.manufacturer_ids}, "role": "manufacturer"},
+        {"_id": 0, "id": 1, "manufacturer_id": 1, "email": 1},
+    ).to_list(length=200)
+    user_by_mfr = {u["manufacturer_id"]: u for u in linked_users}
 
     brand = rfq.get("brand") or ADMIN_BESPOKE_BRAND
     piece_type = rfq.get("piece_type") or 8
@@ -565,15 +574,16 @@ async def admin_broadcast_rfq(
     # Existing broadcasts stay; we append new ones.
     existing = list(rfq.get("broadcasts", []))
     new_broadcasts: List[Broadcast] = []
-    for mfr_id in body.manufacturer_ids:
-        mfr = by_id[mfr_id]
-        alloc = await _allocate_serial(brand, int(mfr["manufacturer_code"]), piece_type)
+    for dir_id in body.manufacturer_ids:
+        mfr = by_id[dir_id]
+        login = user_by_mfr.get(dir_id) or {}
+        alloc = await _allocate_serial(brand, int(mfr["code"]), piece_type)
         bc = Broadcast(
             rfq_id=rfq_id,
-            manufacturer_id=mfr_id,
-            manufacturer_code=int(mfr["manufacturer_code"]),
+            manufacturer_id=login.get("id") or dir_id,  # login user id if any, else dir id
+            manufacturer_code=int(mfr["code"]),
             manufacturer_name_internal=mfr.get("name"),
-            manufacturer_email=mfr.get("email"),
+            manufacturer_email=mfr.get("contact_email"),
             brand=alloc["brand"],
             piece_type=alloc["piece_type"],
             yymm=alloc["yymm"],
@@ -587,13 +597,18 @@ async def admin_broadcast_rfq(
             included_attachment_count=len(body.include_attachment_ids),
             admin_notes=body.admin_notes,
         )
-        new_broadcasts.append(bc)
+        # Stash directory id + gem_gallery_id on the broadcast for
+        # downstream cross-referencing (quotes + gem-gallery push-backs).
+        bc_dict = bc.model_dump()
+        bc_dict["manufacturer_directory_id"] = dir_id
+        bc_dict["manufacturer_gem_gallery_id"] = mfr.get("gem_gallery_id")
+        new_broadcasts.append(bc_dict)  # type: ignore[arg-type]
 
-    merged = existing + [b.model_dump() for b in new_broadcasts]
+    merged = existing + new_broadcasts
     entry = _history(
         user, "broadcast",
         manufacturer_ids=body.manufacturer_ids,
-        allocated_serials=[b.serial_storage for b in new_broadcasts],
+        allocated_serials=[b["serial_storage"] for b in new_broadcasts],
     )
     await db.rfqs.update_one(
         {"id": rfq_id},

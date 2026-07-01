@@ -13,6 +13,7 @@ from .meta import router as meta_router
 from .uploads import router as uploads_router
 from .approvals import router as approvals_router
 from .notifications import router as notifications_router
+from .manufacturers import router as manufacturers_router
 from .quotes import router as quotes_router
 from .rfqs import router as rfqs_router
 
@@ -34,6 +35,7 @@ __all__ = [
     "uploads_router",
     "approvals_router",
     "notifications_router",
+    "manufacturers_router",
     "quotes_router",
     "rfqs_router",
 ]
