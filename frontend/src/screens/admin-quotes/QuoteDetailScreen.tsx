@@ -209,8 +209,14 @@ function FlexRow({
         <View style={{ flexDirection: "row", alignItems: "center", width: 120, marginRight: 8 }}>
           <TextInput
             value={displayAmount}
-            onFocus={() => onModeChange("amount")}
-            onChangeText={(v) => { onModeChange("amount"); onAmountChange(v); }}
+            onFocus={() => { if (mode !== "amount") onModeChange("amount"); }}
+            onChangeText={(v) => {
+              // Only flip the mode when it's not already `amount` — firing
+              // `onModeChange` on every keystroke used to cause a PATCH
+              // storm that raced with itself and reset the field.
+              if (mode !== "amount") onModeChange("amount");
+              onAmountChange(v);
+            }}
             onBlur={onBlur}
             keyboardType="decimal-pad"
             style={{
@@ -228,8 +234,11 @@ function FlexRow({
         <View style={{ flexDirection: "row", alignItems: "center", width: 120 }}>
           <TextInput
             value={displayPct}
-            onFocus={() => onModeChange("percent")}
-            onChangeText={(v) => { onModeChange("percent"); onPctChange(v); }}
+            onFocus={() => { if (mode !== "percent") onModeChange("percent"); }}
+            onChangeText={(v) => {
+              if (mode !== "percent") onModeChange("percent");
+              onPctChange(v);
+            }}
             onBlur={onBlur}
             keyboardType="decimal-pad"
             style={{
