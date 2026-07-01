@@ -88,8 +88,14 @@ function NumRow({ label, suffix, value, onChangeText, onBlur, disabled }: {
           onChangeText={onChangeText}
           onBlur={onBlur}
           keyboardType="decimal-pad"
+          // NOTE: `flex: 1` alone is not enough on React-Native-Web because
+          // the underlying <input> has a default intrinsic size (~20ch) that
+          // overrides flex, causing the input to overflow its 140-wide row
+          // and the value to render outside the border. `minWidth: 0` +
+          // `width: 0` neutralises that intrinsic width so flex can size it.
           style={{
-            flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+            flex: 1, minWidth: 0, width: 0,
+            borderWidth: 1, borderColor: theme.border, borderRadius: 6,
             paddingHorizontal: 8, paddingVertical: 6, color: theme.textPrimary,
             textAlign: "right", opacity: disabled ? 0.4 : 1,
           }}
