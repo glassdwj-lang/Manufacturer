@@ -71,15 +71,42 @@ const STATUSES: { key: string; label: string; color: string }[] = [
 ];
 
 // ---------- Small presentational helpers ----------
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children, collapsible, defaultOpen }: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  /** When true, renders a chevron and lets the user fold the body away. */
+  collapsible?: boolean;
+  /** Initial expanded state when ``collapsible`` — defaults to true. */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState<boolean>(defaultOpen !== false);
+  const Header = collapsible ? TouchableOpacity : View;
   return (
     <View style={{
       backgroundColor: "#111", borderRadius: 10, padding: spacing.md,
       marginTop: spacing.md, borderWidth: 1, borderColor: theme.border,
     }}>
-      <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase" }}>{title}</Text>
-      {subtitle && <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2 }}>{subtitle}</Text>}
-      <View style={{ marginTop: spacing.sm }}>{children}</View>
+      <Header
+        activeOpacity={collapsible ? 0.7 : 1}
+        onPress={collapsible ? () => setOpen(o => !o) : undefined}
+        style={{ flexDirection: "row", alignItems: "center" }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase" }}>{title}</Text>
+          {subtitle && <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2 }}>{subtitle}</Text>}
+        </View>
+        {collapsible && (
+          <Ionicons
+            name={open ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={theme.textMuted}
+          />
+        )}
+      </Header>
+      {(!collapsible || open) && (
+        <View style={{ marginTop: spacing.sm }}>{children}</View>
+      )}
     </View>
   );
 }
@@ -690,6 +717,8 @@ export default function QuoteDetailScreen() {
               ? `Snapshot from ${new Date(quote.metal_spot_snapshot.captured_at).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })} · ${quote.metal_spot_snapshot.source || "spot"}`
               : "Snapshot unavailable — captures on next refresh"
           }
+          collapsible
+          defaultOpen={false}
         >
           {(() => {
             const snap = quote.metal_spot_snapshot?.usd_per_gram;
