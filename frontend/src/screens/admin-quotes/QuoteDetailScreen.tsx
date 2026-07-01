@@ -47,15 +47,12 @@ const AUD_FIELDS: NumF[] = [
   { key: "australian_delivery_aud", label: "AU delivery", suffix: "AUD" },
 ];
 
-// The two flexible rows: either fixed $ AUD or % of the converted AUD
-// total (USD subtotal × effective FX rate). Rendered by <FlexRow /> —
-// no base selector needed because both fields always use the same base.
+// The two flexible rows in the AUD Costs section: either fixed $ AUD or
+// % of the converted AUD total (USD subtotal × effective FX rate).
 const FLEX_FIELDS = [
   { root: "intl_transaction_fees", label: "Intl transaction fees" },
   { root: "duty_or_chafta",        label: "Duty / CHAFTA" },
 ] as const;
-
-const MARGIN_FIELDS: NumF[] = [];
 
 const STATUSES: { key: string; label: string; color: string }[] = [
   { key: "draft", label: "Draft", color: "#3A3A3A" },
@@ -839,7 +836,6 @@ export default function QuoteDetailScreen() {
 
         {/* --- Margin & GST --- */}
         <Section title="Margin & GST">
-          {/* Markup — $/% toggle against Total AUD amount */}
           {(() => {
             const i = quote.inputs || {};
             const audConvertedTotal = usdSubtotal * Number(i.usd_to_aud_rate || 0);
@@ -853,44 +849,90 @@ export default function QuoteDetailScreen() {
               + (Number(i.australian_delivery_aud) || 0)
               + resolveFlex("intl_transaction_fees")
               + resolveFlex("duty_or_chafta");
+            const markupAmount =
+              i.markup_mode === "amount"
+                ? Number(i.markup_amount_aud) || 0
+                : costPriceAud * (Number(i.markup_pct) || 0) / 100;
+            const exGstTotal = costPriceAud + markupAmount;
+            const gstAmount =
+              i.gst_mode === "amount"
+                ? Number(i.gst_amount_aud) || 0
+                : exGstTotal * (Number(i.gst_pct) || 0) / 100;
+            const salePriceIncGst = exGstTotal + gstAmount;
+            const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             return (
-              <FlexRow
-                label="Markup"
-                mode={(i.markup_mode as "amount" | "percent") || "percent"}
-                pctValue={String(i.markup_pct ?? "")}
-                amountValue={String(i.markup_amount_aud ?? "")}
-                baseAmount={costPriceAud}
-                baseLabel="Total AUD amount"
-                onModeChange={(m) => commitField("markup_mode", m)}
-                onPctChange={setNumeric("markup_pct")}
-                onAmountChange={setNumeric("markup_amount_aud")}
-                onBlur={commitInputs}
-              />
-            );
-          })()}
-          {MARGIN_FIELDS.map(f => (
-            <NumRow key={f.key} label={f.label} suffix={f.suffix}
-              value={String(quote.inputs?.[f.key] ?? "")}
-              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
-          ))}
-          {/* GST — $/% dual input against retail sell price ex-GST */}
-          {(() => {
-            const i = quote.inputs || {};
-            const t = shownTotals || {};
-            const retailExGst = Number(t.retail_sell_price_ex_gst_aud) || 0;
-            return (
-              <FlexRow
-                label="GST"
-                mode={(i.gst_mode as "amount" | "percent") || "percent"}
-                pctValue={String(i.gst_pct ?? "")}
-                amountValue={String(i.gst_amount_aud ?? "")}
-                baseAmount={retailExGst}
-                baseLabel="Total AU sell (ex-GST)"
-                onModeChange={(m) => commitField("gst_mode", m)}
-                onPctChange={setNumeric("gst_pct")}
-                onAmountChange={setNumeric("gst_amount_aud")}
-                onBlur={commitInputs}
-              />
+              <>
+                {/* Markup — $/% dual input against Total AUD amount */}
+                <FlexRow
+                  label="Markup"
+                  mode={(i.markup_mode as "amount" | "percent") || "percent"}
+                  pctValue={String(i.markup_pct ?? "")}
+                  amountValue={String(i.markup_amount_aud ?? "")}
+                  baseAmount={costPriceAud}
+                  baseLabel="Total AUD amount"
+                  onModeChange={(m) => commitField("markup_mode", m)}
+                  onPctChange={setNumeric("markup_pct")}
+                  onAmountChange={setNumeric("markup_amount_aud")}
+                  onBlur={commitInputs}
+                />
+                {/* Ex-GST subtotal: Total AUD amount + Markup */}
+                <View style={{
+                  marginTop: 2, marginBottom: 10, paddingTop: 8,
+                  borderTopWidth: 1, borderTopColor: theme.border,
+                }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 2 }}>
+                    <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                      Total AUD amount + Markup
+                    </Text>
+                    <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                      AUD {fmt(costPriceAud)} + AUD {fmt(markupAmount)}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: "700" }}>
+                      Ex-GST Total cost
+                    </Text>
+                    <Text style={{ color: theme.primary, fontSize: 15, fontWeight: "800" }}>
+                      AUD {fmt(exGstTotal)}
+                    </Text>
+                  </View>
+                </View>
+                {/* GST — $/% dual input against Ex-GST total */}
+                <FlexRow
+                  label="GST"
+                  mode={(i.gst_mode as "amount" | "percent") || "percent"}
+                  pctValue={String(i.gst_pct ?? "")}
+                  amountValue={String(i.gst_amount_aud ?? "")}
+                  baseAmount={exGstTotal}
+                  baseLabel="Ex-GST Total cost"
+                  onModeChange={(m) => commitField("gst_mode", m)}
+                  onPctChange={setNumeric("gst_pct")}
+                  onAmountChange={setNumeric("gst_amount_aud")}
+                  onBlur={commitInputs}
+                />
+                {/* Sale Price (inc GST) — grand total for this section */}
+                <View style={{
+                  marginTop: 2, paddingTop: 8,
+                  borderTopWidth: 1, borderTopColor: theme.border,
+                }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 2 }}>
+                    <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                      Ex-GST Total + GST
+                    </Text>
+                    <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                      AUD {fmt(exGstTotal)} + AUD {fmt(gstAmount)}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: "700" }}>
+                      Sale Price (inc GST)
+                    </Text>
+                    <Text style={{ color: theme.primary, fontSize: 16, fontWeight: "800" }}>
+                      AUD {fmt(salePriceIncGst)}
+                    </Text>
+                  </View>
+                </View>
+              </>
             );
           })()}
         </Section>
