@@ -55,9 +55,7 @@ const FLEX_FIELDS = [
   { root: "duty_or_chafta",        label: "Duty / CHAFTA" },
 ] as const;
 
-const MARGIN_FIELDS: NumF[] = [
-  { key: "gst_pct", label: "GST", suffix: "%" },
-];
+const MARGIN_FIELDS: NumF[] = [];
 
 const STATUSES: { key: string; label: string; color: string }[] = [
   { key: "draft", label: "Draft", color: "#3A3A3A" },
@@ -156,6 +154,15 @@ function TotalRow({ label, val, unit, big }: { label: string; val: number | unde
  * input. Used for the two flexible AUD cost lines (intl transaction
  * fees, duty / CHAFTA).
  */
+/**
+ * FlexRow — dual-input row showing both the **$ AUD amount** and the
+ * **% of a base** side-by-side. Whichever box the user edits last
+ * becomes the authoritative value; the other renders as a derived
+ * live-computed figure. A small helper note underneath shows the base
+ * amount so the atelier always sees the context.
+ *
+ * Used for Intl transaction fees, Duty / CHAFTA, Markup and GST.
+ */
 function FlexRow({
   label, mode, pctValue, amountValue, baseAmount, baseLabel = "AUD converted total",
   onModeChange, onPctChange, onAmountChange, onBlur,
@@ -164,84 +171,91 @@ function FlexRow({
   mode: "amount" | "percent";
   pctValue: string;
   amountValue: string;
-  /** Base amount used for %-mode calculations. */
   baseAmount: number;
-  /** Human-readable name of the base — appears in the derived helper. */
   baseLabel?: string;
   onModeChange: (m: "amount" | "percent") => void;
   onPctChange: (v: string) => void;
   onAmountChange: (v: string) => void;
   onBlur?: () => void;
 }) {
-  const isPct = mode === "percent";
+  // Numeric versions for the derivations.
   const pctNum = Number(pctValue) || 0;
   const amtNum = Number(amountValue) || 0;
-  const derivedAud = baseAmount * (pctNum / 100);
-  const derivedPct = baseAmount > 0 ? (amtNum / baseAmount) * 100 : 0;
+
+  // What each box **displays**:
+  //   • authoritative side  → the raw string the user typed
+  //   • derived / other     → live-computed from the authoritative one
+  // Keeping the raw strings preserves partial input (e.g. "1.5" while the
+  // user is still typing) — we only derive on the *other* side.
+  const displayAmount =
+    mode === "amount" ? amountValue : (baseAmount * (pctNum / 100)).toFixed(2);
+  const displayPct =
+    mode === "percent" ? pctValue :
+    (baseAmount > 0 ? ((amtNum / baseAmount) * 100).toFixed(4) : "0");
+
   const baseFmt = baseAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const inputBoxStyle = {
+    flex: 1, minWidth: 0, width: 0,
+    borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 6, color: theme.textPrimary,
+    textAlign: "right" as const,
+  };
 
   return (
     <View style={{ marginBottom: 10 }}>
-      {/* Label + pill toggle */}
+      {/* Label + both inputs side-by-side */}
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
         <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>{label}</Text>
-        <View style={{
-          flexDirection: "row", borderWidth: 1, borderColor: theme.border,
-          borderRadius: 6, overflow: "hidden",
-        }}>
-          {(["amount", "percent"] as const).map(m => {
-            const active = mode === m;
-            return (
-              <TouchableOpacity key={m} onPress={() => onModeChange(m)}
-                style={{
-                  paddingHorizontal: 10, paddingVertical: 4,
-                  backgroundColor: active ? theme.primary : "transparent",
-                }}>
-                <Text style={{
-                  color: active ? "#fff" : theme.textMuted,
-                  fontSize: 12, fontWeight: "700",
-                }}>{m === "amount" ? "$" : "%"}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
 
-      {/* Value input + suffix */}
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }}>
-        <View style={{ flexDirection: "row", alignItems: "center", width: 140 }}>
+        {/* $ box (left) — editing switches mode to "amount" */}
+        <View style={{ flexDirection: "row", alignItems: "center", width: 120, marginRight: 8 }}>
           <TextInput
-            value={isPct ? pctValue : amountValue}
-            onChangeText={isPct ? onPctChange : onAmountChange}
+            value={displayAmount}
+            onFocus={() => onModeChange("amount")}
+            onChangeText={(v) => { onModeChange("amount"); onAmountChange(v); }}
             onBlur={onBlur}
             keyboardType="decimal-pad"
             style={{
-              flex: 1, minWidth: 0, width: 0,
-              borderWidth: 1, borderColor: theme.border, borderRadius: 6,
-              paddingHorizontal: 8, paddingVertical: 6, color: theme.textPrimary,
-              textAlign: "right",
+              ...inputBoxStyle,
+              opacity: mode === "amount" ? 1 : 0.55,
             }}
           />
           <Text style={{
-            color: theme.textMuted, fontSize: 11, width: 32,
+            color: theme.textMuted, fontSize: 11, width: 28,
             textAlign: "right", marginLeft: 4,
-          }}>{isPct ? "%" : "AUD"}</Text>
+          }}>$</Text>
+        </View>
+
+        {/* % box (right) — editing switches mode to "percent" */}
+        <View style={{ flexDirection: "row", alignItems: "center", width: 120 }}>
+          <TextInput
+            value={displayPct}
+            onFocus={() => onModeChange("percent")}
+            onChangeText={(v) => { onModeChange("percent"); onPctChange(v); }}
+            onBlur={onBlur}
+            keyboardType="decimal-pad"
+            style={{
+              ...inputBoxStyle,
+              opacity: mode === "percent" ? 1 : 0.55,
+            }}
+          />
+          <Text style={{
+            color: theme.textMuted, fontSize: 11, width: 28,
+            textAlign: "right", marginLeft: 4,
+          }}>%</Text>
         </View>
       </View>
 
-      {/* Derived "opposite" — always visible in grey */}
-      <View style={{ marginTop: 4, alignItems: "flex-end" }}>
-        {isPct ? (
-          <Text style={{ color: theme.textMuted, fontSize: 10 }}>
-            ≈ AUD {derivedAud.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            {"  "}
-            <Text style={{ opacity: 0.6 }}>({pctNum.toFixed(2)}% of {baseLabel} {baseFmt})</Text>
+      {/* Contextual note under both boxes */}
+      <View style={{ marginTop: 2, alignItems: "flex-end" }}>
+        <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+          {baseLabel}: AUD {baseFmt}
+          {"  ·  "}
+          <Text style={{ opacity: 0.7 }}>
+            editing {mode === "amount" ? "$" : "%"} drives the other
           </Text>
-        ) : (
-          <Text style={{ color: theme.textMuted, fontSize: 10 }}>
-            ≈ {derivedPct.toFixed(2)}% of {baseLabel} ({baseFmt})
-          </Text>
-        )}
+        </Text>
       </View>
     </View>
   );
@@ -859,6 +873,26 @@ export default function QuoteDetailScreen() {
               value={String(quote.inputs?.[f.key] ?? "")}
               onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
           ))}
+          {/* GST — $/% dual input against retail sell price ex-GST */}
+          {(() => {
+            const i = quote.inputs || {};
+            const t = shownTotals || {};
+            const retailExGst = Number(t.retail_sell_price_ex_gst_aud) || 0;
+            return (
+              <FlexRow
+                label="GST"
+                mode={(i.gst_mode as "amount" | "percent") || "percent"}
+                pctValue={String(i.gst_pct ?? "")}
+                amountValue={String(i.gst_amount_aud ?? "")}
+                baseAmount={retailExGst}
+                baseLabel="Total AU sell (ex-GST)"
+                onModeChange={(m) => commitField("gst_mode", m)}
+                onPctChange={setNumeric("gst_pct")}
+                onAmountChange={setNumeric("gst_amount_aud")}
+                onBlur={commitInputs}
+              />
+            );
+          })()}
         </Section>
 
         {/* --- Discount tiers --- */}

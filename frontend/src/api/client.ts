@@ -977,7 +977,10 @@ export const api = {
   patchQuote: (id: string, body: any) =>
     request<any>(`/quotes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   computeQuoteTotals: (inputs: any) =>
-    request<any>(`/quotes/compute`, { method: "POST", body: JSON.stringify({ inputs }) }),
+    // FastAPI endpoint takes ``inputs: QuoteInputs`` at the request body
+    // ROOT (not wrapped in `{ inputs }`). The wrapper caused every field
+    // to fall back to defaults (zeros) — making the live preview useless.
+    request<any>(`/quotes/compute`, { method: "POST", body: JSON.stringify(inputs) }),
   deleteQuote: (id: string) => request<any>(`/quotes/${id}`, { method: "DELETE" }),
 
   // ---------- FX (daily-cached USD → AUD rate) ----------

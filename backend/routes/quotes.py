@@ -121,6 +121,8 @@ class QuoteInputs(BaseModel):
     markup_mode: str = "percent"        # percent | amount
     markup_amount_aud: float = 0.0      # only read when mode == "amount"
     gst_pct: float = 10.0
+    gst_mode: str = "percent"           # percent | amount
+    gst_amount_aud: float = 0.0         # only read when mode == "amount"
 
     # --- Commission tiers ---------------------------------------------
     discount_tiers: List[DiscountTier] = Field(default_factory=list)
@@ -247,7 +249,11 @@ def compute_totals(inputs: QuoteInputs) -> QuoteTotals:
         else cost_price * (inputs.markup_pct / 100.0)
     )
     retail_ex_gst = cost_price + markup_amount
-    gst_amount = retail_ex_gst * (inputs.gst_pct / 100.0)
+    gst_amount = (
+        inputs.gst_amount_aud
+        if inputs.gst_mode == "amount"
+        else retail_ex_gst * (inputs.gst_pct / 100.0)
+    )
     total_inc_gst = retail_ex_gst + gst_amount
     gross_margin = retail_ex_gst - cost_price
     gross_margin_pct = (gross_margin / retail_ex_gst * 100.0) if retail_ex_gst else 0.0
