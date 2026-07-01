@@ -47,17 +47,13 @@ const AUD_FIELDS: NumF[] = [
   { key: "australian_delivery_aud", label: "AU delivery", suffix: "AUD" },
 ];
 
-// The two flexible fields — either fixed $ or % of a chosen base. Rendered
-// by <FlexRow /> further down, not <NumRow />.
+// The two flexible rows: either fixed $ AUD or % of the converted AUD
+// total (USD subtotal × effective FX rate). Rendered by <FlexRow /> —
+// no base selector needed because both fields always use the same base.
 const FLEX_FIELDS = [
   { root: "intl_transaction_fees", label: "Intl transaction fees" },
   { root: "duty_or_chafta",        label: "Duty / CHAFTA" },
 ] as const;
-
-const BASE_OPTIONS: { key: string; label: string; hint: string }[] = [
-  { key: "usd_x_fx",      label: "USD × FX",     hint: "Total USD costs × effective FX" },
-  { key: "cost_pre_fees", label: "Pre-fee cost", hint: "USD×FX + customs + AU delivery" },
-];
 
 const MARGIN_FIELDS: NumF[] = [
   { key: "markup_pct", label: "Markup", suffix: "%" },
@@ -155,38 +151,36 @@ function TotalRow({ label, val, unit, big }: { label: string; val: number | unde
 }
 
 /**
- * FlexRow — a numeric row that toggles between fixed $ AUD and % of a
- * base amount, showing the *opposite* representation as a live-computed
- * grey helper below the input. Used for the two flexible AUD cost lines
- * (intl transaction fees, duty / CHAFTA).
+ * FlexRow — a numeric row that toggles between fixed $ AUD and % of the
+ * converted AUD total (USD subtotal × effective FX rate). Shows the
+ * *opposite* representation as a live-computed grey helper below the
+ * input. Used for the two flexible AUD cost lines (intl transaction
+ * fees, duty / CHAFTA).
  */
 function FlexRow({
-  label, mode, pctValue, amountValue, baseKey, baseUsdXFx, baseCostPreFees,
-  onModeChange, onPctChange, onAmountChange, onBaseChange, onBlur,
+  label, mode, pctValue, amountValue, audConvertedTotal,
+  onModeChange, onPctChange, onAmountChange, onBlur,
 }: {
   label: string;
   mode: "amount" | "percent";
   pctValue: string;
   amountValue: string;
-  baseKey: string;
-  baseUsdXFx: number;
-  baseCostPreFees: number;
+  /** Converted AUD total = USD subtotal × effective FX rate. Used as
+   * the sole base for %-mode calculations. */
+  audConvertedTotal: number;
   onModeChange: (m: "amount" | "percent") => void;
   onPctChange: (v: string) => void;
   onAmountChange: (v: string) => void;
-  onBaseChange: (k: string) => void;
   onBlur?: () => void;
 }) {
   const isPct = mode === "percent";
-  const activeBase = baseKey === "cost_pre_fees" ? baseCostPreFees : baseUsdXFx;
-  const activeBaseLabel = BASE_OPTIONS.find(o => o.key === baseKey)?.label ?? "USD × FX";
-
-  // Derive the "opposite" — what the current value equates to in the
-  // other unit — so the atelier can see both figures at a glance.
   const pctNum = Number(pctValue) || 0;
   const amtNum = Number(amountValue) || 0;
-  const derivedAud = activeBase * (pctNum / 100);
-  const derivedPct = activeBase > 0 ? (amtNum / activeBase) * 100 : 0;
+  // Derive the "opposite" — what the current value equates to in the
+  // other unit — so the atelier can see both figures at a glance.
+  const derivedAud = audConvertedTotal * (pctNum / 100);
+  const derivedPct = audConvertedTotal > 0 ? (amtNum / audConvertedTotal) * 100 : 0;
+  const totalFmt = audConvertedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <View style={{ marginBottom: 10 }}>
@@ -237,44 +231,17 @@ function FlexRow({
         </View>
       </View>
 
-      {/* % → base dropdown */}
-      {isPct && (
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, justifyContent: "flex-end" }}>
-          <Text style={{ color: theme.textMuted, fontSize: 10, marginRight: 6 }}>of</Text>
-          <View style={{
-            flexDirection: "row", borderWidth: 1, borderColor: theme.border,
-            borderRadius: 6, overflow: "hidden",
-          }}>
-            {BASE_OPTIONS.map(opt => {
-              const active = baseKey === opt.key;
-              return (
-                <TouchableOpacity key={opt.key} onPress={() => onBaseChange(opt.key)}
-                  style={{
-                    paddingHorizontal: 8, paddingVertical: 3,
-                    backgroundColor: active ? "#1a1a1a" : "transparent",
-                  }}>
-                  <Text style={{
-                    color: active ? theme.primary : theme.textMuted,
-                    fontSize: 10, fontWeight: active ? "700" : "500",
-                  }}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      )}
-
       {/* Derived "opposite" — always visible in grey */}
       <View style={{ marginTop: 4, alignItems: "flex-end" }}>
         {isPct ? (
           <Text style={{ color: theme.textMuted, fontSize: 10 }}>
             ≈ AUD {derivedAud.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             {"  "}
-            <Text style={{ opacity: 0.6 }}>({activeBaseLabel}: AUD {activeBase.toFixed(2)})</Text>
+            <Text style={{ opacity: 0.6 }}>({pctNum.toFixed(2)}% of AUD converted total {totalFmt})</Text>
           </Text>
         ) : (
           <Text style={{ color: theme.textMuted, fontSize: 10 }}>
-            ≈ {derivedPct.toFixed(2)}% of {activeBaseLabel} (AUD {activeBase.toFixed(2)})
+            ≈ {derivedPct.toFixed(2)}% of AUD converted total ({totalFmt})
           </Text>
         )}
       </View>
@@ -785,12 +752,9 @@ export default function QuoteDetailScreen() {
               value={String(quote.inputs?.[f.key] ?? "")}
               onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
           ))}
-          {/* Two flexible rows: $ vs % (of USD×FX or pre-fee cost) */}
+          {/* Two flexible rows: $ vs % of AUD converted total */}
           {(() => {
-            const usdXFx = usdSubtotal * Number(quote.inputs?.usd_to_aud_rate || 0);
-            const customs = Number(quote.inputs?.custom_clearance_aud || 0);
-            const auDelivery = Number(quote.inputs?.australian_delivery_aud || 0);
-            const costPreFees = usdXFx + customs + auDelivery;
+            const audConvertedTotal = usdSubtotal * Number(quote.inputs?.usd_to_aud_rate || 0);
             return FLEX_FIELDS.map(f => (
               <FlexRow
                 key={f.root}
@@ -798,13 +762,10 @@ export default function QuoteDetailScreen() {
                 mode={(quote.inputs?.[`${f.root}_mode`] as "amount" | "percent") || "amount"}
                 pctValue={String(quote.inputs?.[`${f.root}_pct`] ?? "")}
                 amountValue={String(quote.inputs?.[`${f.root}_aud`] ?? "")}
-                baseKey={String(quote.inputs?.[`${f.root}_base`] ?? "usd_x_fx")}
-                baseUsdXFx={usdXFx}
-                baseCostPreFees={costPreFees}
+                audConvertedTotal={audConvertedTotal}
                 onModeChange={(m) => commitField(`${f.root}_mode`, m)}
                 onPctChange={setNumeric(`${f.root}_pct`)}
                 onAmountChange={setNumeric(`${f.root}_aud`)}
-                onBaseChange={(k) => commitField(`${f.root}_base`, k)}
                 onBlur={commitInputs}
               />
             ));
