@@ -1,12 +1,24 @@
 /**
- * QuoteDetailScreen — view/edit a single quote. Every numeric input
- * lets admin adjust; on blur the backend recomputes `totals` and
- * echoes them back. Status transitions (draft → ready → sent) via
- * the header pill.
+ * QuoteDetailScreen (polished) — grouped, spreadsheet-style admin
+ * form. Layout mirrors the S.Co quote template's cascade:
+ *
+ *   1. Header pill  ─────────────────────────────  status + serial + RFQ link
+ *   2. Product spec   (text inputs)               piece description, metal, stone
+ *   3. USD costs      (numeric group)             ring, halo pavé (switch), cut,
+ *                                                 CAD, provenance, cert, box, freight
+ *   4. Currency       (numeric group)             USD→AUD rate
+ *   5. AUD costs      (numeric group)             customs, delivery, intl fees, duty
+ *   6. Margin & GST   (numeric group)             markup %, GST %
+ *   7. Discount tiers (table)                     add / remove / edit % tiers
+ *   8. Totals panel   (read-only)                 the full cascade + margin
+ *
+ * Live recompute: every input change debounces 400ms then hits
+ * `POST /api/quotes/compute` for preview totals. Save-on-blur persists
+ * via `PATCH /api/quotes/{id}`.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, ScrollView, Text, TextInput,
+  ActivityIndicator, Alert, ScrollView, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,30 +29,99 @@ import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { BrandStrip } from "@/src/components/BrandStrip";
 
-const NUMERIC_FIELDS: [string, string][] = [
-  ["ring_cost_usd", "Ring cost (USD)"],
-  ["hidden_halo_pave_cost_usd", "Hidden halo pâve (USD)"],
-  ["extra_cut_cost_usd", "Extra cut (USD)"],
-  ["cad_rendering_cost_usd", "CAD rendering (USD)"],
-  ["provenance_cost_usd", "Provenance (USD)"],
-  ["certification_cost_usd", "Certification (USD)"],
-  ["box_packaging_cost_usd", "Box & packaging (USD)"],
-  ["air_freight_cost_usd", "Air freight (USD)"],
-  ["usd_to_aud_rate", "USD → AUD rate"],
-  ["custom_clearance_aud", "Customs clearance (AUD)"],
-  ["australian_delivery_aud", "AU delivery (AUD)"],
-  ["intl_transaction_fees_aud", "Intl txn fees (AUD)"],
-  ["duty_or_chafta_aud", "Duty / CHAFTA (AUD)"],
-  ["markup_pct", "Markup (%)"],
-  ["gst_pct", "GST (%)"],
+// ---------- Field group definitions ----------
+type NumF = { key: string; label: string; suffix?: string; hint?: string };
+
+const USD_FIELDS: NumF[] = [
+  { key: "ring_cost_usd", label: "Ring cost", suffix: "USD" },
+  { key: "extra_cut_cost_usd", label: "Extra cut", suffix: "USD" },
+  { key: "cad_rendering_cost_usd", label: "CAD rendering", suffix: "USD" },
+  { key: "provenance_cost_usd", label: "Provenance", suffix: "USD" },
+  { key: "certification_cost_usd", label: "Certification", suffix: "USD" },
+  { key: "box_packaging_cost_usd", label: "Box & packaging", suffix: "USD" },
+  { key: "air_freight_cost_usd", label: "Air freight", suffix: "USD" },
 ];
 
+const AUD_FIELDS: NumF[] = [
+  { key: "custom_clearance_aud", label: "Customs clearance", suffix: "AUD" },
+  { key: "australian_delivery_aud", label: "AU delivery", suffix: "AUD" },
+  { key: "intl_transaction_fees_aud", label: "Intl transaction fees", suffix: "AUD" },
+  { key: "duty_or_chafta_aud", label: "Duty / CHAFTA", suffix: "AUD" },
+];
+
+const MARGIN_FIELDS: NumF[] = [
+  { key: "markup_pct", label: "Markup", suffix: "%" },
+  { key: "gst_pct", label: "GST", suffix: "%" },
+];
+
+const STATUSES: { key: string; label: string; color: string }[] = [
+  { key: "draft", label: "Draft", color: "#3A3A3A" },
+  { key: "ready", label: "Ready", color: "#164E3B" },
+  { key: "sent", label: "Sent", color: "#4A2E7A" },
+];
+
+// ---------- Small presentational helpers ----------
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <View style={{
+      backgroundColor: "#111", borderRadius: 10, padding: spacing.md,
+      marginTop: spacing.md, borderWidth: 1, borderColor: theme.border,
+    }}>
+      <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase" }}>{title}</Text>
+      {subtitle && <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2 }}>{subtitle}</Text>}
+      <View style={{ marginTop: spacing.sm }}>{children}</View>
+    </View>
+  );
+}
+
+function NumRow({ label, suffix, value, onChangeText, onBlur, disabled }: {
+  label: string; suffix?: string; value: string;
+  onChangeText: (v: string) => void; onBlur?: () => void; disabled?: boolean;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+      <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>{label}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", width: 140 }}>
+        <TextInput
+          editable={!disabled}
+          value={value}
+          onChangeText={onChangeText}
+          onBlur={onBlur}
+          keyboardType="decimal-pad"
+          style={{
+            flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+            paddingHorizontal: 8, paddingVertical: 6, color: theme.textPrimary,
+            textAlign: "right", opacity: disabled ? 0.4 : 1,
+          }}
+        />
+        {suffix && <Text style={{ color: theme.textMuted, fontSize: 11, width: 32, textAlign: "right", marginLeft: 4 }}>{suffix}</Text>}
+      </View>
+    </View>
+  );
+}
+
+function TotalRow({ label, val, unit, big }: { label: string; val: number | undefined | null; unit: string; big?: boolean }) {
+  const fmt = val == null ? "—" :
+    unit === "%" ? `${Number(val).toFixed(2)}%` :
+    `${unit} ${Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: big ? 6 : 3 }}>
+      <Text style={{ color: theme.textMuted, fontSize: big ? 13 : 12, fontWeight: big ? "700" : "400" }}>{label}</Text>
+      <Text style={{ color: big ? theme.primary : theme.textPrimary, fontSize: big ? 15 : 12, fontWeight: big ? "800" : "600" }}>{fmt}</Text>
+    </View>
+  );
+}
+
+// ---------- Screen ----------
 export default function QuoteDetailScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const qid = String(params.id || "");
   const safeBack = useSafeBack("/(app)/admin/quotes");
+
   const [quote, setQuote] = useState<any | null>(null);
+  const [preview, setPreview] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
+  const debounceRef = useRef<any>(null);
 
   const load = useCallback(async () => {
     try { setQuote(await api.getQuote(qid)); }
@@ -49,20 +130,64 @@ export default function QuoteDetailScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  const savePatch = async (inputsOrStatus: any) => {
+  // Live preview totals (debounced) — server-side authoritative
+  useEffect(() => {
+    if (!quote?.inputs) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const r = await api.computeQuoteTotals(quote.inputs);
+        setPreview(r);
+      } catch { /* ignore */ }
+    }, 400);
+    return () => debounceRef.current && clearTimeout(debounceRef.current);
+  }, [quote?.inputs]);
+
+  // Field mutators — never mutate state directly, always fresh object
+  const setInput = (k: string, v: any) => {
+    setQuote((q: any) => ({ ...q, inputs: { ...q.inputs, [k]: v } }));
+  };
+  const setNumeric = (k: string) => (raw: string) => {
+    setInput(k, raw === "" ? 0 : Number(raw));
+  };
+
+  const persist = async (patch: any) => {
     setSaving(true);
-    try { setQuote(await api.patchQuote(qid, inputsOrStatus)); }
+    try { setQuote(await api.patchQuote(qid, patch)); }
     catch (e: any) { Alert.alert("Save failed", e?.message || "unknown"); }
     finally { setSaving(false); }
   };
+  const commitInputs = () => quote && persist({ inputs: quote.inputs });
+  const commitStatus = (s: string) => persist({ status: s });
 
-  const setInput = (k: string, v: string) => {
-    setQuote((q: any) => ({ ...q, inputs: { ...q.inputs, [k]: v === "" ? 0 : Number(v) } }));
+  // ---------- Discount tier helpers ----------
+  const addTier = () => {
+    const current = quote.inputs?.discount_tiers || [];
+    const next = [...current, { label: `Tier ${current.length + 1}`, discount_pct: 10 }];
+    setInput("discount_tiers", next);
+    setTimeout(commitInputs, 0);
+  };
+  const removeTier = (idx: number) => {
+    const next = [...(quote.inputs?.discount_tiers || [])].filter((_, i) => i !== idx);
+    setInput("discount_tiers", next);
+    setTimeout(commitInputs, 0);
+  };
+  const setTierField = (idx: number, key: string, value: any) => {
+    const next = [...(quote.inputs?.discount_tiers || [])];
+    next[idx] = { ...next[idx], [key]: value };
+    setInput("discount_tiers", next);
   };
 
-  const commitInputs = () => quote && savePatch({ inputs: quote.inputs });
+  // Preview totals if available, else persisted totals
+  const shownTotals = preview?.totals || preview || quote?.totals;
+  // computeQuoteTotals response shape: { inputs, totals } — normalise
+  const t = (shownTotals && (shownTotals.totals || shownTotals)) as any;
+  const tiers: any[] = t?.discount_tiers || quote?.inputs?.discount_tiers || [];
 
-  const setStatus = (s: string) => savePatch({ status: s });
+  const jewelryName = useMemo(
+    () => quote?.jewelry_name || quote?.inputs?.piece_description || "Untitled quote",
+    [quote]
+  );
 
   if (!quote) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top"]}>
@@ -70,70 +195,198 @@ export default function QuoteDetailScreen() {
     </SafeAreaView>
   );
 
-  const t = quote.totals || {};
-
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top","bottom"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top", "bottom"]}>
       <BrandStrip />
       <View style={{ flexDirection: "row", alignItems: "center", padding: spacing.md }}>
         <TouchableOpacity onPress={safeBack}><Ionicons name="arrow-back" size={22} color={theme.textPrimary} /></TouchableOpacity>
-        <Text style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: theme.textPrimary }}>Quote</Text>
-        <View style={{ width: 22 }} />
+        <Text style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: theme.textPrimary }} numberOfLines={1}>{jewelryName}</Text>
+        {saving ? <ActivityIndicator size="small" color={theme.primary} /> : <View style={{ width: 22 }} />}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 40 }}>
-        {quote.serial_display && (
-          <View style={{ backgroundColor: "#1a1a1a", padding: 10, borderRadius: 8, marginBottom: 12 }}>
-            <Text style={{ color: theme.primary, fontWeight: "700" }}>{quote.serial_display}</Text>
-            <Text style={{ color: theme.textMuted, fontSize: 11 }}>engraved: {quote.serial_engraved} · RFQ {quote.rfq_id?.slice(0,8)}…</Text>
+      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+        {/* --- Header card: serial + RFQ + status pills --- */}
+        {(quote.serial_display || quote.rfq_id) && (
+          <View style={{ backgroundColor: "#0F1F1F", padding: spacing.md, borderRadius: 10, borderLeftWidth: 3, borderLeftColor: theme.primary }}>
+            {quote.serial_display && (
+              <>
+                <Text style={{ color: theme.primary, fontWeight: "800", fontSize: 16 }}>{quote.serial_display}</Text>
+                <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2 }}>engraved: {quote.serial_engraved}</Text>
+              </>
+            )}
+            {quote.rfq_id && (
+              <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2 }}>from RFQ {quote.rfq_id.slice(0, 8)}…</Text>
+            )}
           </View>
         )}
 
-        <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: 12 }}>
-          {["draft", "ready", "sent"].map((s) => (
-            <TouchableOpacity key={s} onPress={() => setStatus(s)}
-              style={{ flex: 1, padding: 8, borderRadius: 6,
-                backgroundColor: quote.status === s ? theme.primary : "transparent",
-                borderWidth: 1, borderColor: theme.border }}>
-              <Text style={{ color: quote.status === s ? "#000" : theme.textPrimary, textAlign: "center", fontWeight: "700", fontSize: 12 }}>{s.toUpperCase()}</Text>
-            </TouchableOpacity>
-          ))}
+        <View style={{ flexDirection: "row", gap: 6, marginTop: spacing.md }}>
+          {STATUSES.map(s => {
+            const active = quote.status === s.key;
+            return (
+              <TouchableOpacity key={s.key} onPress={() => commitStatus(s.key)}
+                style={{
+                  flex: 1, paddingVertical: 8, borderRadius: 6,
+                  backgroundColor: active ? s.color : "transparent",
+                  borderWidth: 1, borderColor: active ? s.color : theme.border,
+                }}>
+                <Text style={{ color: active ? "#fff" : theme.textPrimary, textAlign: "center", fontWeight: "700", fontSize: 12, textTransform: "uppercase" }}>{s.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        <Text style={{ color: theme.textPrimary, fontWeight: "700", marginTop: 8, marginBottom: 4 }}>Inputs</Text>
-        {NUMERIC_FIELDS.map(([k, label]) => (
-          <View key={k}>
-            <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 8 }}>{label}</Text>
-            <TextInput
-              value={String(quote.inputs?.[k] ?? "")}
-              onChangeText={(v) => setInput(k, v)}
-              onBlur={commitInputs}
-              keyboardType="decimal-pad"
-              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 8, color: theme.textPrimary }}
-            />
-          </View>
-        ))}
-
-        <View style={{ backgroundColor: "#0F1F1F", padding: 12, borderRadius: 8, marginTop: 16 }}>
-          <Text style={{ color: theme.primary, fontWeight: "700", marginBottom: 6 }}>Totals</Text>
-          {[
-            ["Total USD", t.total_usd_costs, "USD"],
-            ["Cost price AUD", t.cost_price_aud, "AUD"],
-            ["Retail (ex-GST)", t.retail_sell_price_ex_gst_aud, "AUD"],
-            ["Sell (inc-GST)", t.total_sell_price_inc_gst_aud, "AUD"],
-            ["Margin AUD", t.margin_aud, "AUD"],
-            ["Margin %", t.margin_pct, "%"],
-          ].map(([label, val, unit]) => (
-            <View key={label as string} style={{ flexDirection: "row", justifyContent: "space-between", marginVertical: 2 }}>
-              <Text style={{ color: theme.textMuted, fontSize: 12 }}>{label as string}</Text>
-              <Text style={{ color: theme.textPrimary, fontWeight: "600", fontSize: 12 }}>
-                {val != null ? `${unit === "%" ? "" : unit + " "}${Number(val).toFixed(2)}${unit === "%" ? "%" : ""}` : "—"}
-              </Text>
+        {/* --- Product spec --- */}
+        <Section title="Product Spec" subtitle="Descriptive fields printed on the client-facing quote">
+          {([
+            ["piece_description", "Piece description", "e.g. Ring — OV 4ct in 18k WG"],
+            ["metal_spec", "Metal spec", "e.g. 18K white gold, 6g"],
+            ["stone_spec", "Stone spec", "e.g. Oval 4.02ct D/VS1"],
+          ] as const).map(([k, label, ph]) => (
+            <View key={k} style={{ marginBottom: 8 }}>
+              <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>{label}</Text>
+              <TextInput
+                value={String(quote.inputs?.[k] ?? "")}
+                onChangeText={(v) => setInput(k, v)}
+                onBlur={commitInputs}
+                placeholder={ph}
+                placeholderTextColor="#555"
+                style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 8, color: theme.textPrimary }}
+              />
             </View>
           ))}
+        </Section>
+
+        {/* --- USD costs --- */}
+        <Section title="USD Costs" subtitle="Line-items sourced from the manufacturer (converted at the FX rate below)">
+          <NumRow label="Ring cost" suffix="USD"
+            value={String(quote.inputs?.ring_cost_usd ?? "")}
+            onChangeText={setNumeric("ring_cost_usd")} onBlur={commitInputs} />
+
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+            <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>Includes hidden halo pavé</Text>
+            <Switch
+              value={!!quote.inputs?.includes_hidden_halo_pave}
+              onValueChange={(v) => { setInput("includes_hidden_halo_pave", v); setTimeout(commitInputs, 0); }}
+            />
+          </View>
+          <NumRow
+            label="  ↳ Hidden halo pavé cost" suffix="USD"
+            disabled={!quote.inputs?.includes_hidden_halo_pave}
+            value={String(quote.inputs?.hidden_halo_pave_cost_usd ?? "")}
+            onChangeText={setNumeric("hidden_halo_pave_cost_usd")} onBlur={commitInputs}
+          />
+
+          {USD_FIELDS.filter(f => f.key !== "ring_cost_usd").map(f => (
+            <NumRow key={f.key} label={f.label} suffix={f.suffix}
+              value={String(quote.inputs?.[f.key] ?? "")}
+              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
+          ))}
+        </Section>
+
+        {/* --- FX --- */}
+        <Section title="Currency Conversion">
+          <NumRow label="USD → AUD rate" suffix="×"
+            value={String(quote.inputs?.usd_to_aud_rate ?? "")}
+            onChangeText={setNumeric("usd_to_aud_rate")} onBlur={commitInputs} />
+          {t?.total_usd_costs != null && (
+            <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: -2 }}>
+              USD {t.total_usd_costs.toFixed(2)}  ×  {quote.inputs?.usd_to_aud_rate}  =  AUD {(t.total_cost_aud || 0).toFixed(2)}
+            </Text>
+          )}
+        </Section>
+
+        {/* --- AUD costs --- */}
+        <Section title="AUD Costs" subtitle="Ancillary AUD-native fees added after currency conversion">
+          {AUD_FIELDS.map(f => (
+            <NumRow key={f.key} label={f.label} suffix={f.suffix}
+              value={String(quote.inputs?.[f.key] ?? "")}
+              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
+          ))}
+        </Section>
+
+        {/* --- Margin & GST --- */}
+        <Section title="Margin & GST">
+          {MARGIN_FIELDS.map(f => (
+            <NumRow key={f.key} label={f.label} suffix={f.suffix}
+              value={String(quote.inputs?.[f.key] ?? "")}
+              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
+          ))}
+        </Section>
+
+        {/* --- Discount tiers --- */}
+        <Section title="Discount Tiers" subtitle="Commission / discount payout matrix">
+          {tiers.length === 0 && (
+            <Text style={{ color: theme.textMuted, fontSize: 12, marginBottom: 8 }}>No tiers configured. Add one to see per-tier sell price and margin left.</Text>
+          )}
+          {tiers.map((tier: any, i: number) => (
+            <View key={i} style={{ marginBottom: 8, borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <TextInput
+                  value={tier.label ?? ""}
+                  onChangeText={(v) => setTierField(i, "label", v)}
+                  onBlur={commitInputs}
+                  placeholder="Label" placeholderTextColor="#555"
+                  style={{ flex: 1, borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 6, color: theme.textPrimary, fontSize: 12 }}
+                />
+                <TextInput
+                  value={String(tier.discount_pct ?? "")}
+                  onChangeText={(v) => setTierField(i, "discount_pct", v === "" ? 0 : Number(v))}
+                  onBlur={commitInputs}
+                  keyboardType="decimal-pad"
+                  style={{ width: 80, borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 6, color: theme.textPrimary, fontSize: 12, textAlign: "right" }}
+                />
+                <Text style={{ color: theme.textMuted, fontSize: 12 }}>%</Text>
+                <TouchableOpacity onPress={() => removeTier(i)}>
+                  <Ionicons name="trash-outline" size={16} color="#E06666" />
+                </TouchableOpacity>
+              </View>
+              {tier.sell_ex_gst != null && (
+                <View style={{ marginTop: 6, flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>Sell (ex-GST)</Text>
+                  <Text style={{ color: theme.textPrimary, fontSize: 11 }}>AUD {Number(tier.sell_ex_gst).toFixed(2)}</Text>
+                </View>
+              )}
+              {tier.margin_left != null && (
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>Margin left</Text>
+                  <Text style={{ color: Number(tier.margin_left) < 0 ? "#E06666" : theme.textPrimary, fontSize: 11 }}>AUD {Number(tier.margin_left).toFixed(2)}</Text>
+                </View>
+              )}
+              {tier.payout_figure_usd != null && (
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11 }}>Payout figure</Text>
+                  <Text style={{ color: theme.textPrimary, fontSize: 11 }}>USD {Number(tier.payout_figure_usd).toFixed(2)}</Text>
+                </View>
+              )}
+            </View>
+          ))}
+          <TouchableOpacity onPress={addTier}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 8, borderRadius: 6, borderWidth: 1, borderColor: theme.primary, borderStyle: "dashed" }}>
+            <Ionicons name="add" size={14} color={theme.primary} />
+            <Text style={{ color: theme.primary, marginLeft: 4, fontSize: 12, fontWeight: "700" }}>Add tier</Text>
+          </TouchableOpacity>
+        </Section>
+
+        {/* --- Totals --- */}
+        <View style={{ backgroundColor: "#0F1F1F", padding: spacing.md, borderRadius: 10, marginTop: spacing.md, borderWidth: 1, borderColor: theme.primary }}>
+          <Text style={{ color: theme.primary, fontWeight: "800", fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Totals</Text>
+          <TotalRow label="Total USD costs" val={t?.total_usd_costs} unit="USD" />
+          <TotalRow label="Total cost in AUD (FX)" val={t?.total_cost_aud} unit="AUD" />
+          <TotalRow label="Cost price (AUD)" val={t?.cost_price_aud} unit="AUD" />
+          <TotalRow label="Markup amount" val={t?.markup_amount_aud} unit="AUD" />
+          <TotalRow label="Retail sell (ex-GST)" val={t?.retail_sell_price_ex_gst_aud} unit="AUD" />
+          <TotalRow label="GST amount" val={t?.gst_amount_aud} unit="AUD" />
+          <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 6 }} />
+          <TotalRow label="Total sell price (inc-GST)" val={t?.total_sell_price_inc_gst_aud} unit="AUD" big />
+          <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 6 }} />
+          <TotalRow label="Gross profit margin" val={t?.gross_profit_margin_aud} unit="AUD" />
+          <TotalRow label="Gross profit margin %" val={t?.gross_profit_margin_pct} unit="%" />
         </View>
 
-        {saving && <ActivityIndicator style={{ marginTop: 10 }} color={theme.primary} />}
+        <Text style={{ color: theme.textMuted, fontSize: 10, textAlign: "center", marginTop: 12 }}>
+          Totals recompute live from your inputs. Persisted on blur.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

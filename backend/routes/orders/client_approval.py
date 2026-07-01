@@ -504,7 +504,7 @@ async def _email_design_certificate(order: dict, client_user: dict) -> bool:
     import resend
 
     _ensure_resend()
-    pdf_bytes = build_digital_dna_pdf(order, lang="en")
+    pdf_bytes = build_digital_dna_pdf(order, viewer=client_user)
     if not pdf_bytes:
         return False
     client_email = client_user.get("email")
