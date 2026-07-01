@@ -123,6 +123,14 @@ class QuoteInputs(BaseModel):
     gst_pct: float = 10.0
     gst_mode: str = "percent"           # percent | amount
     gst_amount_aud: float = 0.0         # only read when mode == "amount"
+    # --- Margin distribution ------------------------------------------
+    # Splits the ``gross_profit_margin_aud`` (i.e. the markup portion,
+    # NOT retail or gross sale) across four buckets. All four should
+    # sum to 100 % (validated visually in the UI, non-blocking).
+    distribution_somnio_pct: float = 45.0
+    distribution_associate_pct: float = 45.0
+    distribution_adv_marketing_pct: float = 5.0
+    distribution_tech_maintenance_pct: float = 5.0
 
     # --- Commission tiers ---------------------------------------------
     discount_tiers: List[DiscountTier] = Field(default_factory=list)

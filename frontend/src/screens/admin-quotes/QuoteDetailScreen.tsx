@@ -1016,6 +1016,95 @@ export default function QuoteDetailScreen() {
           <TotalRow label="Gross profit margin %" val={t?.gross_profit_margin_pct} unit="%" />
         </View>
 
+        {/* --- Distribution — splits the gross profit margin --- */}
+        {(() => {
+          const margin = Number(t?.gross_profit_margin_aud) || 0;
+          const rows = [
+            { key: "distribution_somnio_pct",           label: "Somnio",           def: 45 },
+            { key: "distribution_associate_pct",        label: "Associate",        def: 45 },
+            { key: "distribution_adv_marketing_pct",    label: "Adv / Marketing",  def: 5 },
+            { key: "distribution_tech_maintenance_pct", label: "Tech Maintenance", def: 5 },
+          ];
+          // Use ?? fallback to show defaults on legacy quotes — the
+          // server will hydrate the fields on the next PATCH round-trip.
+          const values = rows.map(r => Number(quote.inputs?.[r.key] ?? r.def));
+          const totalPct = values.reduce((a, b) => a + b, 0);
+          const totalAud = margin * (totalPct / 100);
+          const isBalanced = Math.abs(totalPct - 100) < 0.01;
+          const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return (
+            <Section
+              title="Distribution"
+              subtitle={`Splits the gross profit margin (AUD ${fmt(margin)}) between commercial partners`}
+            >
+              {rows.map((r, idx) => {
+                const pct = values[idx];
+                const aud = margin * (pct / 100);
+                const shown = quote.inputs?.[r.key] ?? r.def;
+                return (
+                  <View key={r.key}
+                    style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}
+                  >
+                    <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>{r.label}</Text>
+                    {/* Editable % */}
+                    <View style={{ flexDirection: "row", alignItems: "center", width: 100, marginRight: 12 }}>
+                      <TextInput
+                        value={String(shown)}
+                        onChangeText={setNumeric(r.key)}
+                        onBlur={commitInputs}
+                        keyboardType="decimal-pad"
+                        style={{
+                          flex: 1, minWidth: 0, width: 0,
+                          borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+                          paddingHorizontal: 8, paddingVertical: 6, color: theme.textPrimary,
+                          textAlign: "right",
+                        }}
+                      />
+                      <Text style={{ color: theme.textMuted, fontSize: 11, width: 20, textAlign: "right", marginLeft: 4 }}>%</Text>
+                    </View>
+                    {/* Derived $ */}
+                    <View style={{ width: 140, alignItems: "flex-end" }}>
+                      <Text style={{ color: theme.primary, fontSize: 13, fontWeight: "700" }}>
+                        AUD {fmt(aud)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+              {/* Total row — warns if % != 100 */}
+              <View style={{
+                flexDirection: "row", alignItems: "center",
+                marginTop: 6, paddingTop: 8,
+                borderTopWidth: 1, borderTopColor: theme.border,
+              }}>
+                <Text style={{
+                  color: isBalanced ? theme.textPrimary : "#E06666",
+                  flex: 1, fontSize: 13, fontWeight: "700",
+                }}>
+                  Total {isBalanced ? "" : "⚠ should be 100%"}
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 100, marginRight: 12, justifyContent: "flex-end" }}>
+                  <Text style={{
+                    color: isBalanced ? theme.primary : "#E06666",
+                    fontSize: 14, fontWeight: "800",
+                  }}>
+                    {totalPct.toFixed(2)}
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 11, width: 20, textAlign: "right", marginLeft: 4 }}>%</Text>
+                </View>
+                <View style={{ width: 140, alignItems: "flex-end" }}>
+                  <Text style={{
+                    color: isBalanced ? theme.primary : "#E06666",
+                    fontSize: 14, fontWeight: "800",
+                  }}>
+                    AUD {fmt(totalAud)}
+                  </Text>
+                </View>
+              </View>
+            </Section>
+          );
+        })()}
+
         <Text style={{ color: theme.textMuted, fontSize: 10, textAlign: "center", marginTop: 12 }}>
           Totals recompute live from your inputs. Persisted on blur.
         </Text>
