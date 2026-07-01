@@ -113,7 +113,13 @@ class QuoteInputs(BaseModel):
     duty_or_chafta_base: str = "usd_x_fx"
 
     # --- Margin / GST -------------------------------------------------
+    # Markup can be entered as a % of ``cost_price_aud`` (Total AUD
+    # amount) or as a fixed $ AUD amount. When ``markup_mode == "amount"``
+    # the compute engine ignores ``markup_pct`` and uses ``markup_amount_aud``
+    # directly (deriving ``markup_pct`` for display).
     markup_pct: float = 0.0
+    markup_mode: str = "percent"        # percent | amount
+    markup_amount_aud: float = 0.0      # only read when mode == "amount"
     gst_pct: float = 10.0
 
     # --- Commission tiers ---------------------------------------------
@@ -235,7 +241,11 @@ def compute_totals(inputs: QuoteInputs) -> QuoteTotals:
         + intl_txn_aud
         + duty_aud
     )
-    markup_amount = cost_price * (inputs.markup_pct / 100.0)
+    markup_amount = (
+        inputs.markup_amount_aud
+        if inputs.markup_mode == "amount"
+        else cost_price * (inputs.markup_pct / 100.0)
+    )
     retail_ex_gst = cost_price + markup_amount
     gst_amount = retail_ex_gst * (inputs.gst_pct / 100.0)
     total_inc_gst = retail_ex_gst + gst_amount

@@ -56,7 +56,6 @@ const FLEX_FIELDS = [
 ] as const;
 
 const MARGIN_FIELDS: NumF[] = [
-  { key: "markup_pct", label: "Markup", suffix: "%" },
   { key: "gst_pct", label: "GST", suffix: "%" },
 ];
 
@@ -158,16 +157,17 @@ function TotalRow({ label, val, unit, big }: { label: string; val: number | unde
  * fees, duty / CHAFTA).
  */
 function FlexRow({
-  label, mode, pctValue, amountValue, audConvertedTotal,
+  label, mode, pctValue, amountValue, baseAmount, baseLabel = "AUD converted total",
   onModeChange, onPctChange, onAmountChange, onBlur,
 }: {
   label: string;
   mode: "amount" | "percent";
   pctValue: string;
   amountValue: string;
-  /** Converted AUD total = USD subtotal × effective FX rate. Used as
-   * the sole base for %-mode calculations. */
-  audConvertedTotal: number;
+  /** Base amount used for %-mode calculations. */
+  baseAmount: number;
+  /** Human-readable name of the base — appears in the derived helper. */
+  baseLabel?: string;
   onModeChange: (m: "amount" | "percent") => void;
   onPctChange: (v: string) => void;
   onAmountChange: (v: string) => void;
@@ -176,11 +176,9 @@ function FlexRow({
   const isPct = mode === "percent";
   const pctNum = Number(pctValue) || 0;
   const amtNum = Number(amountValue) || 0;
-  // Derive the "opposite" — what the current value equates to in the
-  // other unit — so the atelier can see both figures at a glance.
-  const derivedAud = audConvertedTotal * (pctNum / 100);
-  const derivedPct = audConvertedTotal > 0 ? (amtNum / audConvertedTotal) * 100 : 0;
-  const totalFmt = audConvertedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const derivedAud = baseAmount * (pctNum / 100);
+  const derivedPct = baseAmount > 0 ? (amtNum / baseAmount) * 100 : 0;
+  const baseFmt = baseAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <View style={{ marginBottom: 10 }}>
@@ -237,11 +235,11 @@ function FlexRow({
           <Text style={{ color: theme.textMuted, fontSize: 10 }}>
             ≈ AUD {derivedAud.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             {"  "}
-            <Text style={{ opacity: 0.6 }}>({pctNum.toFixed(2)}% of AUD converted total {totalFmt})</Text>
+            <Text style={{ opacity: 0.6 }}>({pctNum.toFixed(2)}% of {baseLabel} {baseFmt})</Text>
           </Text>
         ) : (
           <Text style={{ color: theme.textMuted, fontSize: 10 }}>
-            ≈ {derivedPct.toFixed(2)}% of AUD converted total ({totalFmt})
+            ≈ {derivedPct.toFixed(2)}% of {baseLabel} ({baseFmt})
           </Text>
         )}
       </View>
@@ -762,7 +760,7 @@ export default function QuoteDetailScreen() {
                 mode={(quote.inputs?.[`${f.root}_mode`] as "amount" | "percent") || "amount"}
                 pctValue={String(quote.inputs?.[`${f.root}_pct`] ?? "")}
                 amountValue={String(quote.inputs?.[`${f.root}_aud`] ?? "")}
-                audConvertedTotal={audConvertedTotal}
+                baseAmount={audConvertedTotal}
                 onModeChange={(m) => commitField(`${f.root}_mode`, m)}
                 onPctChange={setNumeric(`${f.root}_pct`)}
                 onAmountChange={setNumeric(`${f.root}_aud`)}
@@ -827,6 +825,35 @@ export default function QuoteDetailScreen() {
 
         {/* --- Margin & GST --- */}
         <Section title="Margin & GST">
+          {/* Markup — $/% toggle against Total AUD amount */}
+          {(() => {
+            const i = quote.inputs || {};
+            const audConvertedTotal = usdSubtotal * Number(i.usd_to_aud_rate || 0);
+            const resolveFlex = (root: string) =>
+              i[`${root}_mode`] === "percent"
+                ? audConvertedTotal * (Number(i[`${root}_pct`]) || 0) / 100
+                : Number(i[`${root}_aud`]) || 0;
+            const costPriceAud =
+              audConvertedTotal
+              + (Number(i.custom_clearance_aud) || 0)
+              + (Number(i.australian_delivery_aud) || 0)
+              + resolveFlex("intl_transaction_fees")
+              + resolveFlex("duty_or_chafta");
+            return (
+              <FlexRow
+                label="Markup"
+                mode={(i.markup_mode as "amount" | "percent") || "percent"}
+                pctValue={String(i.markup_pct ?? "")}
+                amountValue={String(i.markup_amount_aud ?? "")}
+                baseAmount={costPriceAud}
+                baseLabel="Total AUD amount"
+                onModeChange={(m) => commitField("markup_mode", m)}
+                onPctChange={setNumeric("markup_pct")}
+                onAmountChange={setNumeric("markup_amount_aud")}
+                onBlur={commitInputs}
+              />
+            );
+          })()}
           {MARGIN_FIELDS.map(f => (
             <NumRow key={f.key} label={f.label} suffix={f.suffix}
               value={String(quote.inputs?.[f.key] ?? "")}
