@@ -95,6 +95,22 @@ class QuoteInputs(BaseModel):
     australian_delivery_aud: float = 0.0
     intl_transaction_fees_aud: float = 0.0
     duty_or_chafta_aud: float = 0.0
+    # Optional %-mode overrides for the two flexible fields.  When
+    # ``*_mode == "percent"`` the compute engine ignores the ``*_aud``
+    # dollar figure and instead derives it from ``*_pct * base``, where
+    # ``base`` is one of:
+    #   * ``usd_x_fx``      — Total USD costs × effective FX rate
+    #   * ``cost_pre_fees`` — USD×FX + customs + AU delivery (i.e. the
+    #     cost price *before* the two flexible fees are added — avoids
+    #     circular dependency)
+    # Existing quotes without these fields default to ``amount`` mode
+    # and keep working unchanged.
+    intl_transaction_fees_mode: str = "amount"     # amount | percent
+    intl_transaction_fees_pct: float = 0.0
+    intl_transaction_fees_base: str = "usd_x_fx"
+    duty_or_chafta_mode: str = "amount"
+    duty_or_chafta_pct: float = 0.0
+    duty_or_chafta_base: str = "usd_x_fx"
 
     # --- Margin / GST -------------------------------------------------
     markup_pct: float = 0.0
@@ -180,12 +196,44 @@ def compute_totals(inputs: QuoteInputs) -> QuoteTotals:
     )
     rate = inputs.usd_to_aud_rate or 1.0
     total_cost_aud = usd * rate
+    # Base for %-mode flexible fees. ``cost_pre_fees`` deliberately
+    # excludes intl_txn + duty so those two never depend on themselves.
+    cost_pre_fees = (
+        total_cost_aud
+        + inputs.custom_clearance_aud
+        + inputs.australian_delivery_aud
+    )
+    _BASE_MAP = {
+        "usd_x_fx": total_cost_aud,
+        "cost_pre_fees": cost_pre_fees,
+    }
+
+    def _resolve(mode: str, pct: float, amount_aud: float, base_key: str) -> float:
+        """Return the AUD amount honoring the mode/base config."""
+        if mode == "percent":
+            base = _BASE_MAP.get(base_key, total_cost_aud)
+            return base * (pct / 100.0)
+        return amount_aud
+
+    intl_txn_aud = _resolve(
+        inputs.intl_transaction_fees_mode,
+        inputs.intl_transaction_fees_pct,
+        inputs.intl_transaction_fees_aud,
+        inputs.intl_transaction_fees_base,
+    )
+    duty_aud = _resolve(
+        inputs.duty_or_chafta_mode,
+        inputs.duty_or_chafta_pct,
+        inputs.duty_or_chafta_aud,
+        inputs.duty_or_chafta_base,
+    )
+
     cost_price = (
         total_cost_aud
         + inputs.custom_clearance_aud
         + inputs.australian_delivery_aud
-        + inputs.intl_transaction_fees_aud
-        + inputs.duty_or_chafta_aud
+        + intl_txn_aud
+        + duty_aud
     )
     markup_amount = cost_price * (inputs.markup_pct / 100.0)
     retail_ex_gst = cost_price + markup_amount
