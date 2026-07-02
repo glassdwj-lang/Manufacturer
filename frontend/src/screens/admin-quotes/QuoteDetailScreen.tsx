@@ -326,7 +326,17 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
       setResults(r.results || []);
       setCriteria(r.criteria || null);
     } catch (e: any) {
-      setError(e?.message || "Comparison failed");
+      // Surface the real cause instead of a bare "Request failed".
+      // Two common failure modes on this endpoint:
+      //   • Emergent LLM key budget exhausted → 500 with a budget msg
+      //   • Ingress timeout on long scrape runs → generic network error
+      let msg = e?.message || "";
+      if (/budget/i.test(msg)) {
+        msg = "Emergent LLM key balance is exhausted — top up your Universal Key (Profile → Universal Key → Add Balance) then retry.";
+      } else if (!msg || msg === "Request failed") {
+        msg = "Comparison request failed — the scrape may have exceeded the gateway timeout. Try Run anchors (uses cache) instead of Refresh.";
+      }
+      setError(msg);
     } finally {
       setBusy(false);
     }
