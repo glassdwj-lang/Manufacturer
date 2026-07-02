@@ -418,6 +418,7 @@ async def compare_quote(
     # RFQ criteria — the atelier's parameters that drive fit-scoring.
     criteria = {
         "metal": inputs.get("metal_type") or inputs.get("metal") or "",
+        "diamond_type": inputs.get("diamond_type") or "",
         "diamond_ct": inputs.get("diamond_carat") or inputs.get("ct"),
         "shape": inputs.get("diamond_shape") or inputs.get("shape") or "",
         "cut": inputs.get("diamond_cut") or inputs.get("cut") or "",

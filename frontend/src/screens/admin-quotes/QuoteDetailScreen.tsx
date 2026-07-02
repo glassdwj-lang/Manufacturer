@@ -665,7 +665,6 @@ export default function QuoteDetailScreen() {
           {([
             ["piece_description", "Piece description", "e.g. Ring — OV 4ct in 18k WG"],
             ["metal_spec", "Metal spec", "e.g. 18K white gold, 6g"],
-            ["stone_spec", "Stone spec", "e.g. Oval 4.02ct D/VS1"],
           ] as const).map(([k, label, ph]) => (
             <View key={k} style={{ marginBottom: 8 }}>
               <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>{label}</Text>
@@ -679,6 +678,106 @@ export default function QuoteDetailScreen() {
               />
             </View>
           ))}
+
+          {/* --- Stone spec — atomic 5-field row --- */}
+          {(() => {
+            const i = quote.inputs || {};
+            // Compose the human-readable ``stone_spec`` from the atoms.
+            // Skips empty parts so partial specs still read cleanly.
+            const composeStoneSpec = (over: Record<string, any> = {}) => {
+              const v = { ...i, ...over };
+              const parts: string[] = [];
+              const type = String(v.diamond_type || "").trim();
+              const ct   = v.diamond_carat;
+              const sh   = String(v.diamond_shape || "").trim();
+              const col  = String(v.diamond_color || "").trim();
+              const cla  = String(v.diamond_clarity || "").trim();
+              if (type)               parts.push(`${type} diamond`);
+              if (ct !== "" && ct != null && Number(ct) > 0) parts.push(`${ct}ct`);
+              if (sh)                 parts.push(sh);
+              if (col)                parts.push(col);
+              if (cla)                parts.push(cla);
+              return parts.join(" | ");
+            };
+            const commitAtomsAndCompose = () => {
+              // Recompose stone_spec from atoms and persist together.
+              setInput("stone_spec", composeStoneSpec());
+              setTimeout(commitInputs, 0);
+            };
+            const StoneCell = ({
+              label, field, placeholder, numeric = false, flex = 1,
+            }: { label: string; field: string; placeholder: string; numeric?: boolean; flex?: number }) => (
+              <View style={{ flex, minWidth: 0, marginRight: 6 }}>
+                <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 2 }}>{label}</Text>
+                <TextInput
+                  value={String(i[field] ?? "")}
+                  onChangeText={(v) =>
+                    numeric ? setInput(field, v === "" ? "" : Number(v)) : setInput(field, v)
+                  }
+                  onBlur={commitAtomsAndCompose}
+                  placeholder={placeholder}
+                  placeholderTextColor="#555"
+                  keyboardType={numeric ? "decimal-pad" : "default"}
+                  style={{
+                    borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+                    paddingHorizontal: 8, paddingVertical: 6,
+                    color: theme.textPrimary, fontSize: 12,
+                  }}
+                />
+              </View>
+            );
+            const type = String(i.diamond_type || "").toLowerCase();
+            return (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 4 }}>Stone spec</Text>
+
+                {/* Type toggle — lab / natural */}
+                <View style={{ flexDirection: "row", marginBottom: 6 }}>
+                  {(["lab", "natural"] as const).map((opt) => {
+                    const active = type === opt;
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => {
+                          setInput("diamond_type", opt);
+                          setTimeout(commitAtomsAndCompose, 0);
+                        }}
+                        style={{
+                          paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                          borderWidth: 1, borderColor: active ? theme.primary : theme.border,
+                          backgroundColor: active ? theme.primary : "transparent",
+                          marginRight: 6,
+                        }}
+                      >
+                        <Text style={{
+                          color: active ? "#fff" : theme.textPrimary,
+                          fontSize: 11, fontWeight: "700", textTransform: "capitalize",
+                        }}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* 4 atoms in one row: Carat | Shape | Color | Clarity */}
+                <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                  <StoneCell label="Carat"   field="diamond_carat"   placeholder="3"      numeric flex={1} />
+                  <StoneCell label="Shape"   field="diamond_shape"   placeholder="Round"          flex={1.4} />
+                  <StoneCell label="Color"   field="diamond_color"   placeholder="D"              flex={0.9} />
+                  <StoneCell label="Clarity" field="diamond_clarity" placeholder="VVS2"           flex={1.1} />
+                </View>
+
+                {/* Composed preview (what will print on the client quote) */}
+                <Text
+                  style={{
+                    color: theme.textMuted, fontSize: 10, marginTop: 6,
+                    fontStyle: composeStoneSpec() ? "normal" : "italic",
+                  }}
+                >
+                  {composeStoneSpec() || "e.g. lab diamond | 3ct | Round | D | VVS2"}
+                </Text>
+              </View>
+            );
+          })()}
         </Section>
 
         {/* --- USD costs --- */}

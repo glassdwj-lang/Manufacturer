@@ -73,6 +73,13 @@ class QuoteInputs(BaseModel):
     )
     metal_spec: Optional[str] = None
     stone_spec: Optional[str] = None
+    # Atomic stone attributes — enable structured competitor matching &
+    # feed the composed ``stone_spec`` display string on the client quote.
+    diamond_type: Optional[str] = None       # "lab" | "natural"
+    diamond_carat: Optional[float] = None
+    diamond_shape: Optional[str] = None      # e.g. Round / Oval / Emerald
+    diamond_color: Optional[str] = None      # e.g. D / E / F
+    diamond_clarity: Optional[str] = None    # e.g. VVS1 / VS2 / SI1
     ring_cost_usd: float = 0.0
     includes_hidden_halo_pave: bool = False
     hidden_halo_pave_cost_usd: float = 0.0
