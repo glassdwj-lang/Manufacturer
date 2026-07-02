@@ -102,11 +102,14 @@ class QuoteInputs(BaseModel):
     # are stored purely for audit / provenance of that effective rate.
     usd_to_aud_rate: float = 1.50
     fx_live_rate: Optional[float] = None
-    fx_adjustment_pct: Optional[float] = 0.0
+    # Default bank buffer of 5% on top of live FX. Overridable per-quote.
+    fx_adjustment_pct: Optional[float] = 5.0
 
     # --- Post-conversion AUD costs ------------------------------------
-    custom_clearance_aud: float = 0.0
-    australian_delivery_aud: float = 0.0
+    # Standard atelier defaults so a fresh quote always includes the
+    # usual customs + AU-delivery baseline. Admin can override per quote.
+    custom_clearance_aud: float = 120.0
+    australian_delivery_aud: float = 100.0
     intl_transaction_fees_aud: float = 0.0
     duty_or_chafta_aud: float = 0.0
     # Optional %-mode overrides for the two flexible fields.  When
@@ -117,13 +120,13 @@ class QuoteInputs(BaseModel):
     #   * ``cost_pre_fees`` — USD×FX + customs + AU delivery (i.e. the
     #     cost price *before* the two flexible fees are added — avoids
     #     circular dependency)
-    # Existing quotes without these fields default to ``amount`` mode
-    # and keep working unchanged.
-    intl_transaction_fees_mode: str = "amount"     # amount | percent
-    intl_transaction_fees_pct: float = 0.0
+    # Defaults are percent-mode at 5% each — the standard atelier
+    # baseline; admin can flip to $-mode at any time.
+    intl_transaction_fees_mode: str = "percent"    # amount | percent
+    intl_transaction_fees_pct: float = 5.0
     intl_transaction_fees_base: str = "usd_x_fx"
-    duty_or_chafta_mode: str = "amount"
-    duty_or_chafta_pct: float = 0.0
+    duty_or_chafta_mode: str = "percent"
+    duty_or_chafta_pct: float = 5.0
     duty_or_chafta_base: str = "usd_x_fx"
 
     # --- Margin / GST -------------------------------------------------
@@ -493,6 +496,46 @@ async def get_quote(
             q["fx_snapshot"] = snap
         except Exception:  # noqa: BLE001
             pass
+
+    # --- One-shot backfill of atelier defaults --------------------------
+    # Applies the standard baseline (bank buffer 5 %, intl-fees 5 %,
+    # duty 5 %, customs $120, AU delivery $100, GST 10 %, markup 0 %)
+    # ONLY on quotes that were created before this default set existed
+    # AND whose current value is 0 / None / missing. Guarded by the
+    # ``defaults_seeded_v1`` flag so subsequent admin edits (including
+    # explicit zeros) are never overwritten on re-open.
+    inputs = q.get("inputs") or {}
+    if not inputs.get("defaults_seeded_v1"):
+        # (field, default) — only applied when the current value is
+        # falsy (0, None, missing). Modes are seeded to "percent" so the
+        # % baseline actually takes effect on legacy quotes.
+        seeds: dict = {}
+        if not inputs.get("fx_adjustment_pct"):
+            seeds["fx_adjustment_pct"] = 5.0
+        if not inputs.get("custom_clearance_aud"):
+            seeds["custom_clearance_aud"] = 120.0
+        if not inputs.get("australian_delivery_aud"):
+            seeds["australian_delivery_aud"] = 100.0
+        if not inputs.get("intl_transaction_fees_pct") and \
+                not inputs.get("intl_transaction_fees_aud"):
+            seeds["intl_transaction_fees_pct"] = 5.0
+            seeds["intl_transaction_fees_mode"] = "percent"
+        if not inputs.get("duty_or_chafta_pct") and \
+                not inputs.get("duty_or_chafta_aud"):
+            seeds["duty_or_chafta_pct"] = 5.0
+            seeds["duty_or_chafta_mode"] = "percent"
+        if not inputs.get("gst_pct"):
+            seeds["gst_pct"] = 10.0
+            seeds["gst_mode"] = "percent"
+        # Markup default is 0 — set the mode + flag so UI renders %.
+        seeds["markup_mode"] = inputs.get("markup_mode") or "percent"
+        seeds["defaults_seeded_v1"] = True
+        if seeds:
+            # Persist via nested update so we don't clobber sibling keys.
+            mongo_set = {f"inputs.{k}": v for k, v in seeds.items()}
+            await db.quotes.update_one({"id": quote_id}, {"$set": mongo_set})
+            inputs.update(seeds)
+            q["inputs"] = inputs
     return q
 
 

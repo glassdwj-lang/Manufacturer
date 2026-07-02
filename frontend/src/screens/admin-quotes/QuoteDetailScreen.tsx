@@ -60,6 +60,16 @@ const STATUSES: { key: string; label: string; color: string }[] = [
   { key: "sent", label: "Sent", color: "#4A2E7A" },
 ];
 
+/** Semantic tint palette for the atelier-baseline emphasis rows.
+ * Green = pass-through fees (buffer + intl + duty).
+ * Red   = the tax we always collect (GST 10%).
+ * Yellow = the margin lever the admin manually tunes (Markup). */
+const SEMANTIC = {
+  green:  "#2FB870",
+  red:    "#E5484D",
+  yellow: "#E0A85B",
+} as const;
+
 // ---------- Small presentational helpers ----------
 function Section({ title, subtitle, children, collapsible, defaultOpen }: {
   title: string;
@@ -101,12 +111,18 @@ function Section({ title, subtitle, children, collapsible, defaultOpen }: {
   );
 }
 
-function NumRow({ label, suffix, value, onChangeText, onBlur, disabled }: {
+function NumRow({ label, suffix, value, onChangeText, onBlur, disabled, labelColor }: {
   label: string; suffix?: string; value: string;
   onChangeText: (v: string) => void; onBlur?: () => void; disabled?: boolean;
+  // Optional bold-coloured label for atelier-baseline emphasis rows.
+  labelColor?: string;
 }) {  return (
     <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-      <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>{label}</Text>
+      <Text style={{
+        color: labelColor || theme.textPrimary,
+        fontWeight: labelColor ? "700" : "400",
+        flex: 1, fontSize: 13,
+      }}>{label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", width: 140 }}>
         <TextInput
           editable={!disabled}
@@ -162,7 +178,7 @@ function TotalRow({ label, val, unit, big }: { label: string; val: number | unde
  */
 function FlexRow({
   label, mode, pctValue, amountValue, baseAmount, baseLabel = "AUD converted total",
-  onModeChange, onPctChange, onAmountChange, onBlur,
+  onModeChange, onPctChange, onAmountChange, onBlur, labelColor, labelWeight = "400",
 }: {
   label: string;
   mode: "amount" | "percent";
@@ -174,6 +190,10 @@ function FlexRow({
   onPctChange: (v: string) => void;
   onAmountChange: (v: string) => void;
   onBlur?: () => void;
+  // Optional emphasis for the row label — used to signal the atelier
+  // baseline (green = fees/duty, red = GST, yellow = markup).
+  labelColor?: string;
+  labelWeight?: "400" | "600" | "700" | "800";
 }) {
   // Numeric versions for the derivations.
   const pctNum = Number(pctValue) || 0;
@@ -203,7 +223,11 @@ function FlexRow({
     <View style={{ marginBottom: 10 }}>
       {/* Label + both inputs side-by-side */}
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-        <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>{label}</Text>
+        <Text style={{
+          color: labelColor || theme.textPrimary,
+          fontWeight: labelColor ? "700" : labelWeight,
+          flex: 1, fontSize: 13,
+        }}>{label}</Text>
 
         {/* $ box (left) — editing switches mode to "amount" */}
         <View style={{ flexDirection: "row", alignItems: "center", width: 120, marginRight: 8 }}>
@@ -1088,6 +1112,7 @@ export default function QuoteDetailScreen() {
             label="Bank buffer / adjustment" suffix="%"
             value={String(quote.inputs?.fx_adjustment_pct ?? "")}
             onChangeText={setNumeric("fx_adjustment_pct")} onBlur={commitInputs}
+            labelColor={SEMANTIC.green}
           />
 
           {/* Effective (live + buffer) — shows the delta in dollar terms */}
@@ -1238,6 +1263,9 @@ export default function QuoteDetailScreen() {
                 onPctChange={setNumeric(`${f.root}_pct`)}
                 onAmountChange={setNumeric(`${f.root}_aud`)}
                 onBlur={commitInputs}
+                // Both pass-through fees are surfaced green so they read
+                // as safe/expected baseline atelier costs.
+                labelColor={SEMANTIC.green}
               />
             ));
           })()}
@@ -1336,6 +1364,8 @@ export default function QuoteDetailScreen() {
                   onPctChange={setNumeric("markup_pct")}
                   onAmountChange={setNumeric("markup_amount_aud")}
                   onBlur={commitInputs}
+                  // Yellow = margin lever the admin manually tunes.
+                  labelColor={SEMANTIC.yellow}
                 />
                 {/* Ex-GST subtotal: Total AUD amount + Markup */}
                 <View style={{
@@ -1371,6 +1401,8 @@ export default function QuoteDetailScreen() {
                   onPctChange={setNumeric("gst_pct")}
                   onAmountChange={setNumeric("gst_amount_aud")}
                   onBlur={commitInputs}
+                  // Red = the tax we always collect (10 % baseline).
+                  labelColor={SEMANTIC.red}
                 />
                 {/* Sale Price (inc GST) — grand total for this section */}
                 <View style={{
