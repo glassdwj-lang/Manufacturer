@@ -68,7 +68,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "cullen",
         "name": "Cullen Jewellery",
         "base_url": "https://cullenjewellery.com",
-        "search_url": "https://cullenjewellery.com/lab-diamond-engagement-rings",
+        "search_url": "https://cullenjewellery.com/engagement-rings",
         "strategy": "html_llm",
         "feasibility": "good",
         "active": True,
@@ -77,9 +77,8 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "michaelhill",
         "name": "Michael Hill",
         "base_url": "https://www.michaelhill.com.au",
-        # Previous /engagement-rings 404'd. Category root under /rings/
-        # keeps the page reachable while the LLM narrows to bridal.
-        "search_url": "https://www.michaelhill.com.au/rings/engagement",
+        # Verified 200: /engagement (NOT /engagement-rings, which 404s).
+        "search_url": "https://www.michaelhill.com.au/engagement",
         "strategy": "html_llm",
         "feasibility": "good",
         "active": True,
@@ -178,41 +177,12 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
 def _build_search_url(site: Dict[str, Any], criteria: Dict[str, Any]) -> str:
     """Return a criteria-aware search URL for the site, or the default.
 
-    Many competitor sites accept common URL params (?carat=, ?shape=,
-    ?color=) that filter their listing to something much closer to the
-    RFQ. Where a site supports it, we bake the criteria into the URL —
-    the LLM then has a MUCH tighter listing to parse (5-20 exact matches
-    instead of a generic 100-product front page) and results are far
-    more precise.
-
-    Falls back to the site's canonical ``search_url`` if the site
-    doesn't have a known query API or the criteria are missing.
+    Kept simple after live-probing revealed that shape-templated URLs
+    (e.g. Blue Nile ``/round-cut/``, James Allen ``/round/``) 404 on
+    most competitors — the search-URL per site is used as-is, and the
+    LLM narrows results from the listing page. Retained as a hook for
+    future site-specific query APIs (e.g. Shopify collection filters).
     """
-    shape = (criteria.get("shape") or "").strip().lower()
-    ct = criteria.get("diamond_ct")
-    try:
-        ct_f = float(ct) if ct not in (None, "", 0) else None
-    except (TypeError, ValueError):
-        ct_f = None
-    dtype = (criteria.get("diamond_type") or "").strip().lower()
-
-    if site["id"] == "bluenile" and shape:
-        # Blue Nile supports /engagement-rings/<shape>-cut/
-        # e.g. /engagement-rings/round-cut-diamond-engagement-rings
-        return f"https://www.bluenile.com/engagement-rings/{shape}-cut/"
-    if site["id"] == "jamesallen" and shape:
-        # James Allen: /engagement-rings/round/, /oval/, etc.
-        return f"https://www.jamesallen.com/engagement-rings/{shape}/"
-    if site["id"] == "rarecarat" and shape and ct_f:
-        # Rare Carat query API: shape + min/max carat window.
-        low, high = max(ct_f - 0.25, 0.30), ct_f + 0.25
-        return (
-            f"https://www.rarecarat.com/browse-diamonds"
-            f"?shape={shape}&caratsMin={low:.2f}&caratsMax={high:.2f}"
-        )
-    if site["id"] == "cullen" and dtype == "natural":
-        # Cullen has separate lab / natural landing pages.
-        return "https://cullenjewellery.com/natural-diamond-engagement-rings"
     return site["search_url"]
 
 _UA = "Somnio-QuoteAnchor/1.0 (contact: admin@somnio.co)"
