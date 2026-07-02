@@ -30,7 +30,7 @@ export default function QuotesScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("brand");
   const [showNewModal, setShowNewModal] = useState(false);
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
