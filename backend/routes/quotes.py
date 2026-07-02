@@ -89,11 +89,14 @@ class QuoteInputs(BaseModel):
     includes_hidden_halo_pave: bool = False
     hidden_halo_pave_cost_usd: float = 0.0
     extra_cut_cost_usd: float = 0.0
-    cad_rendering_cost_usd: float = 0.0
-    provenance_cost_usd: float = 0.0
-    certification_cost_usd: float = 0.0
-    box_packaging_cost_usd: float = 0.0
-    air_freight_cost_usd: float = 0.0
+    # Standard atelier defaults — cover the typical CAD / provenance /
+    # cert / packaging / freight baseline on every new quote. Admin can
+    # override per quote.
+    cad_rendering_cost_usd: float = 45.0
+    provenance_cost_usd: float = 35.0
+    certification_cost_usd: float = 80.0
+    box_packaging_cost_usd: float = 35.0
+    air_freight_cost_usd: float = 60.0
 
     # --- Currency conversion ------------------------------------------
     # ``usd_to_aud_rate`` is the *effective* rate applied to USD costs.
@@ -499,17 +502,19 @@ async def get_quote(
 
     # --- One-shot backfill of atelier defaults --------------------------
     # Applies the standard baseline (bank buffer 5 %, intl-fees 5 %,
-    # duty 5 %, customs $120, AU delivery $100, GST 10 %, markup 0 %)
+    # duty 5 %, customs $120, AU delivery $100, GST 10 %, markup 0 %,
+    # CAD $45, provenance $35, cert $80, packaging $35, air freight $60)
     # ONLY on quotes that were created before this default set existed
     # AND whose current value is 0 / None / missing. Guarded by the
-    # ``defaults_seeded_v1`` flag so subsequent admin edits (including
+    # ``defaults_seeded_v2`` flag so subsequent admin edits (including
     # explicit zeros) are never overwritten on re-open.
     inputs = q.get("inputs") or {}
-    if not inputs.get("defaults_seeded_v1"):
+    if not inputs.get("defaults_seeded_v2"):
         # (field, default) — only applied when the current value is
         # falsy (0, None, missing). Modes are seeded to "percent" so the
         # % baseline actually takes effect on legacy quotes.
         seeds: dict = {}
+        # --- AUD-side pass-through fees ---
         if not inputs.get("fx_adjustment_pct"):
             seeds["fx_adjustment_pct"] = 5.0
         if not inputs.get("custom_clearance_aud"):
@@ -529,9 +534,21 @@ async def get_quote(
             seeds["gst_mode"] = "percent"
         # Markup default is 0 — set the mode + flag so UI renders %.
         seeds["markup_mode"] = inputs.get("markup_mode") or "percent"
-        seeds["defaults_seeded_v1"] = True
+        # --- USD-side ancillary costs ---
+        if not inputs.get("cad_rendering_cost_usd"):
+            seeds["cad_rendering_cost_usd"] = 45.0
+        if not inputs.get("provenance_cost_usd"):
+            seeds["provenance_cost_usd"] = 35.0
+        if not inputs.get("certification_cost_usd"):
+            seeds["certification_cost_usd"] = 80.0
+        if not inputs.get("box_packaging_cost_usd"):
+            seeds["box_packaging_cost_usd"] = 35.0
+        if not inputs.get("air_freight_cost_usd"):
+            seeds["air_freight_cost_usd"] = 60.0
+        # Retire the v1 flag and stamp v2 — future default expansions
+        # bump the version so existing quotes catch up cleanly.
+        seeds["defaults_seeded_v2"] = True
         if seeds:
-            # Persist via nested update so we don't clobber sibling keys.
             mongo_set = {f"inputs.{k}": v for k, v in seeds.items()}
             await db.quotes.update_one({"id": quote_id}, {"$set": mongo_set})
             inputs.update(seeds)
