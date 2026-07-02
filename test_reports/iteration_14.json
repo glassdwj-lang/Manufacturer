@@ -1,0 +1,52 @@
+{
+  "summary": "Backend + frontend regression for the Quotes-system enhancements (freelance dwj-XXXX namespace, atomic Product Spec rows with auto-prefill, editable heading title, Market-Anchor Run/Refresh split, AUD ex-GST ÷ USD cost multiplier). Backend: authored /app/backend/tests/test_quotes_freelance.py (13 tests / 12 passed / 1 gracefully skipped because no RFQ-linked brand quote exists in the DB). All target endpoints verified: POST /api/quotes/freelance returns is_freelance=true + dwj-XXXX 4-digit-padded serial + numeric freelance_seq; two consecutive creates yield sequential seq (independent counter, no collision with SC/SA/SB); GET /api/quotes?freelance=true|false|omit filter shape is correct (freelance=false correctly excludes freelance AND legacy quotes missing the field, and all=true+false counts sum); PATCH /api/quotes/{id} with jewelry_name sets/clears/does-NOT-overwrite-when-missing exactly as spec'd; all 7 atomic fields (diamond_type/carat/shape/color/clarity + metal_type/weight_g) round-trip cleanly on PATCH → GET; null numeric atoms do NOT 500 the compute engine; GET /api/quotes/{id}/stone-spec-prefill returns {source:'none', atoms:{}, composed_stone:'', composed_metal:'', composed:''} for freelance (no rfq_id) as required; and compute_totals AUD math (1000 USD × 1.5 = 1500 AUD, +100% markup → 3000 ex-GST, +10% GST → 3300 inc-GST) matches. Frontend (390×844 mobile viewport, admin quick-login): filter chips 'All' / 'Brand (SC/SA/SB)' / 'Freelance (dwj)' all render and correctly re-query (freelance chip narrows to dwj-* items with orange FREELANCE pill; brand chip removes them; all restores). '+' top-right opens the New Freelance Quote modal with description TextInput + Cancel + 'Create dwj quote' CTA — after create, router pushes /(app)/admin/quotes/{id} and the item shows in the list with the new dwj-0003 serial + FREELANCE tag. On the detail page: header title is an inline editable TextInput (typed 'TEST_edited_title_2' → blurred → reloaded → value persisted; cleared → reloaded → empty). Product Spec renders atomic Metal row (Type + Weight g) and atomic Stone row (Lab/Natural toggle + Carat + Shape + Color + Clarity) — multi-char typing in Shape ('Oval Brilliant') works end-to-end and shows in the composed preview 'Oval Brilliant' below the row. Market Anchor accordion (collapsed by default) expands to reveal 'Run anchors' (solid primary) + 'Refresh anchors' (outlined) buttons side-by-side with the correct subtitle 'Run uses cache · Refresh forces a fresh scrape (costs LLM tokens).' Totals card on a real brand quote (Solitaire Pendant, SC 03 2 2607 001, USD 3,545) shows the new row 'AUD ex-GST ÷ USD cost | 4.73×' with subtitle 'AUD 16,763 ÷ USD 3,545' placed BELOW 'Gross profit margin % 66.67%' exactly as specified. Two pre-existing (iteration_13) console warnings still present ('Unexpected text node' + RN-web deprecations) — non-blocking and out of scope for this iteration. No new bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "Console: 'Unexpected text node' (pre-existing iter_13)",
+        "issue": "Repeating console error 'Unexpected text node: . A text node cannot be a child of a <View>.' still fires on the QuoteDetailScreen (and elsewhere). Non-blocking. Reference: shared header / BrandStrip suspected."
+      },
+      {
+        "component": "RN-web deprecation warnings (pre-existing iter_13)",
+        "issue": "Console warnings 'Image: style.resizeMode/tintColor is deprecated. Please use props.resizeMode/tintColor' and 'props.pointerEvents is deprecated. Use style.pointerEvents' still fire. Non-blocking; should be migrated ahead of the next RN-web major bump."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_14.json",
+    "/app/backend/tests/test_quotes_freelance.py",
+    "/app/test_reports/pytest/iteration_14.xml"
+  ],
+  "action_items": [
+    "(Optional, out of scope) None of the 9 quotes currently in the DB have an rfq_id, so the 'Pull from RFQ' button + the rfq-source prefill endpoint could only be exercised via freelance path (source=none). To fully exercise the source=rfq branch and the visible 'Pull from RFQ' button, seed one quote via the existing 'Import to Quote from RFQ broadcast' flow (routes/rfqs.py :: import_broadcast_to_quote). Backend code review of that path shows it correctly stamps rfq_id + broadcast_id + auto-prefills diamond_* + metal_* atoms + composed strings.",
+    "(Pre-existing from iter_13) Track down the stray text node inside a <View> that produces the 'Unexpected text node: .' console error — still present across every route."
+  ],
+  "critical_code_review_comments": [
+    "quotes.py `_next_freelance_seq` uses find_one_and_update with upsert+ReturnDocument.AFTER on counters/freelance_quote_seq — correct atomic pattern, no collisions under concurrent creates.",
+    "quotes.py `_freelance_serial` widens the format from dwj-0001 to dwj-99999 at 10 000+ — nice future-proofing; test asserts the 4-digit zero-pad branch.",
+    "quotes.py list_quotes freelance=false filter correctly includes legacy quotes missing the field ($or: [{is_freelance != true}, {field missing}]) — verified by count(all) == count(true) + count(false).",
+    "quotes.py PATCH handler treats jewelry_name '' as a clear (patch['jewelry_name'] = None) while an absent key does not overwrite — exact semantic requested. Verified by three sequential PATCH+GET assertions.",
+    "quotes.py stone-spec-prefill endpoint returns a stable shape regardless of source ('atoms' dict + 'composed_stone' + 'composed_metal' + legacy 'composed' alias for old clients) — good backward compatibility.",
+    "QuoteDetailScreen.tsx header title is bound with an onChangeText local mutation + onBlur persist({jewelry_name}) — verified persistent across reload; the empty-string clear branch also verified.",
+    "QuoteDetailScreen.tsx Stone-spec atoms are inlined inputs (not a memoised sub-component) — the previous 1-char-per-keystroke bug (root-cause: inline component definition remounting on every render) is confirmed fixed via typing 'Oval Brilliant' and observing the full string in the composed preview.",
+    "QuoteDetailScreen.tsx conditionally hides the 'AUD ex-GST ÷ USD cost' row when either numerator or denominator is 0 — verified: absent on a freshly-created zero-cost freelance quote, present on the Solitaire Pendant brand quote with real numbers (4.73×).",
+    "Market Anchor accordion emits two distinct buttons — Run (force=false) uses the cached comparisons and Refresh (force=true) triggers a fresh scrape; wiring in routes/competitors.py compare handler accepts the force flag. Verified visually side-by-side after expand.",
+    "No mongodb _id leakage observed in any endpoint under test."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_quotes_freelance.py (new)"
+  ],
+  "success_rate": {"backend": "12/13 (1 gracefully skipped — no RFQ-linked quote exists in the current DB to exercise the source=rfq branch of stone-spec-prefill)", "frontend": "6/6 flows validated (filter chips, freelance-create modal, detail navigation + FREELANCE pill, editable heading, atomic-input multi-char + composed preview, Market Anchor Run/Refresh buttons, AUD ex-GST ÷ USD cost multiplier row)"},
+  "seed_data_creation": "Created and left in place (soft-delete not called on the surviving freelance quote): dwj-0002 'Second freelance' + dwj-0003 'TEST_playwright freelance ring' (id 579fb9ca-34bf-4ca4-a57d-79ce23f7dc2d — used for the editable-title test; ended with title cleared via PATCH). Pytest tearDown soft-deleted the other 5 dwj-* quotes it created inside the run. counters/freelance_quote_seq is now at 8-ish; safe for subsequent runs (independent counter).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reusable regression at /app/backend/tests/test_quotes_freelance.py. Uses the admin JWT and cleans up soft-deleted quotes it created via a module-scoped tracker. The one skip (TestStoneSpecPrefill::test_rfq_linked_quote_returns_atoms_if_present) will auto-unskip the moment any quote in the DB carries an rfq_id — no code change needed. Two of the freelance quotes created during this iteration (dwj-0002 and dwj-0003) intentionally remain in-place so main agent can visually re-verify the FREELANCE pill on the list. If the counter starts to grow too fast in future runs, add an explicit soft-delete pass over is_freelance=True TEST_* piece_descriptions in the fixture cleanup.",
+  "rca_of_issue": "No regressions or bugs found in this iteration. The one pytest failure during the initial run was a transient Cloudflare 502 on the login endpoint (Ray ID a14a573bfbfecd80); a straight retry passed all 12 non-skipped tests. Backend behaviour matches the spec exactly for freelance namespace, filter, jewelry_name PATCH semantics, atomic-field round-trip, and stone-spec-prefill freelance path."
+}
