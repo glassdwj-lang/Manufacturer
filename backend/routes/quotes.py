@@ -206,6 +206,10 @@ class QuoteCreatePayload(BaseModel):
 class QuotePatchPayload(BaseModel):
     inputs: Optional[QuoteInputs] = None
     status: Optional[str] = None
+    # Client-facing display title. Admin can override the auto-derived
+    # name (from RFQ prefs or piece description) at any time. Empty
+    # string clears it and falls back to derivation on the frontend.
+    jewelry_name: Optional[str] = None
 
 
 class FreelanceQuoteCreatePayload(BaseModel):
@@ -516,6 +520,10 @@ async def patch_quote(
                 detail="status must be one of draft | ready | sent",
             )
         patch["status"] = body.status
+    if body.jewelry_name is not None:
+        # Empty string clears the override — frontend then falls back to
+        # the piece description automatically.
+        patch["jewelry_name"] = body.jewelry_name.strip() or None
     await db.quotes.update_one({"id": quote_id}, {"$set": patch})
     q.update(patch)
     return q

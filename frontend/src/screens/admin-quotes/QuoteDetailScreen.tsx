@@ -568,11 +568,6 @@ export default function QuoteDetailScreen() {
   const t = (shownTotals && (shownTotals.totals || shownTotals)) as any;
   const tiers: any[] = t?.discount_tiers || quote?.inputs?.discount_tiers || [];
 
-  const jewelryName = useMemo(
-    () => quote?.jewelry_name || quote?.inputs?.piece_description || "Untitled quote",
-    [quote]
-  );
-
   // Client-side USD subtotal — mirrors `compute_totals` on the server
   // so the "Total USD costs" line updates instantly as the user types,
   // even before the debounced server preview lands.
@@ -624,7 +619,23 @@ export default function QuoteDetailScreen() {
       <BrandStrip />
       <View style={{ flexDirection: "row", alignItems: "center", padding: spacing.md }}>
         <TouchableOpacity onPress={safeBack}><Ionicons name="arrow-back" size={22} color={theme.textPrimary} /></TouchableOpacity>
-        <Text style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: theme.textPrimary }} numberOfLines={1}>{jewelryName}</Text>
+        {/* Editable heading title — falls back to piece_description
+            when jewelry_name is empty. Commits on blur so users can
+            rename mid-type without triggering a request per keystroke. */}
+        <TextInput
+          value={String(quote.jewelry_name ?? "")}
+          onChangeText={(v) => setQuote((q: any) => ({ ...q, jewelry_name: v }))}
+          onBlur={() => persist({ jewelry_name: quote.jewelry_name ?? "" })}
+          placeholder={quote.inputs?.piece_description || "Untitled quote"}
+          placeholderTextColor={theme.textMuted}
+          style={{
+            flex: 1, textAlign: "center",
+            fontSize: 16, fontWeight: "700", color: theme.textPrimary,
+            paddingVertical: 4, paddingHorizontal: 6,
+            borderBottomWidth: 1, borderBottomColor: "transparent",
+          }}
+          numberOfLines={1}
+        />
         {saving ? <ActivityIndicator size="small" color={theme.primary} /> : <View style={{ width: 22 }} />}
       </View>
 
