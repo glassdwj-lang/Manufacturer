@@ -1,0 +1,61 @@
+{
+  "summary": "Iteration 15 regression + new-feature sweep. Backend: authored /app/backend/tests/test_quotes_iter15.py (10 tests / 9 passed / 1 FAILED — real backend bug found). Key wins verified: (a) Playwright/Chromium install fix works — POST /api/quotes/{id}/compare with {force:true, sites:[larsen,savoirfaire,bluenile]} completes without 'BrowserType.launch: Executable doesnt exist' and returns real matches (Larsen=5, Savoir-Faire=1, Blue Nile=0 which the spec says is acceptable); (b) all atelier defaults are stamped on new AND legacy quotes on first GET (fx_adjustment_pct=5, custom_clearance_aud=120, australian_delivery_aud=100, intl_transaction_fees_pct=5+percent-mode, duty_or_chafta_pct=5+percent-mode, gst_pct=10+percent-mode, markup_pct=0+percent-mode, CAD=45, provenance=35, cert=80, packaging=35, air freight=60, defaults_seeded_v2=true); (c) admin-set non-zero overrides are NOT overwritten by backfill (verified 3.5/250/7.5/25 all preserved); (d) POST /api/quotes/compute accepts raw string values for diamond_carat + metal_weight_g (Pydantic coerces server-side, no 500); (e) decimal values 1.7 carat + 1.7g round-trip cleanly on PATCH→GET; (f) 15 legacy quotes sampled all carry defaults_seeded_v2=true after backfill. Frontend (390x844 mobile viewport, quick-login Atelier Admin, opened Solitaire Pendant SC-032-2607-001): all color semantics verified exactly matching spec — Intl transaction fees=rgb(47,184,112)=#2FB870 GREEN bold(700), Duty/CHAFTA=#2FB870 GREEN bold, Markup=rgb(224,168,91)=#E0A85B YELLOW bold, GST=rgb(229,72,77)=#E5484D RED bold, Customs clearance=default unchanged. USD→AUD multiplier row present: 'AUD ex-GST ÷ USD cost | 5.13×' with subtitle 'AUD 18,193 ÷ USD 3,545' placed BELOW 'Gross profit margin % 66.67%' exactly as specified. Editable header title = TextInput value 'Solitaire Pendant' (confirmed inline input, not a static label). Atomic Product Spec rows verified: Metal Type + Weight(g) side-by-side; Stone spec has Lab/Natural toggle + Carat + Shape + Color + Clarity fields all in one row. Quotes list defaults to 'Brand (SC/SA/SB)' chip active on landing. THE ONE BACKEND BUG: `defaults_seeded_v2` flag is stripped by PATCH /api/quotes/{id} because it is not declared as a field on the `QuoteInputs` Pydantic model — `body.inputs.model_dump()` at routes/quotes.py:574 silently drops it. Result: every admin PATCH loses the flag; the very next GET re-seeds all zero'd fields to defaults (verified 120 re-appearing after admin zeroed custom_clearance_aud). This means admin can never persist a $0 value for custom_clearance / AU-delivery / any of the 5 USD ancillaries / fx_adjustment_pct / intl_txn_pct / duty_pct / gst_pct. Non-zero overrides are unaffected. Two pre-existing (iter_13) console warnings still present: 'Unexpected text node' + RN-web Image resizeMode/tintColor deprecations — non-blocking, out of scope.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/quotes/{id} (inputs body) + subsequent GET",
+        "issue": "defaults_seeded_v2 flag is stripped on every PATCH because it is NOT declared as a field on QuoteInputs (routes/quotes.py:66). At line 574 `patch['inputs'] = body.inputs.model_dump()` writes the Pydantic-validated dict which drops unknown keys, so the flag disappears from the persisted document. Next GET (routes/quotes.py:512) then treats the quote as legacy-unseeded and re-seeds all falsy defaults, silently overwriting any admin-set $0 or 0%. Reproduced: created freelance quote → GET (stamps flag) → PATCH inputs with custom_clearance_aud=0.0 → GET → value is 120.0 again. Fix options: (1) add `defaults_seeded_v2: Optional[bool] = None` to QuoteInputs; (2) merge the flag back in patch_quote after model_dump; (3) set `model_config = ConfigDict(extra='allow')` on QuoteInputs.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "Console: 'Unexpected text node' (pre-existing since iter_13)",
+        "issue": "Repeating console error 'Unexpected text node: . A text node cannot be a child of a <View>.' still fires on nearly every route (login + admin quotes). Non-blocking. Suspect a stray dot/space next to a conditional render inside a <View>. Reference: unresolved from iter_13/iter_14."
+      },
+      {
+        "component": "RN-web Image deprecations (pre-existing)",
+        "issue": "Console warnings 'Image: style.resizeMode is deprecated. Please use props.resizeMode.' and same for tintColor. Should be migrated ahead of next RN-web major bump."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_15.json",
+    "/app/backend/tests/test_quotes_iter15.py",
+    "/app/test_reports/pytest/iteration_15.xml"
+  ],
+  "action_items": [
+    "[HIGH] Fix defaults_seeded_v2 persistence across PATCH. Simplest patch: add `defaults_seeded_v2: Optional[bool] = None` to QuoteInputs (routes/quotes.py:66). This lets Pydantic keep the flag through PATCH → next GET short-circuits the backfill loop, and admin-set zeros survive.",
+    "[Optional] Clean up the stray 'Unexpected text node: .' console error (pre-existing since iter_13) — grep the shared layout / brand strip for a `{condition && ' '}` or stray '.' next to a conditional render inside a <View>.",
+    "[Optional] Migrate RN-web Image style.resizeMode / style.tintColor → props form (ahead of next RN-web major)."
+  ],
+  "critical_code_review_comments": [
+    "routes/quotes.py line 574 `patch['inputs'] = body.inputs.model_dump()` is the ROOT CAUSE of the defaults_seeded_v2 loss. Any input field the compute engine or the backfill code writes to `inputs` but that is NOT declared on the QuoteInputs Pydantic model will be silently dropped on every PATCH. Consider auditing all `inputs.*` keys touched by backend code and cross-referencing against QuoteInputs.",
+    "Backfill guard at routes/quotes.py:512 correctly checks `if not inputs.get('defaults_seeded_v2')` — the logic is right, but the flag never survives long enough for the guard to fire on the second GET after any PATCH.",
+    "Backfill uses `if not inputs.get(field)` which treats 0/None/missing identically — this is intentional per spec ('only fields that are 0/null get seeded'). BUT combined with the flag-loss bug above, this means admin-zeroed values are silently overwritten on next open. The two bugs together produce a data-integrity issue.",
+    "routes/competitors.py POST /quotes/{id}/compare with force=true now runs Playwright end-to-end without executable errors; caching path (force=false) also works. Chromium found at /root/.cache/ms-playwright/chromium_headless_shell-1228/chrome-linux/headless_shell.",
+    "QuoteDetailScreen.tsx SEMANTIC color assignment on the Cost/Margin section matches spec exactly: Intl tx fees + Duty/CHAFTA = #2FB870 bold 700; Markup = #E0A85B bold 700; GST = #E5484D bold 700; Customs clearance + AU delivery unchanged.",
+    "QuoteDetailScreen.tsx conditionally renders the 'AUD ex-GST ÷ USD cost' row only when both numerator and denominator > 0 — verified present as '5.13×' on the SC quote with USD 3,545 → AUD 18,193.",
+    "QuoteDetailScreen.tsx header title is bound to a TextInput (verified value='Solitaire Pendant' via DOM inspection).",
+    "QuoteDetailScreen.tsx atomic Product Spec rows render inline (verified 6 real <input> elements for Metal Type, Weight, Carat, Shape, Color, Clarity in the correct order).",
+    "QuotesScreen.tsx defaults to filter='brand' on landing (verified 'Brand (SC/SA/SB)' chip is the active one)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_quotes_iter15.py (new)"
+  ],
+  "success_rate": {
+    "backend": "9/10 (90%) — 1 real bug found (defaults_seeded_v2 stripped by PATCH). All other new-feature tests pass including Playwright/Chromium fix, atelier defaults on new + legacy quotes, non-zero override preservation, compute engine with raw string values, decimal round-trip.",
+    "frontend": "7/7 spot-checks passed — all 4 SEMANTIC color assignments correct (Intl+Duty GREEN bold, Markup YELLOW bold, GST RED bold, Customs default), USD→AUD multiplier row present and positioned correctly, editable header title present, atomic Product Spec rows present with all 6 inputs, default filter chip = Brand."
+  },
+  "seed_data_creation": "Test suite created 8 freelance quotes (all TEST_iter15_*) plus 1 seeded with real Solitaire-Pendant search criteria for the Playwright compare test. All 8 are auto-soft-deleted by the module-scoped cleanup fixture. counters/freelance_quote_seq advanced by ~8 during the run — safe. One brand quote in the DB (Solitaire Pendant SC 03 2 2607 001) was used read-only for frontend inspection.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The 1-line fix for the defaults_seeded_v2 bug (add the field to QuoteInputs) should make test_backfill_flag_prevents_reseeding_after_admin_zeros pass on retest. Re-run: `pytest /app/backend/tests/test_quotes_iter15.py -v --tb=short` — expect 10/10. All other iter_15 tests are stable and reusable as regression. The Playwright compare test takes ~30-90s per site; keep the 240s timeout. Larsen currently returns 5 matches / Savoir-Faire 1 / Blue Nile 0 on Solitaire-Pendant Round 1.5ct F/VS1 — that shape is a useful smoke-test target.",
+  "rca_of_issue": "BUG: defaults_seeded_v2 lost on PATCH. Reproduction: (1) POST /api/quotes/freelance → get quote id; (2) GET /api/quotes/{id} → backfill stamps `inputs.defaults_seeded_v2 = true` in Mongo; (3) PATCH /api/quotes/{id} with body `{inputs: {...current inputs..., custom_clearance_aud: 0.0}}` → server calls `body.inputs.model_dump()` which strips defaults_seeded_v2 because it's not a declared field on the QuoteInputs Pydantic model; the entire `inputs` sub-document is replaced without the flag; (4) GET /api/quotes/{id} → `inputs.get('defaults_seeded_v2')` is falsy → backfill loop runs again → `not inputs.get('custom_clearance_aud')` is True (0 is falsy in Python) → re-seeds to 120.0. Mitigation (fastest, backwards-compatible): add `defaults_seeded_v2: Optional[bool] = None` to QuoteInputs at routes/quotes.py:66. Alternative: preserve q.get('inputs', {}).get('defaults_seeded_v2') and merge it back onto `patch['inputs']` inside patch_quote before the update_one call. The bug is HIGH-severity because it silently invalidates any admin decision to zero-out one of the seeded defaults — a data-integrity issue, not just a UI glitch."
+}
