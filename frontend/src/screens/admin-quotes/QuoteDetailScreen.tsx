@@ -322,26 +322,48 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
       collapsible
       defaultOpen={false}
     >
-      {/* Refresh button + status */}
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+      {/* Run + Refresh buttons + status */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+        {/* Run anchors — uses cache, only fetches missing sites */}
+        <TouchableOpacity
+          onPress={() => refresh(false)}
+          disabled={busy}
+          style={{
+            paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+            backgroundColor: theme.primary, opacity: busy ? 0.4 : 1,
+            flexDirection: "row", alignItems: "center", marginRight: 8,
+          }}
+        >
+          {busy
+            ? <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+            : <Ionicons name="play" size={14} color="#fff" style={{ marginRight: 6 }} />}
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>
+            {busy ? "Running…" : "Run anchors"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Refresh anchors — force re-scrape all sites, bypass cache */}
         <TouchableOpacity
           onPress={() => refresh(true)}
           disabled={busy}
           style={{
             paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
-            backgroundColor: theme.primary, opacity: busy ? 0.4 : 1,
+            backgroundColor: "transparent",
+            borderWidth: 1, borderColor: theme.primary,
+            opacity: busy ? 0.4 : 1,
             flexDirection: "row", alignItems: "center",
           }}
         >
-          {busy
-            ? <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
-            : <Ionicons name="refresh" size={14} color="#fff" style={{ marginRight: 6 }} />}
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>
-            {busy ? "Comparing…" : (results && results.length ? "Refresh comparisons" : "Run comparison")}
+          <Ionicons name="refresh" size={14} color={theme.primary} style={{ marginRight: 6 }} />
+          <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 12 }}>
+            Refresh anchors
           </Text>
         </TouchableOpacity>
-        <Text style={{ color: theme.textMuted, fontSize: 10, marginLeft: 12, flex: 1 }}>
-          {busy ? "Fetching 5+ competitor sites — may take up to a minute." : "Cached per quote — first run costs LLM tokens."}
+
+        <Text style={{ color: theme.textMuted, fontSize: 10, marginLeft: 12, flex: 1, minWidth: 140 }}>
+          {busy
+            ? "Fetching competitor sites — may take up to a minute."
+            : "Run uses cache · Refresh forces a fresh scrape (costs LLM tokens)."}
         </Text>
       </View>
 
