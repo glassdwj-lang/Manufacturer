@@ -124,6 +124,11 @@ class QuoteInputs(BaseModel):
     # usual customs + AU-delivery baseline. Admin can override per quote.
     custom_clearance_aud: float = 120.0
     australian_delivery_aud: float = 100.0
+    # Bulk-shipment support for customs clearance — mirrors the air
+    # freight pattern: total customs cost ÷ pieces in shipment = per-
+    # unit customs, which flows into ``custom_clearance_aud``.
+    custom_clearance_bulk_aud: Optional[float] = None
+    custom_clearance_divisor: Optional[float] = None
     intl_transaction_fees_aud: float = 0.0
     duty_or_chafta_aud: float = 0.0
     # Optional %-mode overrides for the two flexible fields.  When

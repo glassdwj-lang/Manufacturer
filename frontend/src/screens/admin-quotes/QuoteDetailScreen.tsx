@@ -1339,11 +1339,80 @@ export default function QuoteDetailScreen() {
 
         {/* --- AUD costs --- */}
         <Section title="AUD Costs" subtitle="Ancillary AUD-native fees added after currency conversion">
-          {AUD_FIELDS.map(f => (
-            <NumRow key={f.key} label={f.label} suffix={f.suffix}
-              value={String(quote.inputs?.[f.key] ?? "")}
-              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
-          ))}
+          {AUD_FIELDS
+            .filter(f => f.key !== "custom_clearance_aud")
+            .map(f => (
+              <NumRow key={f.key} label={f.label} suffix={f.suffix}
+                value={String(quote.inputs?.[f.key] ?? "")}
+                onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
+            ))}
+
+          {/* --- Customs clearance — bulk cost ÷ divisor = per-unit ------
+              Same pattern as Air freight: bulk shipment customs cost ÷
+              pieces in the shipment = per-unit customs, which flows
+              into the compute-consumed ``custom_clearance_aud`` field
+              (still admin-editable so single-piece imports work). */}
+          {(() => {
+            const bulkStr = String(quote.inputs?.custom_clearance_bulk_aud ?? "");
+            const divStr = String(quote.inputs?.custom_clearance_divisor ?? "");
+            const perStr = String(quote.inputs?.custom_clearance_aud ?? "");
+            const recompute = (patch: Record<string, any>) => {
+              if (!quote) return;
+              const nextInputs = { ...(quote.inputs || {}), ...patch };
+              const bulk = Number(nextInputs.custom_clearance_bulk_aud);
+              const div  = Number(nextInputs.custom_clearance_divisor);
+              if (Number.isFinite(bulk) && Number.isFinite(div) && div > 0) {
+                nextInputs.custom_clearance_aud = Math.round((bulk / div) * 100) / 100;
+              }
+              setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+              persist({ inputs: nextInputs });
+            };
+            const cellStyle = {
+              flex: 1, minWidth: 0, width: 0,
+              borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+              paddingHorizontal: 8, paddingVertical: 6,
+              color: theme.textPrimary, textAlign: "right" as const, fontSize: 12,
+            };
+            return (
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>Customs clearance</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 100, marginRight: 4 }}>
+                  <TextInput
+                    value={bulkStr}
+                    onChangeText={(v) => setInput("custom_clearance_bulk_aud", v)}
+                    onBlur={() => recompute({ custom_clearance_bulk_aud: Number(bulkStr) || 0 })}
+                    placeholder="Bulk"
+                    placeholderTextColor="#555"
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                </View>
+                <Text style={{ color: theme.textMuted, fontSize: 12, marginHorizontal: 2 }}>÷</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 60, marginRight: 4 }}>
+                  <TextInput
+                    value={divStr}
+                    onChangeText={(v) => setInput("custom_clearance_divisor", v)}
+                    onBlur={() => recompute({ custom_clearance_divisor: Number(divStr) || 0 })}
+                    placeholder="qty"
+                    placeholderTextColor="#555"
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                </View>
+                <Text style={{ color: theme.textMuted, fontSize: 12, marginHorizontal: 2 }}>=</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 100 }}>
+                  <TextInput
+                    value={perStr}
+                    onChangeText={(v) => setInput("custom_clearance_aud", v)}
+                    onBlur={commitInputs}
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                  <Text style={{ color: theme.textMuted, fontSize: 11, width: 32, textAlign: "right", marginLeft: 4 }}>AUD</Text>
+                </View>
+              </View>
+            );
+          })()}
           {/* Two flexible rows: $ vs % of AUD converted total */}
           {(() => {
             const audConvertedTotal = usdSubtotal * Number(quote.inputs?.usd_to_aud_rate || 0);
