@@ -69,6 +69,24 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
+        testID="rfq-queue-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/rfqs")}
+      >
+        <Ionicons name="mail-open-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>RFQ Queue</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID="quotes-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/quotes")}
+      >
+        <Ionicons name="calculator-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>Quotes</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
         testID="approvals-button"
         style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
         onPress={() => router.push("/(app)/approvals")}
@@ -106,24 +124,6 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         <Text style={homeStyles.linkBtnText}>
           {t("home.link.renders_library")}
         </Text>
-        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        testID="rfq-queue-button"
-        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
-        onPress={() => router.push("/(app)/admin/rfqs")}
-      >
-        <Ionicons name="mail-open-outline" size={16} color={theme.primary} />
-        <Text style={homeStyles.linkBtnText}>RFQ Queue</Text>
-        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        testID="quotes-button"
-        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
-        onPress={() => router.push("/(app)/admin/quotes")}
-      >
-        <Ionicons name="calculator-outline" size={16} color={theme.primary} />
-        <Text style={homeStyles.linkBtnText}>Quotes</Text>
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
