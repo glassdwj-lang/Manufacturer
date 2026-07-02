@@ -751,7 +751,9 @@ export default function QuoteDetailScreen() {
                     <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 2 }}>Weight (g)</Text>
                     <TextInput
                       value={String(i.metal_weight_g ?? "")}
-                      onChangeText={(v) => setInput("metal_weight_g", v === "" ? "" : Number(v))}
+                      // Store raw string during typing — see Carat above
+                      // for the trailing-decimal reasoning.
+                      onChangeText={(v) => setInput("metal_weight_g", v)}
                       onBlur={commitMetalAndCompose}
                       placeholder="6"
                       placeholderTextColor="#555"
@@ -801,6 +803,19 @@ export default function QuoteDetailScreen() {
               // Recompose stone_spec from atoms and persist together.
               setInput("stone_spec", composeStoneSpec());
               setTimeout(commitInputs, 0);
+            };
+            /**
+             * Deterministic single-atom commit — mirrors ``commitField``
+             * but also refreshes the composed ``stone_spec`` in the same
+             * atomic PATCH, so pill / segmented toggles (Lab / Natural)
+             * never race a stale-closure ``commitInputs`` timer.
+             */
+            const commitAtom = (key: string, value: any) => {
+              if (!quote) return;
+              const nextInputs: any = { ...(quote.inputs || {}), [key]: value };
+              nextInputs.stone_spec = composeStoneSpec({ [key]: value });
+              setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+              persist({ inputs: nextInputs });
             };
             const applyPrefill = async () => {
               try {
@@ -887,10 +902,7 @@ export default function QuoteDetailScreen() {
                     return (
                       <TouchableOpacity
                         key={opt}
-                        onPress={() => {
-                          setInput("diamond_type", opt);
-                          setTimeout(commitAtomsAndCompose, 0);
-                        }}
+                        onPress={() => commitAtom("diamond_type", opt)}
                         style={{
                           paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
                           borderWidth: 1, borderColor: active ? theme.primary : theme.border,
@@ -916,7 +928,12 @@ export default function QuoteDetailScreen() {
                     <Text style={cellLabel}>Carat</Text>
                     <TextInput
                       value={String(i.diamond_carat ?? "")}
-                      onChangeText={(v) => setInput("diamond_carat", v === "" ? "" : Number(v))}
+                      // Store the raw string during typing. Converting to
+                      // Number on each keystroke would strip trailing
+                      // decimals — "1." → Number("1.") = 1 → next char
+                      // concatenates as "17" instead of "1.7". Pydantic
+                      // coerces the string to float on the server side.
+                      onChangeText={(v) => setInput("diamond_carat", v)}
                       onBlur={commitAtomsAndCompose}
                       placeholder="3"
                       placeholderTextColor="#555"
