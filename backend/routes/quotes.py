@@ -101,13 +101,17 @@ class QuoteInputs(BaseModel):
     # bulk cost + a divisor (number of pieces in the shipment); the
     # frontend auto-populates ``air_freight_cost_usd`` = bulk / divisor.
     # Both persisted so the calculation is auditable and re-editable.
-    air_freight_bulk_cost_usd: Optional[float] = None
-    air_freight_divisor: Optional[float] = None
-    # One-shot backfill flag — see get_quote's ``defaults_seeded_v2``
+    # Defaults: bulk = $60 (matches the flat per-unit baseline), divisor
+    # = 0 (i.e. bulk-split OFF; admin sets a real divisor when doing a
+    # multi-piece shipment).
+    air_freight_bulk_cost_usd: Optional[float] = 60.0
+    air_freight_divisor: Optional[float] = 0.0
+    # One-shot backfill flag — see get_quote's ``defaults_seeded_v3``
     # block. Declared here so it survives Pydantic strict-field pruning
     # on every PATCH (otherwise re-seeding would trigger forever and
     # admin could never persist an explicit $0 on a defaulted field).
     defaults_seeded_v2: Optional[bool] = None
+    defaults_seeded_v3: Optional[bool] = None
 
     # --- Currency conversion ------------------------------------------
     # ``usd_to_aud_rate`` is the *effective* rate applied to USD costs.
@@ -127,8 +131,11 @@ class QuoteInputs(BaseModel):
     # Bulk-shipment support for customs clearance — mirrors the air
     # freight pattern: total customs cost ÷ pieces in shipment = per-
     # unit customs, which flows into ``custom_clearance_aud``.
-    custom_clearance_bulk_aud: Optional[float] = None
-    custom_clearance_divisor: Optional[float] = None
+    # Defaults: bulk = $120 (matches the flat per-unit baseline),
+    # divisor = 0 (bulk-split OFF; admin sets a real divisor when doing
+    # a multi-piece shipment).
+    custom_clearance_bulk_aud: Optional[float] = 120.0
+    custom_clearance_divisor: Optional[float] = 0.0
     intl_transaction_fees_aud: float = 0.0
     duty_or_chafta_aud: float = 0.0
     # Optional %-mode overrides for the two flexible fields.  When
@@ -525,7 +532,7 @@ async def get_quote(
     # ``defaults_seeded_v2`` flag so subsequent admin edits (including
     # explicit zeros) are never overwritten on re-open.
     inputs = q.get("inputs") or {}
-    if not inputs.get("defaults_seeded_v2"):
+    if not inputs.get("defaults_seeded_v3"):
         # (field, default) — only applied when the current value is
         # falsy (0, None, missing). Modes are seeded to "percent" so the
         # % baseline actually takes effect on legacy quotes.
@@ -561,9 +568,23 @@ async def get_quote(
             seeds["box_packaging_cost_usd"] = 35.0
         if not inputs.get("air_freight_cost_usd"):
             seeds["air_freight_cost_usd"] = 60.0
-        # Retire the v1 flag and stamp v2 — future default expansions
+        # Air freight bulk / divisor — seeded even if the per-unit is
+        # already set, because these atomic fields are new. Only seeds
+        # where truly missing (None) — an admin who explicitly zeroed
+        # the divisor (bulk-split OFF) keeps their choice.
+        if inputs.get("air_freight_bulk_cost_usd") is None:
+            seeds["air_freight_bulk_cost_usd"] = 60.0
+        if inputs.get("air_freight_divisor") is None:
+            seeds["air_freight_divisor"] = 0.0
+        # Same bulk/divisor pattern for customs clearance.
+        if inputs.get("custom_clearance_bulk_aud") is None:
+            seeds["custom_clearance_bulk_aud"] = 120.0
+        if inputs.get("custom_clearance_divisor") is None:
+            seeds["custom_clearance_divisor"] = 0.0
+        # Retire the v1 flag and stamp v3 — future default expansions
         # bump the version so existing quotes catch up cleanly.
-        seeds["defaults_seeded_v2"] = True
+        seeds["defaults_seeded_v3"] = True
+        seeds.pop("defaults_seeded_v2", None)
         if seeds:
             mongo_set = {f"inputs.{k}": v for k, v in seeds.items()}
             await db.quotes.update_one({"id": quote_id}, {"$set": mongo_set})
