@@ -1040,6 +1040,25 @@ export const api = {
       rfq_id?: string;
     }>(`/quotes/${quoteId}/stone-spec-prefill`),
 
+  // --- Competitor library admin (Market Anchor scraper) ---------------
+  listCompetitorsAdmin: () =>
+    request<Array<{
+      id: string; name: string;
+      base_url: string; search_url: string;
+      active: boolean; strategy?: string; feasibility?: string;
+      notes?: string;
+    }>>(`/admin/competitors`),
+  updateCompetitor: (
+    site_id: string,
+    body: { base_url?: string; search_url?: string; active?: boolean; notes?: string },
+  ) =>
+    request<any>(`/admin/competitors/${site_id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  resetCompetitor: (site_id: string) =>
+    request<any>(`/admin/competitors/${site_id}/reset`, { method: "POST" }),
+
   // ---------- Client approval gates (Step 02) ----------
   releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>
     request<any>(`/orders/${orderId}/renders/${renderId}/release-for-client`, {

@@ -308,6 +308,11 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
   const [criteria, setCriteria] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Full competitor library + admin-editable "selected for this run"
+  // set. Defaults to all active sites; admin can uncheck any site to
+  // exclude it from THIS run without needing to visit the admin page.
+  const [library, setLibrary] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const loadCached = useCallback(async () => {
     try {
@@ -316,13 +321,35 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
     } catch { /* silent — user can still hit refresh */ }
   }, [quoteId]);
 
-  useEffect(() => { loadCached(); }, [loadCached]);
+  const loadLibrary = useCallback(async () => {
+    try {
+      const lib = await api.listCompetitorsAdmin();
+      setLibrary(lib);
+      // Pre-select every active site so "Run anchors" behaves the same
+      // as before unless the admin explicitly deselects one.
+      setSelectedIds(new Set(lib.filter(s => s.active).map(s => s.id)));
+    } catch { /* non-fatal — admin can still run without the checkboxes */ }
+  }, []);
+
+  useEffect(() => { loadCached(); loadLibrary(); }, [loadCached, loadLibrary]);
+
+  const toggleSite = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const refresh = async (force = false) => {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.compareQuote(quoteId, { force });
+      // Only pass the ``sites`` filter when the selection differs from
+      // the default (all active). Passing an empty array would run zero
+      // sites, which is never what we want.
+      const sites = selectedIds.size > 0 ? Array.from(selectedIds) : undefined;
+      const r = await api.compareQuote(quoteId, { force, sites });
       setResults(r.results || []);
       setCriteria(r.criteria || null);
     } catch (e: any) {
@@ -400,6 +427,58 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
             : "Run uses cache · Refresh forces a fresh scrape (costs LLM tokens)."}
         </Text>
       </View>
+
+      {/* --- Per-run site selector ---------------------------------------
+          Small checkbox row that lets admin pause any competitor for THIS
+          run without visiting the Competitor Library page. Chips of paused
+          (library.active=false) sites are hidden — manage those in
+          /admin/competitors. */}
+      {library.length > 0 && (
+        <View style={{ marginBottom: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+            <Text style={{ color: theme.textMuted, fontSize: 10, flex: 1 }}>
+              Sites for this run · {selectedIds.size} selected / {library.filter(s => s.active).length} available
+            </Text>
+            <TouchableOpacity
+              onPress={() => setSelectedIds(new Set(library.filter(s => s.active).map(s => s.id)))}
+              style={{ marginRight: 8 }}
+            >
+              <Text style={{ color: theme.primary, fontSize: 10, fontWeight: "700" }}>All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setSelectedIds(new Set())}>
+              <Text style={{ color: theme.textMuted, fontSize: 10, fontWeight: "700" }}>None</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+            {library.filter(s => s.active).map(s => {
+              const on = selectedIds.has(s.id);
+              return (
+                <TouchableOpacity
+                  key={s.id}
+                  onPress={() => toggleSite(s.id)}
+                  style={{
+                    flexDirection: "row", alignItems: "center",
+                    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
+                    borderWidth: 1, borderColor: on ? theme.primary : theme.border,
+                    backgroundColor: on ? "#2A2A1A" : "transparent",
+                    marginRight: 4, marginBottom: 4,
+                  }}
+                >
+                  <Ionicons
+                    name={on ? "checkbox" : "square-outline"}
+                    size={12}
+                    color={on ? theme.primary : theme.textMuted}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={{ color: on ? theme.textPrimary : theme.textMuted, fontSize: 10 }}>
+                    {s.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {error && (
         <Text style={{ color: "#E06666", fontSize: 11, marginBottom: 8 }}>{error}</Text>

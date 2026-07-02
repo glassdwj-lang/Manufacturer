@@ -184,6 +184,15 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         </View>
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
+      <TouchableOpacity
+        testID="competitors-library-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/competitors")}
+      >
+        <Ionicons name="globe-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>Competitor Library</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
     </View>
   );
 }

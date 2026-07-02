@@ -487,11 +487,94 @@ class CompareRequest(BaseModel):
     sites: Optional[List[str]] = None   # restrict to these site ids
 
 
+class CompetitorPatch(BaseModel):
+    """Admin-editable fields on a competitor site override.
+
+    All optional so PATCH can toggle ``active`` without needing to
+    resend the URLs, or update just the URL without touching active.
+    """
+    base_url: Optional[str] = None
+    search_url: Optional[str] = None
+    active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+async def _effective_competitor_library() -> List[Dict[str, Any]]:
+    """Merge the hardcoded ``COMPETITOR_LIBRARY`` with any per-site
+    overrides admin has saved in ``db.competitor_sites``.
+
+    Precedence: DB values win over library defaults on ``base_url``,
+    ``search_url``, ``active`` and ``notes``. Everything else (strategy,
+    products_json, feasibility, name, id) stays from the library —
+    those are structural and shouldn't be user-editable.
+    """
+    overrides: Dict[str, Dict[str, Any]] = {}
+    async for doc in db.competitor_sites.find({}, {"_id": 0}):
+        overrides[doc["id"]] = doc
+    merged: List[Dict[str, Any]] = []
+    for site in COMPETITOR_LIBRARY:
+        s = dict(site)
+        ov = overrides.get(site["id"])
+        if ov:
+            for k in ("base_url", "search_url", "active", "notes"):
+                if k in ov and ov[k] is not None:
+                    s[k] = ov[k]
+        merged.append(s)
+    return merged
+
+
+@router.get("/admin/competitors", summary="List competitor library with admin overrides")
+async def list_competitors_admin(user=Depends(require_roles("admin"))):
+    return [
+        {k: v for k, v in s.items() if k != "products_json"}
+        for s in await _effective_competitor_library()
+    ]
+
+
+@router.patch(
+    "/admin/competitors/{site_id}",
+    summary="Update a competitor's URL / active flag (admin overlay)",
+)
+async def update_competitor(
+    site_id: str,
+    body: CompetitorPatch,
+    user=Depends(require_roles("admin")),
+):
+    # Validate the id exists in the underlying library.
+    if not any(s["id"] == site_id for s in COMPETITOR_LIBRARY):
+        raise HTTPException(status_code=404, detail=f"Unknown competitor: {site_id}")
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not patch:
+        raise HTTPException(status_code=400, detail="No fields provided")
+    patch["id"] = site_id
+    await db.competitor_sites.update_one(
+        {"id": site_id},
+        {"$set": patch},
+        upsert=True,
+    )
+    # Return the updated effective row so the client can sync state.
+    merged = await _effective_competitor_library()
+    return next((s for s in merged if s["id"] == site_id), None)
+
+
+@router.post(
+    "/admin/competitors/{site_id}/reset",
+    summary="Discard admin overrides and restore hardcoded defaults",
+)
+async def reset_competitor(
+    site_id: str,
+    user=Depends(require_roles("admin")),
+):
+    await db.competitor_sites.delete_one({"id": site_id})
+    merged = await _effective_competitor_library()
+    return next((s for s in merged if s["id"] == site_id), None)
+
+
 @router.get("/competitors", summary="List competitor library (admin)")
 async def list_competitors(user=Depends(require_roles("admin"))):
     return [
         {k: v for k, v in s.items() if k != "products_json"}
-        for s in COMPETITOR_LIBRARY
+        for s in await _effective_competitor_library()
     ]
 
 
@@ -518,10 +601,11 @@ async def compare_quote(
         "piece_description": inputs.get("piece_description") or quote.get("jewelry_name") or "",
     }
 
-    # Which sites to scrape.
+    # Which sites to scrape (merges DB overrides with the hardcoded library).
+    library = await _effective_competitor_library()
     requested_ids = set(body.sites) if body.sites else None
     active_sites = [
-        s for s in COMPETITOR_LIBRARY
+        s for s in library
         if s.get("active") and (requested_ids is None or s["id"] in requested_ids)
     ]
 
@@ -598,7 +682,7 @@ async def run_comparison_background(quote_id: str) -> None:
             "clarity": inputs.get("diamond_clarity") or inputs.get("clarity") or "",
             "piece_description": inputs.get("piece_description") or quote.get("jewelry_name") or "",
         }
-        active_sites = [s for s in COMPETITOR_LIBRARY if s.get("active")]
+        active_sites = [s for s in await _effective_competitor_library() if s.get("active")]
         for site in active_sites:
             # Skip if snapshot already cached (idempotent — safe to re-fire).
             existing = await db.competitor_snapshots.find_one(
