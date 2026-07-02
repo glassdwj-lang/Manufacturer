@@ -60,6 +60,15 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
+        testID="manufacturers-directory-button"
+        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
+        onPress={() => router.push("/(app)/admin/manufacturers")}
+      >
+        <Ionicons name="business-outline" size={16} color={theme.primary} />
+        <Text style={homeStyles.linkBtnText}>Manufacturers</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+      </TouchableOpacity>
+      <TouchableOpacity
         testID="approvals-button"
         style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
         onPress={() => router.push("/(app)/approvals")}
@@ -106,15 +115,6 @@ export function AdminLinks({ approvalsCount }: { approvalsCount: number }) {
       >
         <Ionicons name="mail-open-outline" size={16} color={theme.primary} />
         <Text style={homeStyles.linkBtnText}>RFQ Queue</Text>
-        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        testID="manufacturers-directory-button"
-        style={[homeStyles.linkBtn, { marginTop: spacing.sm }]}
-        onPress={() => router.push("/(app)/admin/manufacturers")}
-      >
-        <Ionicons name="business-outline" size={16} color={theme.primary} />
-        <Text style={homeStyles.linkBtnText}>Manufacturers</Text>
         <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity
