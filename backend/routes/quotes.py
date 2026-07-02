@@ -97,6 +97,17 @@ class QuoteInputs(BaseModel):
     certification_cost_usd: float = 80.0
     box_packaging_cost_usd: float = 35.0
     air_freight_cost_usd: float = 60.0
+    # Bulk-shipment support for air freight — admin can enter a total
+    # bulk cost + a divisor (number of pieces in the shipment); the
+    # frontend auto-populates ``air_freight_cost_usd`` = bulk / divisor.
+    # Both persisted so the calculation is auditable and re-editable.
+    air_freight_bulk_cost_usd: Optional[float] = None
+    air_freight_divisor: Optional[float] = None
+    # One-shot backfill flag — see get_quote's ``defaults_seeded_v2``
+    # block. Declared here so it survives Pydantic strict-field pruning
+    # on every PATCH (otherwise re-seeding would trigger forever and
+    # admin could never persist an explicit $0 on a defaulted field).
+    defaults_seeded_v2: Optional[bool] = None
 
     # --- Currency conversion ------------------------------------------
     # ``usd_to_aud_rate`` is the *effective* rate applied to USD costs.

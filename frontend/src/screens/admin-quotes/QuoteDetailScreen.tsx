@@ -1010,11 +1010,90 @@ export default function QuoteDetailScreen() {
             onChangeText={setNumeric("hidden_halo_pave_cost_usd")} onBlur={commitInputs}
           />
 
-          {USD_FIELDS.filter(f => f.key !== "ring_cost_usd").map(f => (
-            <NumRow key={f.key} label={f.label} suffix={f.suffix}
-              value={String(quote.inputs?.[f.key] ?? "")}
-              onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
-          ))}
+          {USD_FIELDS
+            .filter(f => f.key !== "ring_cost_usd" && f.key !== "air_freight_cost_usd")
+            .map(f => (
+              <NumRow key={f.key} label={f.label} suffix={f.suffix}
+                value={String(quote.inputs?.[f.key] ?? "")}
+                onChangeText={setNumeric(f.key)} onBlur={commitInputs} />
+            ))}
+
+          {/* --- Air freight — bulk cost ÷ divisor = per-unit --------------
+              Admin enters the total bulk shipment cost + how many pieces
+              share the shipment. Per-unit is auto-populated into the
+              existing ``air_freight_cost_usd`` field (still admin-
+              overridable, since some quotes have a fixed per-piece
+              rate rather than a bulk allocation). Bulk + divisor are
+              persisted so the derivation is auditable and re-editable. */}
+          {(() => {
+            const bulkStr = String(quote.inputs?.air_freight_bulk_cost_usd ?? "");
+            const divStr = String(quote.inputs?.air_freight_divisor ?? "");
+            const perStr = String(quote.inputs?.air_freight_cost_usd ?? "");
+            /**
+             * Recompute per-unit from bulk + divisor and PATCH all three
+             * fields atomically to sidestep stale-closure races.
+             */
+            const recompute = (patch: Record<string, any>) => {
+              if (!quote) return;
+              const nextInputs = { ...(quote.inputs || {}), ...patch };
+              const bulk = Number(nextInputs.air_freight_bulk_cost_usd);
+              const div  = Number(nextInputs.air_freight_divisor);
+              if (Number.isFinite(bulk) && Number.isFinite(div) && div > 0) {
+                // 2-decimal rounding avoids float-drift like 59.999999.
+                nextInputs.air_freight_cost_usd = Math.round((bulk / div) * 100) / 100;
+              }
+              setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+              persist({ inputs: nextInputs });
+            };
+            const cellStyle = {
+              flex: 1, minWidth: 0, width: 0,
+              borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+              paddingHorizontal: 8, paddingVertical: 6,
+              color: theme.textPrimary, textAlign: "right" as const, fontSize: 12,
+            };
+            return (
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                <Text style={{ color: theme.textPrimary, flex: 1, fontSize: 13 }}>Air freight</Text>
+                {/* Bulk shipment cost (USD) */}
+                <View style={{ flexDirection: "row", alignItems: "center", width: 100, marginRight: 4 }}>
+                  <TextInput
+                    value={bulkStr}
+                    onChangeText={(v) => setInput("air_freight_bulk_cost_usd", v)}
+                    onBlur={() => recompute({ air_freight_bulk_cost_usd: Number(bulkStr) || 0 })}
+                    placeholder="Bulk"
+                    placeholderTextColor="#555"
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                </View>
+                {/* Divisor "÷" */}
+                <Text style={{ color: theme.textMuted, fontSize: 12, marginHorizontal: 2 }}>÷</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 60, marginRight: 4 }}>
+                  <TextInput
+                    value={divStr}
+                    onChangeText={(v) => setInput("air_freight_divisor", v)}
+                    onBlur={() => recompute({ air_freight_divisor: Number(divStr) || 0 })}
+                    placeholder="qty"
+                    placeholderTextColor="#555"
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                </View>
+                {/* Per-unit "=" — auto-computed but still editable */}
+                <Text style={{ color: theme.textMuted, fontSize: 12, marginHorizontal: 2 }}>=</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", width: 100 }}>
+                  <TextInput
+                    value={perStr}
+                    onChangeText={(v) => setInput("air_freight_cost_usd", v)}
+                    onBlur={commitInputs}
+                    keyboardType="decimal-pad"
+                    style={cellStyle}
+                  />
+                  <Text style={{ color: theme.textMuted, fontSize: 11, width: 32, textAlign: "right", marginLeft: 4 }}>USD</Text>
+                </View>
+              </View>
+            );
+          })()}
 
           {/* --- Pre-FX USD subtotal (live, client-side) --- */}
           <View style={{
