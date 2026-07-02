@@ -1038,9 +1038,12 @@ export default function QuoteDetailScreen() {
               const nextInputs = { ...(quote.inputs || {}), ...patch };
               const bulk = Number(nextInputs.air_freight_bulk_cost_usd);
               const div  = Number(nextInputs.air_freight_divisor);
-              if (Number.isFinite(bulk) && Number.isFinite(div) && div > 0) {
-                // 2-decimal rounding avoids float-drift like 59.999999.
-                nextInputs.air_freight_cost_usd = Math.round((bulk / div) * 100) / 100;
+              // divisor > 0 → per-unit = bulk / divisor (multi-piece shipment).
+              // divisor 0 / blank → bulk-split OFF, per-unit = bulk directly.
+              if (Number.isFinite(bulk)) {
+                nextInputs.air_freight_cost_usd = (Number.isFinite(div) && div > 0)
+                  ? Math.round((bulk / div) * 100) / 100
+                  : bulk;
               }
               setQuote((q: any) => ({ ...q, inputs: nextInputs }));
               persist({ inputs: nextInputs });
@@ -1361,8 +1364,12 @@ export default function QuoteDetailScreen() {
               const nextInputs = { ...(quote.inputs || {}), ...patch };
               const bulk = Number(nextInputs.custom_clearance_bulk_aud);
               const div  = Number(nextInputs.custom_clearance_divisor);
-              if (Number.isFinite(bulk) && Number.isFinite(div) && div > 0) {
-                nextInputs.custom_clearance_aud = Math.round((bulk / div) * 100) / 100;
+              // divisor > 0 → per-unit = bulk / divisor.
+              // divisor 0 / blank → bulk-split OFF, per-unit = bulk.
+              if (Number.isFinite(bulk)) {
+                nextInputs.custom_clearance_aud = (Number.isFinite(div) && div > 0)
+                  ? Math.round((bulk / div) * 100) / 100
+                  : bulk;
               }
               setQuote((q: any) => ({ ...q, inputs: nextInputs }));
               persist({ inputs: nextInputs });
