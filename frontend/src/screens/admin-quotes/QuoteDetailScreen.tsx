@@ -662,22 +662,85 @@ export default function QuoteDetailScreen() {
 
         {/* --- Product spec --- */}
         <Section title="Product Spec" subtitle="Descriptive fields printed on the client-facing quote">
-          {([
-            ["piece_description", "Piece description", "e.g. Ring — OV 4ct in 18k WG"],
-            ["metal_spec", "Metal spec", "e.g. 18K white gold, 6g"],
-          ] as const).map(([k, label, ph]) => (
-            <View key={k} style={{ marginBottom: 8 }}>
-              <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>{label}</Text>
-              <TextInput
-                value={String(quote.inputs?.[k] ?? "")}
-                onChangeText={(v) => setInput(k, v)}
-                onBlur={commitInputs}
-                placeholder={ph}
-                placeholderTextColor="#555"
-                style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 8, color: theme.textPrimary }}
-              />
-            </View>
-          ))}
+          {/* Free-form piece description */}
+          <View style={{ marginBottom: 8 }}>
+            <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 2 }}>Piece description</Text>
+            <TextInput
+              value={String(quote.inputs?.piece_description ?? "")}
+              onChangeText={(v) => setInput("piece_description", v)}
+              onBlur={commitInputs}
+              placeholder="e.g. Ring — OV 4ct in 18k WG"
+              placeholderTextColor="#555"
+              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 6, padding: 8, color: theme.textPrimary }}
+            />
+          </View>
+
+          {/* --- Metal spec — atomic Type + Weight row --- */}
+          {(() => {
+            const i = quote.inputs || {};
+            const composeMetalSpec = (over: Record<string, any> = {}) => {
+              const v = { ...i, ...over };
+              const parts: string[] = [];
+              const t = String(v.metal_type || "").trim();
+              const w = v.metal_weight_g;
+              if (t) parts.push(t);
+              if (w !== "" && w != null && Number(w) > 0) parts.push(`${w}g`);
+              return parts.join(", ");
+            };
+            const commitMetalAndCompose = () => {
+              setInput("metal_spec", composeMetalSpec());
+              setTimeout(commitInputs, 0);
+            };
+            return (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 4 }}>Metal spec</Text>
+                <View style={{ flexDirection: "row" }}>
+                  {/* Metal type — larger flex */}
+                  <View style={{ flex: 2, minWidth: 0, marginRight: 6 }}>
+                    <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 2 }}>Type</Text>
+                    <TextInput
+                      value={String(i.metal_type ?? "")}
+                      onChangeText={(v) => setInput("metal_type", v)}
+                      onBlur={commitMetalAndCompose}
+                      placeholder="e.g. 18K White Gold"
+                      placeholderTextColor="#555"
+                      style={{
+                        borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+                        paddingHorizontal: 8, paddingVertical: 6,
+                        color: theme.textPrimary, fontSize: 12,
+                      }}
+                    />
+                  </View>
+                  {/* Weight in grams */}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 2 }}>Weight (g)</Text>
+                    <TextInput
+                      value={String(i.metal_weight_g ?? "")}
+                      onChangeText={(v) => setInput("metal_weight_g", v === "" ? "" : Number(v))}
+                      onBlur={commitMetalAndCompose}
+                      placeholder="6"
+                      placeholderTextColor="#555"
+                      keyboardType="decimal-pad"
+                      style={{
+                        borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+                        paddingHorizontal: 8, paddingVertical: 6,
+                        color: theme.textPrimary, fontSize: 12,
+                      }}
+                    />
+                  </View>
+                </View>
+                {/* Composed preview */}
+                <Text
+                  style={{
+                    color: theme.textMuted, fontSize: 10, marginTop: 6,
+                    fontStyle: composeMetalSpec() ? "normal" : "italic",
+                  }}
+                >
+                  {composeMetalSpec() || "e.g. 18K White Gold, 6g"}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* --- Stone spec — atomic 5-field row --- */}
           {(() => {
@@ -711,26 +774,36 @@ export default function QuoteDetailScreen() {
                   Alert.alert("No linked RFQ", "This quote has no source RFQ to pull specs from.");
                   return;
                 }
-                // Detect whether current atoms are non-empty — if so,
-                // confirm before overwriting (protects hand-edited values).
-                const dirty = ["diamond_type","diamond_carat","diamond_shape","diamond_color","diamond_clarity"]
-                  .some(k => {
-                    const v = (quote.inputs || {})[k];
-                    return v !== undefined && v !== null && v !== "" && !(typeof v === "number" && v === 0);
-                  });
+                // Detect whether any current atom (stone OR metal) is
+                // non-empty — if so, confirm before overwriting.
+                const dirtyKeys = [
+                  "diamond_type", "diamond_carat", "diamond_shape",
+                  "diamond_color", "diamond_clarity",
+                  "metal_type", "metal_weight_g",
+                ];
+                const dirty = dirtyKeys.some(k => {
+                  const v = (quote.inputs || {})[k];
+                  return v !== undefined && v !== null && v !== ""
+                    && !(typeof v === "number" && v === 0);
+                });
                 const doApply = () => {
                   const patch = {
                     ...quote.inputs,
-                    ...r.atoms,
-                    stone_spec: r.composed || composeStoneSpec(r.atoms),
+                    ...(r.atoms || {}),
+                    stone_spec: (r as any).composed_stone || r.composed || "",
+                    metal_spec: (r as any).composed_metal || "",
                   };
                   setQuote((q: any) => ({ ...q, inputs: patch }));
                   setTimeout(() => persist({ inputs: patch }), 0);
                 };
                 if (dirty) {
+                  const previewLines = [
+                    (r as any).composed_metal && `Metal: ${(r as any).composed_metal}`,
+                    ((r as any).composed_stone || r.composed) && `Stone: ${(r as any).composed_stone || r.composed}`,
+                  ].filter(Boolean).join("\n") || "(empty)";
                   Alert.alert(
-                    "Overwrite stone spec?",
-                    `Pulling from RFQ will replace current values with:\n${r.composed || "(empty)"}`,
+                    "Overwrite specs?",
+                    `Pulling from RFQ will replace current values with:\n\n${previewLines}`,
                     [
                       { text: "Cancel", style: "cancel" },
                       { text: "Overwrite", style: "destructive", onPress: doApply },
@@ -1354,6 +1427,36 @@ export default function QuoteDetailScreen() {
           <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 6 }} />
           <TotalRow label="Gross profit margin" val={t?.gross_profit_margin_aud} unit="AUD" />
           <TotalRow label="Gross profit margin %" val={t?.gross_profit_margin_pct} unit="%" />
+          {/* --- AUD ex-GST → USD cost multiple ------------------------
+              Ratio of AUD retail sell (ex-GST) over raw USD costs.
+              A higher multiple means the AUD retail is well above the
+              USD cost — i.e. a healthy uplift ("5× on cost"). */}
+          {(() => {
+            const usd = Number(t?.total_usd_costs) || 0;
+            const audExGst = Number(t?.retail_sell_price_ex_gst_aud) || 0;
+            if (usd <= 0 || audExGst <= 0) return null;
+            const multiple = audExGst / usd;
+            return (
+              <View style={{
+                flexDirection: "row", justifyContent: "space-between",
+                alignItems: "center", marginTop: 4,
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 12, fontWeight: "700" }}>
+                    AUD ex-GST ÷ USD cost
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                    AUD {audExGst.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {" ÷ "}
+                    USD {usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </Text>
+                </View>
+                <Text style={{ color: theme.primary, fontSize: 15, fontWeight: "800" }}>
+                  {multiple.toFixed(2)}×
+                </Text>
+              </View>
+            );
+          })()}
         </View>
 
         {/* --- Distribution — splits the gross profit margin --- */}

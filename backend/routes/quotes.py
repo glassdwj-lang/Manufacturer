@@ -33,8 +33,9 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 
 from deps import db, get_current_user, require_roles
 from routes.competitors import run_comparison_background
@@ -72,6 +73,10 @@ class QuoteInputs(BaseModel):
         description="Free-form piece descriptor (e.g. 'Ring - OV 4ct & 18k white gold')",
     )
     metal_spec: Optional[str] = None
+    # Atomic metal attributes — mirror the stone-atoms pattern so the
+    # Product Spec row can render two aligned inputs (Type | Weight).
+    metal_type: Optional[str] = None         # e.g. "18K White Gold"
+    metal_weight_g: Optional[float] = None   # grams
     stone_spec: Optional[str] = None
     # Atomic stone attributes — enable structured competitor matching &
     # feed the composed ``stone_spec`` display string on the client quote.
@@ -169,6 +174,14 @@ class Quote(BaseModel):
     status: str = "draft"  # draft | ready | sent
     inputs: QuoteInputs
     totals: Optional[QuoteTotals] = None
+    # --- Freelance mode ------------------------------------------------
+    # When ``is_freelance`` is True the quote uses the independent
+    # ``dwj-XXXX`` serial namespace and is *not* tied to an RFQ / brand
+    # broadcast. The counter lives on ``counters/freelance_quote_seq``
+    # and is completely disjoint from the SC / SA / SB piece-type flow.
+    is_freelance: bool = False
+    freelance_serial: Optional[str] = None       # e.g. "dwj-0001"
+    freelance_seq: Optional[int] = None          # numeric counter value
     # Historical snapshot of metal spot prices (USD/g for 10k/14k/18k
     # gold, Pt950, S925) captured at the moment the quote was created.
     # Locked forever — never updated after quote creation.
@@ -193,6 +206,38 @@ class QuoteCreatePayload(BaseModel):
 class QuotePatchPayload(BaseModel):
     inputs: Optional[QuoteInputs] = None
     status: Optional[str] = None
+
+
+class FreelanceQuoteCreatePayload(BaseModel):
+    """Freeform payload for a freelance-mode quote (dwj-XXXX serial).
+    All fields optional so the admin can spin up a shell and fill it in."""
+
+    piece_description: Optional[str] = None
+    jewelry_name: Optional[str] = None
+    inputs: Optional[QuoteInputs] = None
+
+
+async def _next_freelance_seq() -> int:
+    """Atomically allocate the next freelance serial counter value.
+
+    Uses a single upserting ``find_one_and_update`` on
+    ``counters/freelance_quote_seq`` so concurrent creates never collide.
+    """
+    doc = await db.counters.find_one_and_update(
+        {"_id": "freelance_quote_seq"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(doc["value"])
+
+
+def _freelance_serial(seq: int) -> str:
+    """Format ``dwj-0001`` — 4-digit zero-pad, room for 9,999 quotes.
+    Widens to 5 digits at 10,000+ so the format never truncates."""
+    if seq < 10000:
+        return f"dwj-{seq:04d}"
+    return f"dwj-{seq}"
 
 
 # ----------------------------------------------------------------------
@@ -345,11 +390,60 @@ async def create_quote(
 
 
 @router.get("/quotes", summary="List quotes (admin only)")
-async def list_quotes(user=Depends(require_roles("admin"))):
-    cursor = db.quotes.find(
-        {"deleted": {"$ne": True}}, {"_id": 0}
-    ).sort("updated_at", -1)
+async def list_quotes(
+    freelance: Optional[str] = Query(
+        None,
+        description="Filter: 'true' → freelance only, 'false' → brand only, omit → all",
+    ),
+    user=Depends(require_roles("admin")),
+):
+    q: dict = {"deleted": {"$ne": True}}
+    if freelance == "true":
+        q["is_freelance"] = True
+    elif freelance == "false":
+        # Include legacy quotes (missing the field) alongside explicitly
+        # non-freelance ones — anything not marked True is "brand".
+        q["$or"] = [{"is_freelance": {"$ne": True}}, {"is_freelance": {"$exists": False}}]
+    cursor = db.quotes.find(q, {"_id": 0}).sort("updated_at", -1)
     return [q async for q in cursor]
+
+
+# ----------------------------------------------------------------------
+# Freelance quote — spins up a dwj-XXXX serialised quote OUTSIDE the
+# SC/SA/SB brand namespace. No RFQ / broadcast linkage. Counter lives
+# in ``counters/freelance_quote_seq`` and is fully independent.
+# ----------------------------------------------------------------------
+@router.post(
+    "/quotes/freelance",
+    summary="Create a freelance-mode quote (dwj-XXXX serial, no RFQ link)",
+)
+async def create_freelance_quote(
+    body: FreelanceQuoteCreatePayload,
+    user=Depends(require_roles("admin")),
+):
+    # Allocate the next freelance serial atomically.
+    seq = await _next_freelance_seq()
+    serial = _freelance_serial(seq)
+
+    inputs = body.inputs or QuoteInputs()
+    # Prefill the piece description on the inputs so the quote card
+    # shows a meaningful label immediately.
+    if body.piece_description and not inputs.piece_description:
+        inputs = inputs.model_copy(update={"piece_description": body.piece_description})
+
+    quote = Quote(
+        jewelry_name=body.jewelry_name or body.piece_description,
+        inputs=inputs,
+        totals=compute_totals(inputs),
+        created_by=user.get("id"),
+        is_freelance=True,
+        freelance_serial=serial,
+        freelance_seq=seq,
+    )
+    doc = quote.model_dump()
+    await db.quotes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
 
 
 @router.post(
@@ -453,23 +547,30 @@ async def delete_quote(
 # ---------------------------------------------------------------------
 @router.get(
     "/quotes/{quote_id}/stone-spec-prefill",
-    summary="Suggest atomic stone fields from the linked RFQ preferences + response",
+    summary="Suggest atomic metal + stone fields from the linked RFQ preferences + response",
 )
 async def stone_spec_prefill(
     quote_id: str,
     user=Depends(require_roles("admin")),
 ):
-    """Returns the diamond_* atoms derived from the linked RFQ's
-    preference_snapshot + matching broadcast response — non-destructive:
-    the client decides whether to apply / overwrite.
+    """Returns the diamond_* + metal_* atoms derived from the linked
+    RFQ's preference_snapshot + matching broadcast response.
+    Non-destructive: the client decides whether to apply / overwrite.
 
     Shape:
       {"source": "rfq"|"none",
        "atoms": {diamond_type, diamond_carat, diamond_shape,
-                 diamond_color, diamond_clarity},
-       "composed": "lab diamond | 3ct | Round | D | VVS2"}
+                 diamond_color, diamond_clarity,
+                 metal_type, metal_weight_g},
+       "composed_stone":  "lab diamond | 3ct | Round | D | VVS2",
+       "composed_metal":  "18K White Gold, 6g"}
     """
-    from routes.rfqs import _derive_stone_atoms, _compose_stone_spec  # local import to avoid cycles
+    from routes.rfqs import (  # local import to avoid cycles
+        _compose_metal_spec,
+        _compose_stone_spec,
+        _derive_metal_atoms,
+        _derive_stone_atoms,
+    )
 
     q = await db.quotes.find_one(
         {"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0}
@@ -481,13 +582,18 @@ async def stone_spec_prefill(
     if not rfq_id:
         # Freelance / manual quotes have no linked RFQ — return an empty
         # skeleton so the UI can gracefully disable the Pull button.
-        return {"source": "none", "atoms": {}, "composed": ""}
+        return {"source": "none", "atoms": {},
+                "composed_stone": "", "composed_metal": "",
+                # Legacy alias kept for backward-compat with earlier client.
+                "composed": ""}
 
     rfq = await db.rfqs.find_one(
         {"id": rfq_id, "deleted": {"$ne": True}}, {"_id": 0}
     )
     if not rfq:
-        return {"source": "none", "atoms": {}, "composed": ""}
+        return {"source": "none", "atoms": {},
+                "composed_stone": "", "composed_metal": "",
+                "composed": ""}
 
     prefs = rfq.get("preference_snapshot") or {}
     resp: dict = {}
@@ -499,10 +605,16 @@ async def stone_spec_prefill(
         if bc:
             resp = bc.get("response") or {}
 
-    atoms = _derive_stone_atoms(prefs, resp)
+    stone_atoms = _derive_stone_atoms(prefs, resp)
+    metal_atoms = _derive_metal_atoms(prefs, resp)
+    composed_stone = _compose_stone_spec(stone_atoms)
+    composed_metal = _compose_metal_spec(metal_atoms)
     return {
         "source": "rfq",
-        "atoms": atoms,
-        "composed": _compose_stone_spec(atoms),
+        "atoms": {**stone_atoms, **metal_atoms},
+        "composed_stone": composed_stone,
+        "composed_metal": composed_metal,
+        # Legacy alias — earlier version returned just the stone string.
+        "composed": composed_stone,
         "rfq_id": rfq_id,
     }

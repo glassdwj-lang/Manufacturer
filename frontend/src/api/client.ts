@@ -972,7 +972,16 @@ export const api = {
   mfgGetRfq: (id: string) => request<any>(`/manufacturer/rfqs/${id}`),
 
   // ---------- Quotes ----------
-  listQuotes: () => request<any[]>(`/quotes`),
+  listQuotes: (freelance?: "true" | "false") =>
+    request<any[]>(`/quotes${freelance ? `?freelance=${freelance}` : ""}`),
+  createFreelanceQuote: (body: {
+    piece_description?: string;
+    jewelry_name?: string;
+  }) =>
+    request<any>(`/quotes/freelance`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getQuote: (id: string) => request<any>(`/quotes/${id}`),
   patchQuote: (id: string, body: any) =>
     request<any>(`/quotes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),

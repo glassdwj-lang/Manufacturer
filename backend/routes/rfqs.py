@@ -715,6 +715,65 @@ async def record_broadcast_response(
     return {"ok": True, "broadcast": target}
 
 
+def _derive_metal_atoms(prefs: dict, resp: dict | None = None) -> dict:
+    """Derive atomic metal attributes from RFQ preferences + broadcast
+    response. Response's ``metal`` wins over prefs' ``metal_preference``
+    / ``gold_karat``. Emits ``metal_type`` (e.g. "18K White Gold") and
+    ``metal_weight_g`` (float, from response's ``piece_weight_g``).
+    """
+    prefs = prefs or {}
+    resp = resp or {}
+
+    # --- metal_type ---------------------------------------------------
+    # Prefer the manufacturer's confirmed material name. Fall back to the
+    # atelier ask ("18k" karat + "white gold" preference).
+    raw = (resp.get("metal") or "").strip()
+    if not raw:
+        karat = str(prefs.get("gold_karat") or "").strip()
+        pref  = str(prefs.get("metal_preference") or "").strip()
+        # If both are set, combine "18K" + "white gold" → "18K White Gold".
+        parts: list[str] = []
+        if karat:
+            parts.append(karat if karat.upper().endswith("K") else f"{karat}K")
+        if pref:
+            parts.append(pref)
+        raw = " ".join(parts)
+    # Normalise casing — "18K White Gold" reads better than "18k white gold".
+    metal_type: str | None
+    if raw:
+        # Special-case "K" so we don't lowercase "18K" → "18k".
+        metal_type = " ".join(
+            (w.upper() if len(w) <= 3 and w.upper().endswith("K") else w.capitalize())
+            for w in raw.split()
+        )
+    else:
+        metal_type = None
+
+    # --- metal_weight_g ----------------------------------------------
+    w = resp.get("piece_weight_g")
+    if w is not None:
+        try:
+            w = float(w)
+        except (TypeError, ValueError):
+            w = None
+    return {"metal_type": metal_type, "metal_weight_g": w}
+
+
+def _compose_metal_spec(atoms: dict) -> str:
+    """Human-readable metal spec — "18K White Gold, 6g"."""
+    parts: list[str] = []
+    mt = (atoms.get("metal_type") or "").strip()
+    if mt:
+        parts.append(mt)
+    w = atoms.get("metal_weight_g")
+    try:
+        if w is not None and float(w) > 0:
+            parts.append(f"{float(w):g}g")
+    except (TypeError, ValueError):
+        pass
+    return ", ".join(parts)
+
+
 def _derive_stone_atoms(prefs: dict, resp: dict | None = None) -> dict:
     """Derive atomic stone attributes from an RFQ's ``preference_snapshot``
     and (optional) manufacturer broadcast ``response``. Response fields
@@ -850,8 +909,12 @@ async def admin_import_broadcast_to_quote(
     # Auto-derive atomic diamond fields from prefs + response so the
     # Stone-Spec row is prefilled — admin can still overwrite before send.
     stone_atoms = _derive_stone_atoms(prefs, resp)
+    metal_atoms = _derive_metal_atoms(prefs, resp)
     stone_spec_composed = _compose_stone_spec(stone_atoms) or (
         resp.get("stone_kind") or prefs.get("main_stone_type") or ""
+    )
+    metal_spec_composed = _compose_metal_spec(metal_atoms) or (
+        resp.get("metal") or prefs.get("metal_preference") or ""
     )
     quote_doc = {
         "id": quote_id,
@@ -870,10 +933,11 @@ async def admin_import_broadcast_to_quote(
         "status": "draft",
         "inputs": {
             "piece_description": prefs.get("name") or rfq.get("piece_type_label"),
-            "metal_spec": resp.get("metal") or prefs.get("metal_preference"),
+            "metal_spec": metal_spec_composed,
             "stone_spec": stone_spec_composed,
-            # Atomic stone fields — power the new $ | ct | shape | color |
-            # clarity row + Market-Anchor filtering.
+            # Atomic metal + stone fields — power the split Product-Spec
+            # rows on the frontend and Market-Anchor filtering.
+            **metal_atoms,
             **stone_atoms,
             "ring_cost_usd": resp.get("price_usd") or 0.0,
             "includes_hidden_halo_pave": False,
