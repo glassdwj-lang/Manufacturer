@@ -1017,6 +1017,19 @@ export const api = {
     }),
   getQuoteComparisons: (quoteId: string) =>
     request<any>(`/quotes/${quoteId}/comparisons`),
+  getStoneSpecPrefill: (quoteId: string) =>
+    request<{
+      source: "rfq" | "none";
+      atoms: {
+        diamond_type?: string | null;
+        diamond_carat?: number | null;
+        diamond_shape?: string | null;
+        diamond_color?: string | null;
+        diamond_clarity?: string | null;
+      };
+      composed?: string;
+      rfq_id?: string;
+    }>(`/quotes/${quoteId}/stone-spec-prefill`),
 
   // ---------- Client approval gates (Step 02) ----------
   releaseRenderForClient: (orderId: string, renderId: string, released: boolean) =>

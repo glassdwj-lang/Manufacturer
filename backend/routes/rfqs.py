@@ -715,6 +715,115 @@ async def record_broadcast_response(
     return {"ok": True, "broadcast": target}
 
 
+def _derive_stone_atoms(prefs: dict, resp: dict | None = None) -> dict:
+    """Derive atomic stone attributes from an RFQ's ``preference_snapshot``
+    and (optional) manufacturer broadcast ``response``. Response fields
+    win over preferences because they're the manufacturer's confirmed
+    specs, but the atoms always fall back to the atelier's ask.
+
+    Emits keys: ``diamond_type`` (lab|natural), ``diamond_carat``,
+    ``diamond_shape``, ``diamond_color``, ``diamond_clarity``.
+    Empty / missing sources yield ``None`` (never a spurious "0" or "").
+    """
+    prefs = prefs or {}
+    resp = resp or {}
+
+    # --- diamond_type -------------------------------------------------
+    # ``stone_kind`` in the response is canonical: 'lab_diamond' /
+    # 'natural_diamond' / 'moissanite'. Fall back to prefs.main_stone_type
+    # which uses the same vocabulary via gem-gallery.
+    stone_kind = (
+        (resp.get("stone_kind") or prefs.get("main_stone_type") or "")
+        .strip()
+        .lower()
+        .replace(" ", "_")
+    )
+    if "lab" in stone_kind:
+        diamond_type = "lab"
+    elif "natural" in stone_kind or stone_kind == "diamond":
+        diamond_type = "natural"
+    else:
+        # Moissanite, sapphire, etc. — leave blank so admin sees an
+        # untouched Type toggle and knows to confirm.
+        diamond_type = None
+
+    # --- diamond_carat -----------------------------------------------
+    # Response has a numeric ``lab_diamond_size_ct``; prefs is a free-form
+    # ``carat_weight`` string like "3ct" / "3.0 - 3.5". Parse defensively.
+    ct: float | None = None
+    raw_ct = resp.get("lab_diamond_size_ct")
+    if raw_ct is not None:
+        try:
+            ct = float(raw_ct)
+        except (TypeError, ValueError):
+            ct = None
+    if ct is None:
+        raw = str(prefs.get("carat_weight") or "").strip()
+        if raw:
+            # Extract the first numeric token — handles "3", "3ct",
+            # "3.0", "3-3.5", "3 – 3.5", "3ct approx", etc.
+            import re
+            m = re.search(r"\d+(?:\.\d+)?", raw)
+            if m:
+                try:
+                    ct = float(m.group(0))
+                except ValueError:
+                    ct = None
+
+    # --- diamond_shape -----------------------------------------------
+    shape = (
+        prefs.get("stone_shape")
+        or (prefs.get("stone_shapes") or [None])[0]
+        or None
+    )
+    if shape:
+        shape = str(shape).strip().title() or None
+
+    # --- diamond_color / clarity -------------------------------------
+    color = (
+        resp.get("lab_diamond_color") or prefs.get("color_grade") or None
+    )
+    if color:
+        color = str(color).strip().upper() or None
+
+    clarity = (
+        resp.get("lab_diamond_clarity") or prefs.get("clarity_grade") or None
+    )
+    if clarity:
+        clarity = str(clarity).strip().upper() or None
+
+    return {
+        "diamond_type": diamond_type,
+        "diamond_carat": ct,
+        "diamond_shape": shape,
+        "diamond_color": color,
+        "diamond_clarity": clarity,
+    }
+
+
+def _compose_stone_spec(atoms: dict) -> str:
+    """Human-readable ``stone_spec`` from atomic fields — mirrors the
+    frontend composer so PDFs and back-end templates render identically.
+    """
+    parts: list[str] = []
+    t = (atoms.get("diamond_type") or "").strip()
+    if t:
+        parts.append(f"{t} diamond")
+    ct = atoms.get("diamond_carat")
+    try:
+        if ct is not None and float(ct) > 0:
+            # Trim trailing .0 for cleaner display ("3ct" not "3.0ct").
+            f = float(ct)
+            parts.append(f"{f:g}ct")
+    except (TypeError, ValueError):
+        pass
+    for k in ("diamond_shape", "diamond_color", "diamond_clarity"):
+        v = (atoms.get(k) or "").strip() if isinstance(atoms.get(k), str) else atoms.get(k)
+        if v:
+            parts.append(str(v))
+    return " | ".join(parts)
+
+
 # ----------------------------------------------------------------------
 # ADMIN: import a broadcast response into a Quote
 # ----------------------------------------------------------------------
@@ -738,6 +847,12 @@ async def admin_import_broadcast_to_quote(
     resp = bc.get("response") or {}
     now = _now_iso()
     quote_id = str(uuid4())
+    # Auto-derive atomic diamond fields from prefs + response so the
+    # Stone-Spec row is prefilled — admin can still overwrite before send.
+    stone_atoms = _derive_stone_atoms(prefs, resp)
+    stone_spec_composed = _compose_stone_spec(stone_atoms) or (
+        resp.get("stone_kind") or prefs.get("main_stone_type") or ""
+    )
     quote_doc = {
         "id": quote_id,
         "rfq_id": rfq_id,
@@ -756,7 +871,10 @@ async def admin_import_broadcast_to_quote(
         "inputs": {
             "piece_description": prefs.get("name") or rfq.get("piece_type_label"),
             "metal_spec": resp.get("metal") or prefs.get("metal_preference"),
-            "stone_spec": resp.get("stone_kind") or prefs.get("main_stone_type"),
+            "stone_spec": stone_spec_composed,
+            # Atomic stone fields — power the new $ | ct | shape | color |
+            # clarity row + Market-Anchor filtering.
+            **stone_atoms,
             "ring_cost_usd": resp.get("price_usd") or 0.0,
             "includes_hidden_halo_pave": False,
             "hidden_halo_pave_cost_usd": 0.0,

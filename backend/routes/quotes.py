@@ -445,3 +445,64 @@ async def delete_quote(
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Quote not found")
     return {"ok": True}
+
+
+
+# ---------------------------------------------------------------------
+# Stone-Spec prefill from the linked RFQ / display-card data
+# ---------------------------------------------------------------------
+@router.get(
+    "/quotes/{quote_id}/stone-spec-prefill",
+    summary="Suggest atomic stone fields from the linked RFQ preferences + response",
+)
+async def stone_spec_prefill(
+    quote_id: str,
+    user=Depends(require_roles("admin")),
+):
+    """Returns the diamond_* atoms derived from the linked RFQ's
+    preference_snapshot + matching broadcast response — non-destructive:
+    the client decides whether to apply / overwrite.
+
+    Shape:
+      {"source": "rfq"|"none",
+       "atoms": {diamond_type, diamond_carat, diamond_shape,
+                 diamond_color, diamond_clarity},
+       "composed": "lab diamond | 3ct | Round | D | VVS2"}
+    """
+    from routes.rfqs import _derive_stone_atoms, _compose_stone_spec  # local import to avoid cycles
+
+    q = await db.quotes.find_one(
+        {"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0}
+    )
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    rfq_id = q.get("rfq_id")
+    if not rfq_id:
+        # Freelance / manual quotes have no linked RFQ — return an empty
+        # skeleton so the UI can gracefully disable the Pull button.
+        return {"source": "none", "atoms": {}, "composed": ""}
+
+    rfq = await db.rfqs.find_one(
+        {"id": rfq_id, "deleted": {"$ne": True}}, {"_id": 0}
+    )
+    if not rfq:
+        return {"source": "none", "atoms": {}, "composed": ""}
+
+    prefs = rfq.get("preference_snapshot") or {}
+    resp: dict = {}
+    if q.get("broadcast_id"):
+        bc = next(
+            (b for b in rfq.get("broadcasts", []) if b.get("id") == q["broadcast_id"]),
+            None,
+        )
+        if bc:
+            resp = bc.get("response") or {}
+
+    atoms = _derive_stone_atoms(prefs, resp)
+    return {
+        "source": "rfq",
+        "atoms": atoms,
+        "composed": _compose_stone_spec(atoms),
+        "rfq_id": rfq_id,
+    }

@@ -704,6 +704,45 @@ export default function QuoteDetailScreen() {
               setInput("stone_spec", composeStoneSpec());
               setTimeout(commitInputs, 0);
             };
+            const applyPrefill = async () => {
+              try {
+                const r = await api.getStoneSpecPrefill(qid);
+                if (r.source !== "rfq") {
+                  Alert.alert("No linked RFQ", "This quote has no source RFQ to pull specs from.");
+                  return;
+                }
+                // Detect whether current atoms are non-empty — if so,
+                // confirm before overwriting (protects hand-edited values).
+                const dirty = ["diamond_type","diamond_carat","diamond_shape","diamond_color","diamond_clarity"]
+                  .some(k => {
+                    const v = (quote.inputs || {})[k];
+                    return v !== undefined && v !== null && v !== "" && !(typeof v === "number" && v === 0);
+                  });
+                const doApply = () => {
+                  const patch = {
+                    ...quote.inputs,
+                    ...r.atoms,
+                    stone_spec: r.composed || composeStoneSpec(r.atoms),
+                  };
+                  setQuote((q: any) => ({ ...q, inputs: patch }));
+                  setTimeout(() => persist({ inputs: patch }), 0);
+                };
+                if (dirty) {
+                  Alert.alert(
+                    "Overwrite stone spec?",
+                    `Pulling from RFQ will replace current values with:\n${r.composed || "(empty)"}`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Overwrite", style: "destructive", onPress: doApply },
+                    ],
+                  );
+                } else {
+                  doApply();
+                }
+              } catch (e: any) {
+                Alert.alert("Prefill failed", e?.message || "unknown");
+              }
+            };
             const StoneCell = ({
               label, field, placeholder, numeric = false, flex = 1,
             }: { label: string; field: string; placeholder: string; numeric?: boolean; flex?: number }) => (
@@ -729,7 +768,24 @@ export default function QuoteDetailScreen() {
             const type = String(i.diamond_type || "").toLowerCase();
             return (
               <View style={{ marginBottom: 8 }}>
-                <Text style={{ color: theme.textMuted, fontSize: 11, marginBottom: 4 }}>Stone spec</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+                  <Text style={{ color: theme.textMuted, fontSize: 11, flex: 1 }}>Stone spec</Text>
+                  {quote.rfq_id && (
+                    <TouchableOpacity
+                      onPress={applyPrefill}
+                      style={{
+                        flexDirection: "row", alignItems: "center",
+                        paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4,
+                        borderWidth: 1, borderColor: theme.primary,
+                      }}
+                    >
+                      <Ionicons name="download-outline" size={11} color={theme.primary} style={{ marginRight: 4 }} />
+                      <Text style={{ color: theme.primary, fontSize: 10, fontWeight: "700" }}>
+                        Pull from RFQ
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
                 {/* Type toggle — lab / natural */}
                 <View style={{ flexDirection: "row", marginBottom: 6 }}>
