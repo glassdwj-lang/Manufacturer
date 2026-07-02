@@ -534,9 +534,22 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
                   )}
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
-                  <Text style={{ color: theme.primary, fontSize: 13, fontWeight: "700" }}>
-                    AUD {Number(m.price_aud || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                  </Text>
+                  {(() => {
+                    // Prefer the LLM-captured native price + currency.
+                    // Fall back to the legacy AUD-only field for older
+                    // cached snapshots.
+                    const native = m.price_native != null ? Number(m.price_native) : null;
+                    const currency = (m.price_currency || "").toString().toUpperCase();
+                    const legacyAud = m.price_aud != null ? Number(m.price_aud) : null;
+                    const [amount, code] = native != null && native > 0 && currency
+                      ? [native, currency]
+                      : [legacyAud || 0, "AUD"];
+                    return (
+                      <Text style={{ color: theme.primary, fontSize: 13, fontWeight: "700" }}>
+                        {code} {amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </Text>
+                    );
+                  })()}
                   <Text style={{ color: theme.textMuted, fontSize: 9 }}>
                     conf {Math.round(Number(m.confidence || 0) * 100)}%
                   </Text>

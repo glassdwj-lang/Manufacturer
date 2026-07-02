@@ -309,15 +309,17 @@ async def _extract_html_llm(
         "Return up to 5 comparable engagement rings whose price > 0. "
         "STRICTLY match the RFQ's diamond_type (lab vs natural). "
         "Respond with a JSON array only (no prose). Each object MUST have keys: "
-        "product_name, price_aud (float — convert from USD @ 1.50 or GBP @ 1.90 "
-        "when the site's priceCurrency isn't AUD, and mention the currency in "
-        "snippet), metal, diamond_ct (float or null), shape, cut, color, clarity, "
+        "product_name, "
+        "price_native (float — the price as printed on the site, DO NOT convert), "
+        "price_currency (ISO code from the site — AUD, USD, GBP, EUR, CAD, etc.), "
+        "metal, diamond_ct (float or null), shape, cut, color, clarity, "
         f"url (absolute — prepend {site['base_url']} if relative), "
-        "snippet (≤180 chars — include original currency + any diamond_type "
-        "detail such as 'lab-grown' or 'natural'), confidence "
+        "snippet (≤180 chars — include any diamond_type detail such as "
+        "'lab-grown' or 'natural'), confidence "
         "(0..1 — how closely the piece matches the RFQ). "
         "Reject pieces whose diamond_type disagrees with the RFQ. "
-        "If a spec is unclear, set it null instead of guessing."
+        "If a spec is unclear, set it null instead of guessing. "
+        "Never convert currency — the human viewer will handle FX themselves."
     )
     criteria_line = json.dumps({k: v for k, v in criteria.items() if v}, ensure_ascii=False)
 
