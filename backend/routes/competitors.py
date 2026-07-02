@@ -59,7 +59,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "name": "Bradley's Jewellers",
         "base_url": "https://bradleysthejewellers.com",
         "products_json": "https://bradleysthejewellers.com/products.json",
-        "search_url": "https://bradleysthejewellers.com/collections/all",
+        "search_url": "https://bradleysthejewellers.com/collections/engagement-rings",
         "strategy": "shopify_json",
         "feasibility": "easy",
         "active": True,
@@ -68,7 +68,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "cullen",
         "name": "Cullen Jewellery",
         "base_url": "https://cullenjewellery.com",
-        "search_url": "https://cullenjewellery.com/engagement-rings",
+        "search_url": "https://cullenjewellery.com/lab-diamond-engagement-rings",
         "strategy": "html_llm",
         "feasibility": "good",
         "active": True,
@@ -77,7 +77,9 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "michaelhill",
         "name": "Michael Hill",
         "base_url": "https://www.michaelhill.com.au",
-        "search_url": "https://www.michaelhill.com.au/engagement-rings",
+        # Previous /engagement-rings 404'd. Category root under /rings/
+        # keeps the page reachable while the LLM narrows to bridal.
+        "search_url": "https://www.michaelhill.com.au/rings/engagement",
         "strategy": "html_llm",
         "feasibility": "good",
         "active": True,
@@ -95,7 +97,7 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "savoirfaire",
         "name": "Savoir-Faire Jewellery",
         "base_url": "https://savoir-fairejewellery.com.au",
-        "search_url": "https://savoir-fairejewellery.com.au/shop",
+        "search_url": "https://savoir-fairejewellery.com.au/collections/engagement-rings",
         "strategy": "playwright_llm",
         "feasibility": "playwright_needed",
         "active": True,
@@ -121,9 +123,11 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
     # --- US market (Phase 2) ------------------------------------------
     {
         "id": "gabrielny",
-        "name": "Gabriel & Co. (NY)",
+        "name": "Gabriel & Co.",
         "base_url": "https://www.gabrielny.com",
-        "search_url": "https://www.gabrielny.com/fashion-rings",
+        # Was /fashion-rings — wrong product family. Bridal collection
+        # gives us actual engagement rings to compare against.
+        "search_url": "https://www.gabrielny.com/collections/bridal-jewelry-engagement-rings",
         "strategy": "html_llm",
         "feasibility": "good",
         "active": True,
@@ -150,21 +154,66 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "id": "bluenile",
         "name": "Blue Nile",
         "base_url": "https://www.bluenile.com",
-        "search_url": "https://www.bluenile.com/build-your-ring/select-diamond",
+        # Was /build-your-ring — configurator page with no product rows.
+        # Ready-to-wear engagement rings listing is scrapeable.
+        "search_url": "https://www.bluenile.com/engagement-rings/",
         "strategy": "playwright_llm",
         "feasibility": "playwright_needed",
         "active": True,
     },
     {
-        "id": "toryburch",
-        "name": "Tory Burch",
-        "base_url": "https://www.toryburch.com",
-        "search_url": "https://www.toryburch.com/en-au/jewelry/rings/",
-        "strategy": "html_llm",
-        "feasibility": "good",
+        "id": "jamesallen",
+        "name": "James Allen",
+        "base_url": "https://www.jamesallen.com",
+        "search_url": "https://www.jamesallen.com/engagement-rings/",
+        "strategy": "playwright_llm",
+        "feasibility": "playwright_needed",
         "active": True,
     },
+    # Tory Burch removed — fashion / costume jewellery, not comparable
+    # to fine bridal atelier product. James Allen replaces the slot.
 ]
+
+
+def _build_search_url(site: Dict[str, Any], criteria: Dict[str, Any]) -> str:
+    """Return a criteria-aware search URL for the site, or the default.
+
+    Many competitor sites accept common URL params (?carat=, ?shape=,
+    ?color=) that filter their listing to something much closer to the
+    RFQ. Where a site supports it, we bake the criteria into the URL —
+    the LLM then has a MUCH tighter listing to parse (5-20 exact matches
+    instead of a generic 100-product front page) and results are far
+    more precise.
+
+    Falls back to the site's canonical ``search_url`` if the site
+    doesn't have a known query API or the criteria are missing.
+    """
+    shape = (criteria.get("shape") or "").strip().lower()
+    ct = criteria.get("diamond_ct")
+    try:
+        ct_f = float(ct) if ct not in (None, "", 0) else None
+    except (TypeError, ValueError):
+        ct_f = None
+    dtype = (criteria.get("diamond_type") or "").strip().lower()
+
+    if site["id"] == "bluenile" and shape:
+        # Blue Nile supports /engagement-rings/<shape>-cut/
+        # e.g. /engagement-rings/round-cut-diamond-engagement-rings
+        return f"https://www.bluenile.com/engagement-rings/{shape}-cut/"
+    if site["id"] == "jamesallen" and shape:
+        # James Allen: /engagement-rings/round/, /oval/, etc.
+        return f"https://www.jamesallen.com/engagement-rings/{shape}/"
+    if site["id"] == "rarecarat" and shape and ct_f:
+        # Rare Carat query API: shape + min/max carat window.
+        low, high = max(ct_f - 0.25, 0.30), ct_f + 0.25
+        return (
+            f"https://www.rarecarat.com/browse-diamonds"
+            f"?shape={shape}&caratsMin={low:.2f}&caratsMax={high:.2f}"
+        )
+    if site["id"] == "cullen" and dtype == "natural":
+        # Cullen has separate lab / natural landing pages.
+        return "https://cullenjewellery.com/natural-diamond-engagement-rings"
+    return site["search_url"]
 
 _UA = "Somnio-QuoteAnchor/1.0 (contact: admin@somnio.co)"
 _MAX_HTML_KB = 90  # trim HTML to ~90KB before feeding to LLM to control cost
@@ -233,7 +282,9 @@ async def _extract_html_llm(
     if prefetched_html is not None:
         html = prefetched_html
     else:
-        url = site["search_url"]
+        # Criteria-aware URL: query params are baked in when the site
+        # supports them (Blue Nile, James Allen, Rare Carat, Cullen).
+        url = _build_search_url(site, criteria)
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT_SECONDS,
@@ -247,8 +298,30 @@ async def _extract_html_llm(
             log.warning("html fetch failed for %s: %s", site["id"], exc)
             return []
 
-    # Trim HTML: strip <script>/<style>, collapse whitespace, cap size.
-    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    # --- JSON-LD extraction ------------------------------------------
+    # Most modern e-commerce sites (Shopify, BigCommerce, custom SEO)
+    # embed structured Product / ItemList data in
+    # <script type="application/ld+json"> tags. This is 100× cleaner
+    # than raw HTML for LLM parsing — schema.org Product objects have
+    # name, price, priceCurrency, brand, description all in JSON.
+    # We pull them out FIRST, then strip all scripts/styles from the
+    # HTML that remains.
+    ld_blocks: List[str] = []
+    for m in re.finditer(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html, flags=re.DOTALL | re.IGNORECASE,
+    ):
+        block = m.group(1).strip()
+        # Keep only blocks that mention Product / Offer schemas — skips
+        # BreadcrumbList / Organization noise that inflates prompt cost.
+        if re.search(r'"@type"\s*:\s*"(?:Product|ItemList|AggregateOffer|Offer)"', block, re.IGNORECASE):
+            ld_blocks.append(block)
+        if len(ld_blocks) >= 6:  # cap payload — 6 product schemas is plenty
+            break
+
+    # Now strip all scripts + styles + comments to slim the HTML.
+    html = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<!--.*?-->", " ", html, flags=re.DOTALL)
     html = re.sub(r"\s+", " ", html)
     if len(html) > _MAX_HTML_KB * 1024:
         html = html[: _MAX_HTML_KB * 1024]
@@ -260,21 +333,38 @@ async def _extract_html_llm(
 
     system_prompt = (
         "You are a market-research extractor for a luxury jewellery atelier. "
-        "You are given raw HTML from a COMPETITOR's website and a Somnio RFQ's "
-        "matching criteria. Return up to 5 comparable engagement rings priced "
-        "above 0. Respond with a JSON array only (no prose). Each object MUST "
-        "have keys: product_name, price_aud (float, convert from USD/GBP to AUD "
-        "using ~1.5 or ~1.9 if needed and note in snippet), metal, diamond_ct "
-        "(float or null), shape, cut, color, clarity, url (absolute, prepend "
-        f"{site['base_url']} if relative), snippet (≤180 chars), confidence "
-        "(0..1 — how well the piece matches the RFQ). If the HTML is a category "
-        "listing without full specs, return items with the fields you can see "
-        "and leave others as null."
+        "You are given (a) any JSON-LD schema.org Product payloads that the "
+        "site ships in <script type=application/ld+json>, and (b) the trimmed "
+        "raw HTML. Prefer JSON-LD when present — it's structured and reliable. "
+        "Return up to 5 comparable engagement rings whose price > 0. "
+        "STRICTLY match the RFQ's diamond_type (lab vs natural). "
+        "Respond with a JSON array only (no prose). Each object MUST have keys: "
+        "product_name, price_aud (float — convert from USD @ 1.50 or GBP @ 1.90 "
+        "when the site's priceCurrency isn't AUD, and mention the currency in "
+        "snippet), metal, diamond_ct (float or null), shape, cut, color, clarity, "
+        f"url (absolute — prepend {site['base_url']} if relative), "
+        "snippet (≤180 chars — include original currency + any diamond_type "
+        "detail such as 'lab-grown' or 'natural'), confidence "
+        "(0..1 — how closely the piece matches the RFQ). "
+        "Reject pieces whose diamond_type disagrees with the RFQ. "
+        "If a spec is unclear, set it null instead of guessing."
     )
     criteria_line = json.dumps({k: v for k, v in criteria.items() if v}, ensure_ascii=False)
+
+    # Build the user message — JSON-LD block goes FIRST so the LLM sees
+    # the structured payload before the noisy HTML fallback.
+    ld_section = ""
+    if ld_blocks:
+        joined = "\n---\n".join(ld_blocks)
+        # Cap to ~20KB — schema.org payloads are usually much smaller.
+        if len(joined) > 20 * 1024:
+            joined = joined[: 20 * 1024]
+        ld_section = f"JSON-LD product schemas found on the page:\n{joined}\n\n"
+
     user_text = (
         f"RFQ criteria: {criteria_line}\n\n"
         f"Site: {site['name']} ({site['base_url']})\n\n"
+        f"{ld_section}"
         f"HTML (trimmed):\n{html}\n\n"
         "Return the JSON array."
     )
@@ -330,7 +420,8 @@ async def _extract_playwright_llm(site: Dict[str, Any], criteria: Dict[str, Any]
     then reuse the same LLM extraction as the ``html_llm`` strategy.
     """
     from playwright.async_api import async_playwright
-    url = site["search_url"]
+    # Criteria-aware URL — Blue Nile / James Allen accept shape in path.
+    url = _build_search_url(site, criteria)
     html = ""
     try:
         async with async_playwright() as p:
