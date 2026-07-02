@@ -517,6 +517,61 @@ export default function QuoteDetailScreen() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadFx(false); }, [loadFx]);
 
+  /**
+   * Auto-sync per-unit fields when their bulk/divisor drivers change.
+   *
+   * Rule (mirrors the ``recompute`` helpers inside the two custom rows):
+   *   • divisor > 0        → per-unit = bulk / divisor  (multi-piece shipment)
+   *   • divisor 0 / blank  → per-unit = bulk            (bulk-split OFF)
+   *
+   * Runs whenever the driver values on ``quote.inputs`` change — including
+   * the initial GET response — so quotes created before the bulk/divisor
+   * feature (with a stale per-unit value burned in) self-correct without
+   * requiring the admin to blur any field manually.
+   *
+   * Idempotent: silently returns if the stored per-unit already matches
+   * the derived value (within 1c tolerance), so we don't ping-pong PATCHes.
+   */
+  useEffect(() => {
+    if (!quote?.inputs) return;
+    const i = quote.inputs;
+    const patches: Record<string, number> = {};
+    // Air freight (USD)
+    const afBulk = Number(i.air_freight_bulk_cost_usd);
+    const afDiv  = Number(i.air_freight_divisor);
+    if (Number.isFinite(afBulk) && afBulk > 0) {
+      const expected = (Number.isFinite(afDiv) && afDiv > 0)
+        ? Math.round((afBulk / afDiv) * 100) / 100
+        : afBulk;
+      if (Math.abs(expected - Number(i.air_freight_cost_usd || 0)) > 0.01) {
+        patches.air_freight_cost_usd = expected;
+      }
+    }
+    // Customs clearance (AUD)
+    const ccBulk = Number(i.custom_clearance_bulk_aud);
+    const ccDiv  = Number(i.custom_clearance_divisor);
+    if (Number.isFinite(ccBulk) && ccBulk > 0) {
+      const expected = (Number.isFinite(ccDiv) && ccDiv > 0)
+        ? Math.round((ccBulk / ccDiv) * 100) / 100
+        : ccBulk;
+      if (Math.abs(expected - Number(i.custom_clearance_aud || 0)) > 0.01) {
+        patches.custom_clearance_aud = expected;
+      }
+    }
+    if (Object.keys(patches).length === 0) return;
+    const nextInputs = { ...i, ...patches };
+    setQuote((q: any) => ({ ...q, inputs: nextInputs }));
+    persist({ inputs: nextInputs });
+    // Depend on the driver fields only — depending on the derived
+    // per-unit fields would cause an infinite update loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    quote?.inputs?.air_freight_bulk_cost_usd,
+    quote?.inputs?.air_freight_divisor,
+    quote?.inputs?.custom_clearance_bulk_aud,
+    quote?.inputs?.custom_clearance_divisor,
+  ]);
+
   // Live preview totals (debounced) — server-side authoritative
   useEffect(() => {
     if (!quote?.inputs) return;
