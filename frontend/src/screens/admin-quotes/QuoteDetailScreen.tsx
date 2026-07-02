@@ -827,29 +827,14 @@ export default function QuoteDetailScreen() {
                 Alert.alert("Prefill failed", e?.message || "unknown");
               }
             };
-            const StoneCell = ({
-              label, field, placeholder, numeric = false, flex = 1,
-            }: { label: string; field: string; placeholder: string; numeric?: boolean; flex?: number }) => (
-              <View style={{ flex, minWidth: 0, marginRight: 6 }}>
-                <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 2 }}>{label}</Text>
-                <TextInput
-                  value={String(i[field] ?? "")}
-                  onChangeText={(v) =>
-                    numeric ? setInput(field, v === "" ? "" : Number(v)) : setInput(field, v)
-                  }
-                  onBlur={commitAtomsAndCompose}
-                  placeholder={placeholder}
-                  placeholderTextColor="#555"
-                  keyboardType={numeric ? "decimal-pad" : "default"}
-                  style={{
-                    borderWidth: 1, borderColor: theme.border, borderRadius: 6,
-                    paddingHorizontal: 8, paddingVertical: 6,
-                    color: theme.textPrimary, fontSize: 12,
-                  }}
-                />
-              </View>
-            );
             const type = String(i.diamond_type || "").toLowerCase();
+            // Reusable style so the 4 inline TextInputs stay consistent.
+            const cellStyle = {
+              borderWidth: 1, borderColor: theme.border, borderRadius: 6,
+              paddingHorizontal: 8, paddingVertical: 6,
+              color: theme.textPrimary, fontSize: 12,
+            } as const;
+            const cellLabel = { color: theme.textMuted, fontSize: 10, marginBottom: 2 } as const;
             return (
               <View style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
@@ -898,12 +883,56 @@ export default function QuoteDetailScreen() {
                   })}
                 </View>
 
-                {/* 4 atoms in one row: Carat | Shape | Color | Clarity */}
+                {/* 4 atoms in one row: Carat | Shape | Color | Clarity
+                    Inlined (not a nested component) so React doesn't
+                    unmount + remount them on every keystroke, which
+                    would lose focus and drop uncommitted text. */}
                 <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                  <StoneCell label="Carat"   field="diamond_carat"   placeholder="3"      numeric flex={1} />
-                  <StoneCell label="Shape"   field="diamond_shape"   placeholder="Round"          flex={1.4} />
-                  <StoneCell label="Color"   field="diamond_color"   placeholder="D"              flex={0.9} />
-                  <StoneCell label="Clarity" field="diamond_clarity" placeholder="VVS2"           flex={1.1} />
+                  <View style={{ flex: 1, minWidth: 0, marginRight: 6 }}>
+                    <Text style={cellLabel}>Carat</Text>
+                    <TextInput
+                      value={String(i.diamond_carat ?? "")}
+                      onChangeText={(v) => setInput("diamond_carat", v === "" ? "" : Number(v))}
+                      onBlur={commitAtomsAndCompose}
+                      placeholder="3"
+                      placeholderTextColor="#555"
+                      keyboardType="decimal-pad"
+                      style={cellStyle}
+                    />
+                  </View>
+                  <View style={{ flex: 1.4, minWidth: 0, marginRight: 6 }}>
+                    <Text style={cellLabel}>Shape</Text>
+                    <TextInput
+                      value={String(i.diamond_shape ?? "")}
+                      onChangeText={(v) => setInput("diamond_shape", v)}
+                      onBlur={commitAtomsAndCompose}
+                      placeholder="Round"
+                      placeholderTextColor="#555"
+                      style={cellStyle}
+                    />
+                  </View>
+                  <View style={{ flex: 0.9, minWidth: 0, marginRight: 6 }}>
+                    <Text style={cellLabel}>Color</Text>
+                    <TextInput
+                      value={String(i.diamond_color ?? "")}
+                      onChangeText={(v) => setInput("diamond_color", v)}
+                      onBlur={commitAtomsAndCompose}
+                      placeholder="D"
+                      placeholderTextColor="#555"
+                      style={cellStyle}
+                    />
+                  </View>
+                  <View style={{ flex: 1.1, minWidth: 0 }}>
+                    <Text style={cellLabel}>Clarity</Text>
+                    <TextInput
+                      value={String(i.diamond_clarity ?? "")}
+                      onChangeText={(v) => setInput("diamond_clarity", v)}
+                      onBlur={commitAtomsAndCompose}
+                      placeholder="VVS2"
+                      placeholderTextColor="#555"
+                      style={cellStyle}
+                    />
+                  </View>
                 </View>
 
                 {/* Composed preview (what will print on the client quote) */}
