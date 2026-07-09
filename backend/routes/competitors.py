@@ -647,6 +647,71 @@ async def reset_competitor(
     return next((s for s in merged if s["id"] == site_id), None)
 
 
+@router.post(
+    "/admin/competitors/{site_id}/test",
+    summary="Dry-run a scrape against ONE competitor to validate the URL / strategy",
+)
+async def test_competitor(
+    site_id: str,
+    user=Depends(require_roles("admin")),
+):
+    """Spins up a single-site scrape using a canned RFQ (natural, 1ct
+    round, D/VVS2) and returns whatever the scraper produces — without
+    persisting to any quote. Purely for admin sanity-checking a newly
+    added / edited competitor URL.
+
+    Returns:
+      {
+        "ok": bool,                # true if scraper returned ≥1 match without exception
+        "site_name": str,
+        "url_tried": str,
+        "match_count": int,
+        "matches": [...top 3 samples...],
+        "error": str | null,
+        "elapsed_ms": int,
+      }
+    """
+    library = await _effective_competitor_library()
+    site = next((s for s in library if s["id"] == site_id), None)
+    if not site:
+        raise HTTPException(status_code=404, detail=f"Unknown competitor: {site_id}")
+
+    canned_criteria = {
+        "metal": "18K White Gold",
+        "diamond_type": "natural",
+        "diamond_ct": 1.0,
+        "shape": "Round",
+        "cut": "",
+        "color": "D",
+        "clarity": "VVS2",
+        "piece_description": "1ct Round solitaire engagement ring",
+    }
+    started = datetime.utcnow()
+    matches: list = []
+    err_msg: str | None = None
+    try:
+        strategy = site.get("strategy")
+        if strategy == "shopify_json" and site.get("products_json"):
+            matches = await _extract_shopify(site, canned_criteria)
+        elif strategy == "playwright_llm":
+            matches = await _extract_playwright_llm(site, canned_criteria)
+        else:
+            matches = await _extract_html_llm(site, canned_criteria)
+    except Exception as exc:  # noqa: BLE001
+        err_msg = str(exc)[:400]
+
+    elapsed_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
+    return {
+        "ok": err_msg is None and len(matches) > 0,
+        "site_name": site["name"],
+        "url_tried": _build_search_url(site, canned_criteria),
+        "match_count": len(matches),
+        "matches": matches[:3],
+        "error": err_msg,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
 @router.get("/competitors", summary="List competitor library (admin)")
 async def list_competitors(user=Depends(require_roles("admin"))):
     return [

@@ -57,6 +57,14 @@ export default function CompetitorsScreen() {
     strategy: "html_llm", notes: "",
   });
   const [saving, setSaving] = useState(false);
+  // Test-run state — kept per-modal so results reset on close/reopen.
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<null | {
+    ok: boolean; site_name: string; url_tried: string;
+    match_count: number; elapsed_ms: number;
+    matches: Array<{ product_name?: string; price_native?: number; price_currency?: string; confidence?: number }>;
+    error?: string | null;
+  }>(null);
 
   const load = useCallback(async () => {
     try {
@@ -74,6 +82,7 @@ export default function CompetitorsScreen() {
     setEditing(null);
     setDraft({ id: "", name: "", base_url: "", search_url: "",
                strategy: "html_llm", notes: "" });
+    setTestResult(null);
     setModalOpen(true);
   };
   const openEdit = (s: Site) => {
@@ -86,50 +95,87 @@ export default function CompetitorsScreen() {
       strategy: s.strategy || "html_llm",
       notes: s.notes || "",
     });
+    setTestResult(null);
     setModalOpen(true);
   };
 
-  const submit = async () => {
+  /**
+   * Persist any unsaved changes then return the effective site id.
+   * Used by both the "Save" button and the "Run test" flow — the test
+   * always runs against the *current* DB state so admins never test a
+   * URL they didn't actually save.
+   */
+  const persistDraft = async (): Promise<string | null> => {
     const name = draft.name.trim();
     const search_url = draft.search_url.trim();
     if (!name || !search_url) {
       Alert.alert("Missing fields", "Name and Search URL are required.");
-      return;
+      return null;
     }
-    setSaving(true);
-    try {
-      if (editing) {
-        // PATCH — only send changed fields to keep the DB record tidy.
-        const patch: any = {};
-        if (name !== editing.name) patch.name = name;
-        if (draft.base_url.trim() !== (editing.base_url || "")) patch.base_url = draft.base_url.trim();
-        if (search_url !== editing.search_url) patch.search_url = search_url;
-        if (draft.strategy !== (editing.strategy || "html_llm")) patch.strategy = draft.strategy;
-        if (draft.notes.trim() !== (editing.notes || "")) patch.notes = draft.notes.trim();
-        if (Object.keys(patch).length === 0) {
-          setModalOpen(false);
-          return;
-        }
+    if (editing) {
+      const patch: any = {};
+      if (name !== editing.name) patch.name = name;
+      if (draft.base_url.trim() !== (editing.base_url || "")) patch.base_url = draft.base_url.trim();
+      if (search_url !== editing.search_url) patch.search_url = search_url;
+      if (draft.strategy !== (editing.strategy || "html_llm")) patch.strategy = draft.strategy;
+      if (draft.notes.trim() !== (editing.notes || "")) patch.notes = draft.notes.trim();
+      if (Object.keys(patch).length > 0) {
         const updated = await api.updateCompetitor(editing.id, patch);
         setItems(prev => prev.map(s => (s.id === editing.id ? updated : s)));
-      } else {
-        // POST new custom competitor.
-        const created = await api.createCompetitor({
-          id: draft.id.trim() || undefined,
-          name,
-          base_url: draft.base_url.trim() || new URL(search_url).origin,
-          search_url,
-          strategy: draft.strategy,
-          notes: draft.notes.trim() || undefined,
-          active: true,
-        });
-        setItems(prev => [...prev, created]);
+        // Keep local editing target in sync so subsequent tests use the new URL.
+        setEditing(updated);
       }
-      setModalOpen(false);
+      return editing.id;
+    }
+    // Add flow — POST and re-target the modal to Edit mode of the new row.
+    const created = await api.createCompetitor({
+      id: draft.id.trim() || undefined,
+      name,
+      base_url: draft.base_url.trim() || new URL(search_url).origin,
+      search_url,
+      strategy: draft.strategy,
+      notes: draft.notes.trim() || undefined,
+      active: true,
+    });
+    setItems(prev => [...prev, created]);
+    setEditing(created);
+    return created.id;
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const id = await persistDraft();
+      if (id) setModalOpen(false);
     } catch (e: any) {
       Alert.alert("Save failed", e?.message || "unknown");
     } finally {
       setSaving(false);
+    }
+  };
+
+  /**
+   * Save-then-scrape flow. Uses a canned RFQ (1ct Round natural D/VVS2)
+   * server-side to sanity-check the URL + strategy without touching any
+   * real quote. Result stays displayed inside the modal so admin can
+   * iterate on the URL until it produces matches.
+   */
+  const runTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const id = await persistDraft();
+      if (!id) return;
+      const r = await api.testCompetitor(id);
+      setTestResult(r);
+    } catch (e: any) {
+      setTestResult({
+        ok: false, site_name: draft.name, url_tried: draft.search_url,
+        match_count: 0, elapsed_ms: 0, matches: [],
+        error: e?.message || "unknown",
+      });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -343,16 +389,16 @@ export default function CompetitorsScreen() {
               placeholder="Optional context (e.g. Cloudflare-blocked)"
               multiline />
 
-            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm, marginTop: 8 }}>
-              <TouchableOpacity onPress={() => setModalOpen(false)} disabled={saving} style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm, marginTop: 8, flexWrap: "wrap" }}>
+              <TouchableOpacity onPress={() => setModalOpen(false)} disabled={saving || testing} style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
                 <Text style={{ color: theme.textMuted, fontWeight: "600" }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={submit}
-                disabled={saving}
+                disabled={saving || testing}
                 style={{
                   paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6,
-                  backgroundColor: theme.primary, opacity: saving ? 0.4 : 1,
+                  backgroundColor: theme.primary, opacity: (saving || testing) ? 0.4 : 1,
                   flexDirection: "row", alignItems: "center",
                 }}
               >
@@ -361,6 +407,77 @@ export default function CompetitorsScreen() {
                   {saving ? "Saving…" : (editing ? "Save changes" : "Add competitor")}
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            {/* --- Run test button + result panel ------------------------
+                Sits below the Save row so the flow reads: fill form →
+                Save → verify the URL works. Save is called first (so
+                any edits land in DB) then a dry-run scrape uses a
+                canned RFQ to check reachability + strategy fit. */}
+            <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border }}>
+              <TouchableOpacity
+                onPress={runTest}
+                disabled={saving || testing || !draft.name.trim() || !draft.search_url.trim()}
+                style={{
+                  flexDirection: "row", alignItems: "center", justifyContent: "center",
+                  paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6,
+                  borderWidth: 1, borderColor: theme.primary,
+                  opacity: (saving || testing || !draft.name.trim() || !draft.search_url.trim()) ? 0.4 : 1,
+                }}
+              >
+                {testing
+                  ? <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 6 }} />
+                  : <Ionicons name="flask-outline" size={14} color={theme.primary} style={{ marginRight: 6 }} />}
+                <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 12 }}>
+                  {testing ? "Testing scrape…" : "Run test scrape"}
+                </Text>
+              </TouchableOpacity>
+              <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 4, textAlign: "center" }}>
+                Saves first, then dry-scrapes with a canned RFQ (1ct Round natural D/VVS2). Doesn't touch any real quote.
+              </Text>
+
+              {testResult && (
+                <View style={{
+                  marginTop: 10, padding: 10, borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: testResult.ok ? "#164E3B" : "#5A2020",
+                  backgroundColor: testResult.ok ? "#0F221A" : "#1F0F0F",
+                }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+                    <Ionicons
+                      name={testResult.ok ? "checkmark-circle" : "close-circle"}
+                      size={16}
+                      color={testResult.ok ? "#2FB870" : "#E5484D"}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={{ color: theme.textPrimary, fontSize: 12, fontWeight: "700", flex: 1 }}>
+                      {testResult.ok ? "OK" : "Failed"} · {testResult.match_count} match{testResult.match_count === 1 ? "" : "es"} · {testResult.elapsed_ms}ms
+                    </Text>
+                  </View>
+                  <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 4 }} numberOfLines={2}>
+                    {testResult.url_tried}
+                  </Text>
+                  {testResult.error && (
+                    <Text style={{ color: "#E5484D", fontSize: 10, marginBottom: 4 }}>
+                      {testResult.error}
+                    </Text>
+                  )}
+                  {testResult.matches.slice(0, 3).map((m, i) => {
+                    const cur = (m.price_currency || "AUD").toUpperCase();
+                    const amt = m.price_native ?? (m as any).price_aud ?? 0;
+                    return (
+                      <View key={i} style={{ marginTop: 4 }}>
+                        <Text style={{ color: theme.textPrimary, fontSize: 11 }} numberOfLines={1}>
+                          • {(m.product_name || "unnamed")}
+                        </Text>
+                        <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+                          {cur} {typeof amt === "number" ? amt.toLocaleString() : amt} · conf {Math.round((m.confidence || 0) * 100)}%
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           </View>
         </View>

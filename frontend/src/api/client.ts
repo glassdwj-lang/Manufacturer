@@ -1072,6 +1072,16 @@ export const api = {
     request<{ ok: boolean; hard: boolean }>(`/admin/competitors/${site_id}`, {
       method: "DELETE",
     }),
+  testCompetitor: (site_id: string) =>
+    request<{
+      ok: boolean;
+      site_name: string;
+      url_tried: string;
+      match_count: number;
+      matches: Array<{ product_name?: string; price_native?: number; price_currency?: string; price_aud?: number; confidence?: number; url?: string }>;
+      error?: string | null;
+      elapsed_ms: number;
+    }>(`/admin/competitors/${site_id}/test`, { method: "POST" }),
   resetCompetitor: (site_id: string) =>
     request<any>(`/admin/competitors/${site_id}/reset`, { method: "POST" }),
 
