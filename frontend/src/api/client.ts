@@ -1050,11 +1050,27 @@ export const api = {
     }>>(`/admin/competitors`),
   updateCompetitor: (
     site_id: string,
-    body: { base_url?: string; search_url?: string; active?: boolean; notes?: string },
+    body: {
+      name?: string; base_url?: string; search_url?: string;
+      active?: boolean; strategy?: string; feasibility?: string;
+      notes?: string;
+    },
   ) =>
     request<any>(`/admin/competitors/${site_id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
+    }),
+  createCompetitor: (body: {
+    id?: string; name: string; base_url: string; search_url: string;
+    strategy?: string; feasibility?: string; active?: boolean; notes?: string;
+  }) =>
+    request<any>(`/admin/competitors`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteCompetitor: (site_id: string) =>
+    request<{ ok: boolean; hard: boolean }>(`/admin/competitors/${site_id}`, {
+      method: "DELETE",
     }),
   resetCompetitor: (site_id: string) =>
     request<any>(`/admin/competitors/${site_id}/reset`, { method: "POST" }),

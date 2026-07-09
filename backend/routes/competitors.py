@@ -465,34 +465,79 @@ class CompetitorPatch(BaseModel):
     All optional so PATCH can toggle ``active`` without needing to
     resend the URLs, or update just the URL without touching active.
     """
+    name: Optional[str] = None
     base_url: Optional[str] = None
     search_url: Optional[str] = None
     active: Optional[bool] = None
+    strategy: Optional[str] = None      # shopify_json | html_llm | playwright_llm
+    feasibility: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CompetitorCreate(BaseModel):
+    """Payload for admin-added competitor sites (not in the hardcoded
+    library). ``id`` is auto-derived from ``name`` if not provided."""
+    id: Optional[str] = None
+    name: str
+    base_url: str
+    search_url: str
+    strategy: str = "html_llm"
+    feasibility: Optional[str] = "good"
+    active: bool = True
     notes: Optional[str] = None
 
 
 async def _effective_competitor_library() -> List[Dict[str, Any]]:
-    """Merge the hardcoded ``COMPETITOR_LIBRARY`` with any per-site
-    overrides admin has saved in ``db.competitor_sites``.
+    """Merge the hardcoded ``COMPETITOR_LIBRARY`` with DB records.
 
-    Precedence: DB values win over library defaults on ``base_url``,
-    ``search_url``, ``active`` and ``notes``. Everything else (strategy,
-    products_json, feasibility, name, id) stays from the library —
-    those are structural and shouldn't be user-editable.
+    DB is the source of truth for:
+      • Field-level overrides on hardcoded sites (URLs, active, etc.)
+      • Custom sites added by admin (not in the hardcoded library)
+      • Soft-deletes on hardcoded sites (``deleted: true`` flag)
+
+    Precedence: DB values win over library defaults on every field
+    except the immutable ``id``.
     """
     overrides: Dict[str, Dict[str, Any]] = {}
     async for doc in db.competitor_sites.find({}, {"_id": 0}):
         overrides[doc["id"]] = doc
     merged: List[Dict[str, Any]] = []
+    seen: set = set()
+    # 1. Emit hardcoded library entries, minus soft-deletes.
     for site in COMPETITOR_LIBRARY:
-        s = dict(site)
+        seen.add(site["id"])
         ov = overrides.get(site["id"])
+        if ov and ov.get("deleted"):
+            continue
+        s = dict(site)
         if ov:
-            for k in ("base_url", "search_url", "active", "notes"):
+            for k in ("name", "base_url", "search_url", "active",
+                      "strategy", "feasibility", "notes"):
                 if k in ov and ov[k] is not None:
                     s[k] = ov[k]
         merged.append(s)
+    # 2. Append any admin-added custom sites that aren't in the library.
+    for site_id, ov in overrides.items():
+        if site_id in seen or ov.get("deleted"):
+            continue
+        merged.append({
+            "id": site_id,
+            "name": ov.get("name") or site_id,
+            "base_url": ov.get("base_url", ""),
+            "search_url": ov.get("search_url", ""),
+            "strategy": ov.get("strategy", "html_llm"),
+            "feasibility": ov.get("feasibility", "good"),
+            "active": ov.get("active", True),
+            "notes": ov.get("notes"),
+            "custom": True,   # UI hint — custom sites can be hard-deleted
+        })
     return merged
+
+
+def _slugify(text: str) -> str:
+    """Lowercase, alphanumeric-only slug for use as a competitor site id."""
+    slug = re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+    return slug or f"site{int(datetime.utcnow().timestamp())}"
 
 
 @router.get("/admin/competitors", summary="List competitor library with admin overrides")
@@ -503,30 +548,85 @@ async def list_competitors_admin(user=Depends(require_roles("admin"))):
     ]
 
 
+@router.post(
+    "/admin/competitors",
+    summary="Add a new custom competitor (persists to db.competitor_sites)",
+)
+async def create_competitor(
+    body: CompetitorCreate,
+    user=Depends(require_roles("admin")),
+):
+    site_id = (body.id or _slugify(body.name)).strip()
+    if not site_id:
+        raise HTTPException(status_code=400, detail="Invalid site id")
+    # Reject collisions with existing (library or DB) ids.
+    if any(s["id"] == site_id for s in COMPETITOR_LIBRARY):
+        raise HTTPException(status_code=409,
+                            detail=f"'{site_id}' is a hardcoded competitor — edit it instead")
+    if await db.competitor_sites.find_one({"id": site_id}):
+        raise HTTPException(status_code=409,
+                            detail=f"'{site_id}' already exists — edit it instead")
+    doc = body.model_dump()
+    doc["id"] = site_id
+    doc["deleted"] = False
+    await db.competitor_sites.insert_one(doc)
+    # Strip the Mongo _id that insert_one added — it's not JSON-serialisable.
+    doc.pop("_id", None)
+    return {**doc, "custom": True}
+
+
 @router.patch(
     "/admin/competitors/{site_id}",
-    summary="Update a competitor's URL / active flag (admin overlay)",
+    summary="Update any admin-editable field on a competitor (library or custom)",
 )
 async def update_competitor(
     site_id: str,
     body: CompetitorPatch,
     user=Depends(require_roles("admin")),
 ):
-    # Validate the id exists in the underlying library.
-    if not any(s["id"] == site_id for s in COMPETITOR_LIBRARY):
+    # Validate the id exists in library OR in DB.
+    in_library = any(s["id"] == site_id for s in COMPETITOR_LIBRARY)
+    in_db = await db.competitor_sites.find_one({"id": site_id})
+    if not in_library and not in_db:
         raise HTTPException(status_code=404, detail=f"Unknown competitor: {site_id}")
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if not patch:
         raise HTTPException(status_code=400, detail="No fields provided")
     patch["id"] = site_id
+    # Un-delete if the admin patches a soft-deleted hardcoded site.
+    if "deleted" in patch and patch["deleted"] is None:
+        del patch["deleted"]
     await db.competitor_sites.update_one(
         {"id": site_id},
         {"$set": patch},
         upsert=True,
     )
-    # Return the updated effective row so the client can sync state.
     merged = await _effective_competitor_library()
     return next((s for s in merged if s["id"] == site_id), None)
+
+
+@router.delete(
+    "/admin/competitors/{site_id}",
+    summary="Delete a competitor (hard-delete for custom, soft for hardcoded)",
+)
+async def delete_competitor(
+    site_id: str,
+    user=Depends(require_roles("admin")),
+):
+    in_library = any(s["id"] == site_id for s in COMPETITOR_LIBRARY)
+    if in_library:
+        # Soft-delete — keeps the library intact and lets Reset restore.
+        await db.competitor_sites.update_one(
+            {"id": site_id},
+            {"$set": {"id": site_id, "deleted": True, "active": False}},
+            upsert=True,
+        )
+        return {"ok": True, "hard": False}
+    # Custom sites are hard-deleted — they only exist in DB.
+    r = await db.competitor_sites.delete_one({"id": site_id})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail=f"Unknown competitor: {site_id}")
+    return {"ok": True, "hard": True}
 
 
 @router.post(
@@ -537,6 +637,11 @@ async def reset_competitor(
     site_id: str,
     user=Depends(require_roles("admin")),
 ):
+    # Only meaningful for hardcoded sites — custom sites don't have
+    # defaults to restore, so we refuse the reset there.
+    if not any(s["id"] == site_id for s in COMPETITOR_LIBRARY):
+        raise HTTPException(status_code=400,
+                            detail=f"'{site_id}' is a custom competitor — delete it instead")
     await db.competitor_sites.delete_one({"id": site_id})
     merged = await _effective_competitor_library()
     return next((s for s in merged if s["id"] == site_id), None)
