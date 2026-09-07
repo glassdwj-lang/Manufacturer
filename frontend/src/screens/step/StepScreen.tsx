@@ -37,6 +37,8 @@ import { useSafeBack } from "@/src/hooks/use-safe-back";
 import { LanguageSwitcher } from "@/src/components/LanguageSwitcher";
 import { PhotoLightbox } from "@/src/components/PhotoLightbox";
 import { ReorderPhotosModal } from "@/src/components/ReorderPhotosModal";
+import { EmailFilesModal, EmailFile } from "@/src/components/EmailFilesModal";
+import { api } from "@/src/api/client";
 import { useI18n } from "@/src/i18n";
 import { BrandStrip } from "@/src/components/BrandStrip";
 
@@ -110,6 +112,26 @@ export default function StepActionScreen() {
 
   const [reorderOpen, setReorderOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+
+  // Admin / associate can email the approved photos of a completed
+  // step to any recipient (client, customs broker, gemologist, etc.).
+  // Step photos are stored as bare URL strings so we synthesize the
+  // EmailFile[] on the fly — the backend rebuilds the same pseudo-file
+  // dict from the photo array using the ``file_ids`` echo.
+  const canEmailStepPhotos =
+    (user?.role === "admin" || user?.role === "associate") &&
+    !!step &&
+    step.completed &&
+    (step.photos || []).length > 0;
+
+  const emailFiles: EmailFile[] = React.useMemo(() => {
+    if (!step) return [];
+    return (step.photos || []).map((_, idx) => ({
+      id: `photo-${idx}`,
+      name: `Step ${String(stepNum).padStart(2, "0")} · Photo ${idx + 1}`,
+    }));
+  }, [step, stepNum]);
 
   if (loading || !step || !order) {
     return (
@@ -227,6 +249,7 @@ export default function StepActionScreen() {
               hasNext={hasNext}
               onPrev={() => goToStep(stepNum - 1)}
               onNext={() => goToStep(stepNum + 1)}
+              onEmailPhotos={canEmailStepPhotos ? () => setEmailOpen(true) : undefined}
             />
           )}
 
@@ -254,6 +277,16 @@ export default function StepActionScreen() {
           setPhotos(ordered);
           setReorderOpen(false);
         }}
+      />
+      <EmailFilesModal
+        visible={emailOpen}
+        kind="step_photos"
+        files={emailFiles}
+        jewelryName={order?.jewelry_name}
+        send={(payload) =>
+          api.emailStepPhotos(String(orderId), stepNum, payload)
+        }
+        onClose={() => setEmailOpen(false)}
       />
     </SafeAreaView>
   );

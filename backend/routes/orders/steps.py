@@ -10,8 +10,10 @@ from __future__ import annotations
 from ._shared import (
     APIRouter,
     Depends,
+    FileEmailPayload,
     ForwardUpdate,
     HTTPException,
+    Request,
     StepUpdate,
     datetime,
     db,
@@ -19,7 +21,9 @@ from ._shared import (
     language_for_country,
     language_for_user,
     now_china_iso,
+    record_event,
     require_roles,
+    sanitize_recipients,
     strip_order_for_role,
     timezone,
     translate_text,
@@ -413,4 +417,142 @@ async def translate_step_note(
         "target_lang_name": target_name,
         "notes_translated": note_t or note,
         "associate_review_note_translated": review_t or review_note,
+    }
+
+
+# ---------------------------------------------------------------------
+# Forward workshop step photos to arbitrary recipients (client, customs,
+# etc.) via Resend. Mirrors the CAD/IGI/customs file-forwarding UX —
+# the email body renders clickable Cloudinary links, no attachments.
+# ---------------------------------------------------------------------
+@router.post("/orders/{order_id}/steps/{step_number}/photos/email")
+async def email_step_photos(
+    order_id: str,
+    step_number: int,
+    body: FileEmailPayload,
+    request: Request,
+    user=Depends(require_roles("admin", "associate", "manufacturer")),
+):
+    """Email a selection of a step's approved photos as download links.
+
+    File model — step photos are stored as raw URL strings so we
+    synthesize pseudo-file dicts on the fly:
+      id      = ``photo-{index}``
+      name    = ``Step NN — Title — {index+1}``
+      secure_url = the URL itself
+    """
+    from _email import send_files_email  # lazy + cycle-safe
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    role = user["role"]
+    # Explicit None guard — an order with a null manufacturer_id must
+    # never fall through to "matches every mfg's user_id != None" logic.
+    if role == "manufacturer" and (
+        not order.get("manufacturer_id") or order["manufacturer_id"] != user["id"]
+    ):
+        raise HTTPException(status_code=403)
+    if role == "associate" and (
+        not order.get("associate_id") or order["associate_id"] != user["id"]
+    ):
+        raise HTTPException(status_code=403)
+
+    step = next(
+        (s for s in order["steps"] if s["step_number"] == step_number), None
+    )
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+
+    cleaned = sanitize_recipients(body.recipients)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400, detail="Add at least one valid recipient email."
+        )
+    if len(cleaned) > 50:
+        raise HTTPException(
+            status_code=400, detail="Maximum 50 recipients per email."
+        )
+
+    photos = step.get("photos") or []
+    if not photos:
+        raise HTTPException(
+            status_code=400, detail="This step has no approved photos to forward."
+        )
+
+    step_title = step.get("title") or f"Step {step_number}"
+    files = []
+    for idx, url in enumerate(photos):
+        if not url:
+            continue
+        pid = f"photo-{idx}"
+        files.append({
+            "id": pid,
+            "name": f"Step {int(step_number):02d} · Photo {idx + 1}",
+            "secure_url": url,
+        })
+    # Honour the file_ids filter (from checkbox UI). Empty list => send
+    # every photo, matching the CAD/IGI email conventions.
+    if body.file_ids:
+        selected_ids = set(body.file_ids)
+        files = [f for f in files if f["id"] in selected_ids]
+    if not files:
+        raise HTTPException(
+            status_code=400, detail="None of the selected photos were found."
+        )
+
+    # Prepend the step title to the intro so recipients see context.
+    intro_message = body.message
+    if step_title and step_title not in (body.message or ""):
+        intro_message = (
+            f"Step {int(step_number):02d} — {step_title}\n\n"
+            + (body.message or "")
+        ).strip()
+
+    try:
+        provider_response = send_files_email(
+            kind="step_photos",
+            recipients=cleaned,
+            subject=body.subject,
+            message=intro_message,
+            sender_name=user.get("name"),
+            sender_email=user.get("email"),
+            order_ref=order.get("order_ref"),
+            jewelry_name=order.get("jewelry_name"),
+            files=files,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Email provider error: {exc}"
+        ) from exc
+
+    await record_event(
+        db,
+        request,
+        "order.step.photos.emailed",
+        user=user,
+        meta={
+            "order_id": order_id,
+            "step_number": step_number,
+            "recipients": cleaned,
+            "photo_count": len(files),
+            "provider_id": (
+                provider_response.get("id")
+                if isinstance(provider_response, dict)
+                else None
+            ),
+        },
+    )
+    request.state.activity_logged = True
+    return {
+        "ok": True,
+        "recipients": cleaned,
+        "file_count": len(files),
+        "provider_id": (
+            provider_response.get("id")
+            if isinstance(provider_response, dict)
+            else None
+        ),
     }

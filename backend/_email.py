@@ -186,6 +186,11 @@ _KIND_DEFAULTS = {
         "intro": "has shared airway-bill documents with you.",
         "subject_singular": "Airway bill",
     },
+    "step_photos": {
+        "label": "Step Photos",
+        "intro": "has shared workshop step photos with you.",
+        "subject_singular": "Workshop step photos",
+    },
 }
 
 

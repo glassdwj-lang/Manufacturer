@@ -45,3 +45,17 @@ Sample order `SMN-DEMO0001` is created with the first 3 steps pre-completed and 
 - Cloudinary integration for file storage (currently base64 in MongoDB)
 - Email/SMS notifications when associate has a pending forward
 - Client-facing "Digital DNA" PDF export at step 26
+
+## Latest Session (Sept 2026 — iter 16)
+- **Market Anchor confidence filter** — MarketAnchorSection hides < 0.55 confidence
+  matches by default; toggle chip surfaces raw scraper output when needed.
+- **Quote PDF export + Duplicate** — `POST /api/quotes/{id}/duplicate`,
+  `GET /api/quotes/{id}/pdf` (reportlab). New action row in QuoteDetailScreen
+  under status pills: Export PDF · Duplicate · Delete.
+- **Cloudflare-friendly Playwright** — real Chrome UA, en-AU locale, webdriver
+  spoof + longer CF-challenge wait. Austen & Blake and Diamonds Factory flipped
+  active=True in the competitor library.
+- **Step photo email forwarding** — `POST /api/orders/{id}/steps/{n}/photos/email`
+  reusing shared EmailFilesModal + i18n. Admin / associate see an "EMAIL" pill
+  next to PHOTOS · APPROVED on completed steps.
+

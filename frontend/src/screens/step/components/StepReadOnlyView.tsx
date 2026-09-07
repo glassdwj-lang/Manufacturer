@@ -32,6 +32,7 @@ export function StepReadOnlyView({
   hasNext,
   onPrev,
   onNext,
+  onEmailPhotos,
 }: {
   step: Step;
   photos: string[];
@@ -50,6 +51,9 @@ export function StepReadOnlyView({
   hasNext: boolean;
   onPrev: () => void;
   onNext: () => void;
+  /** Admin / associate only — opens the EMAIL PHOTOS modal. When
+   *  undefined the button is hidden (client / manufacturer view). */
+  onEmailPhotos?: () => void;
 }) {
   const [showOriginal, setShowOriginal] = useState(false);
 
@@ -146,11 +150,32 @@ export function StepReadOnlyView({
       )}
       {photos.length > 0 && (
         <>
-          <Text style={styles.formLabel}>
-            {step.pending_photos && step.pending_photos.length > 0
-              ? `PHOTOS · APPROVED (${(step.photos || []).length})`
-              : "PHOTOS"}
-          </Text>
+          <View style={{
+            flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <Text style={styles.formLabel}>
+              {step.pending_photos && step.pending_photos.length > 0
+                ? `PHOTOS · APPROVED (${(step.photos || []).length})`
+                : "PHOTOS"}
+            </Text>
+            {onEmailPhotos && (step.photos || []).length > 0 && (
+              <TouchableOpacity
+                testID="email-step-photos-button"
+                onPress={onEmailPhotos}
+                style={{
+                  flexDirection: "row", alignItems: "center",
+                  paddingHorizontal: 10, paddingVertical: 4,
+                  borderWidth: 1, borderColor: theme.primary, borderRadius: 4,
+                  marginBottom: 6,
+                }}
+              >
+                <Ionicons name="mail-outline" size={12} color={theme.primary} style={{ marginRight: 4 }} />
+                <Text style={{ color: theme.primary, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 }}>
+                  EMAIL
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <PhotoGrid
             photos={step.photos || []}
             uploadingCount={0}

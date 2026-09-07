@@ -25,9 +25,22 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
 # ---- Auth config ----
-SECRET_KEY = os.environ.get(
-    "JWT_SECRET", "somnio-atelier-luxury-jewelry-secret-key-2026-change-in-prod"
+# SECURITY (SEC-002): JWT_SECRET MUST come from the environment. No
+# in-repo fallback — a committed default lets anyone with source access
+# mint valid admin tokens. We refuse to boot if the env value is
+# missing, empty, or matches the retired default so old deployments
+# don't silently keep using the compromised key.
+_LEGACY_DEFAULT = (
+    "somnio-atelier-luxury-jewelry-secret-key-2026-change-in-prod"
 )
+SECRET_KEY = os.environ.get("JWT_SECRET", "").strip()
+if not SECRET_KEY or SECRET_KEY == _LEGACY_DEFAULT or len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "JWT_SECRET is not set (or is too short / matches the retired "
+        "default). Generate a fresh secret (e.g. "
+        "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`) "
+        "and add it to backend/.env before starting the API."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 CHINA_TZ = pytz.timezone("Asia/Shanghai")

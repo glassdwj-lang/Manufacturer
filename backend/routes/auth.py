@@ -17,28 +17,46 @@ router = APIRouter(tags=["auth"])
 
 @router.post("/auth/register", response_model=TokenResponse)
 async def register(data: UserCreate, request: Request):
+    """Public sign-up — HARD-LOCKED to the ``client`` role.
+
+    Prior versions accepted any role in the payload, meaning an
+    unauthenticated visitor could ``POST /auth/register`` with
+    ``role: "admin"`` and receive a full admin token (SEC-001). Any
+    non-client role is silently downgraded here — privileged accounts
+    (admin / associate / manufacturer) can only be created via the
+    admin-authenticated user-management endpoints.
+    """
     existing = await db.users.find_one({"email": data.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    # SECURITY: never trust client-supplied role on the public endpoint.
+    effective_role = "client"
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id,
         "email": data.email.lower(),
         "hashed_password": hash_password(data.password),
         "name": data.name,
-        "role": data.role,
+        "role": effective_role,
+        # ``associate_id`` only makes sense for client accounts anyway.
         "associate_id": data.associate_id,
         "auto_forward": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
-    token = create_token(user_id, data.role)
+    token = create_token(user_id, effective_role)
     await record_event(
         db,
         request,
         "auth.registered",
         user=user_doc,
-        meta={"role": data.role, "user_id": user_id},
+        meta={
+            "role": effective_role,
+            "user_id": user_id,
+            # Log if we downgraded so audits can flag suspicious attempts.
+            "role_requested": data.role,
+            "role_downgraded": data.role != effective_role,
+        },
     )
     request.state.activity_logged = True
     return TokenResponse(access_token=token, user=UserPublic(**user_to_public(user_doc)))

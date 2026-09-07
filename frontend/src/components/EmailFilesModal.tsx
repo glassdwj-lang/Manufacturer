@@ -60,7 +60,7 @@ function formatBytes(b?: number | null): string {
   return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export type EmailKind = "cad" | "igi" | "customs" | "airway_bill";
+export type EmailKind = "cad" | "igi" | "customs" | "airway_bill" | "step_photos";
 
 export type EmailSendResult = {
   ok: boolean;
@@ -89,6 +89,11 @@ const KIND_LABELS: Record<EmailKind, { titleKey: any; nounKey: any; subjectPrefi
     titleKey: "email.title.airway_bill",
     nounKey: "email.noun.airway_bill",
     subjectPrefixKey: "email.subject_prefix.airway_bill",
+  },
+  step_photos: {
+    titleKey: "email.title.step_photos",
+    nounKey: "email.noun.step_photos",
+    subjectPrefixKey: "email.subject_prefix.step_photos",
   },
 };
 

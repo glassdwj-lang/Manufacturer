@@ -1,0 +1,44 @@
+{
+  "summary": "Backend-only test pass covering 4 new surfaces: quote duplicate, quote PDF export, step-photo email, and competitor scraper Cloudflare posture. 18/18 tests passed (100%). Schemas + auth guards verified. Resend sandbox rejects test@example.com — accepted per playbook (backend log 'Resend send failed' confirmed the endpoint reached Resend). No blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/orders/{id}/steps/{n}/photos/email",
+        "issue": "When Resend rejects the send, backend raises HTTPException(502) with a JSON detail. In practice the Kubernetes ingress/Cloudflare returns its own 502 HTML page before the FastAPI JSON body reaches the client. Consumers therefore cannot rely on r.json()['detail'] to distinguish provider errors from infra outages. Consider returning 200 with {ok:false, error:...} or 422 so the ingress does not swallow the payload."
+      },
+      {
+        "endpoint": "POST /api/admin/competitors/austenblake/test",
+        "issue": "Endpoint completed in 0.4s with match_count=0 and error=None — suggests result was served from cache OR Playwright returned an empty page without recording an error. Schema is fine, but ok=false with error=null offers no actionable signal to the admin UI. Consider surfacing 'no matches (empty listing)' vs 'browser render failed' as distinct errors."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_features.py",
+    "/app/test_reports/pytest/iteration_16.xml"
+  ],
+  "action_items": [
+    "Optional: rework 502 provider-error responses so the JSON detail survives the ingress (see minor issue #1) — either drop to 200 with envelope or add explicit Retry-After + smaller body.",
+    "Optional: enrich competitor /test response so ok=false includes a distinguishable error class (empty vs blocked vs render-failed)."
+  ],
+  "critical_code_review_comments": [
+    "routes/quotes.py duplicate_quote: legacy-inputs fallback silently drops unknown keys — acceptable but log a warning so ops can spot schema drift.",
+    "routes/orders/steps.py email_step_photos: manufacturer 403 check uses order['manufacturer_id']; if that key is None (unassigned orders) the equality check with user['id'] will pass through as 200. Consider explicit None guard.",
+    "routes/competitors.py: hardcoded canned_criteria in test_competitor endpoint (natural 1ct Round). If admin adds a bespoke site tailored to a different segment, false negatives are likely — expose criteria as query params."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter16_features.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "seed_data_creation": "Created two freelance quotes (piece_description prefixed TEST_) via /api/quotes/freelance for duplicate + pdf tests. No persistent test-only orders/emails created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use test_iter16_features.py as-is. It self-loads EXPO_PUBLIC_BACKEND_URL from /app/frontend/.env and accepts both 200 and 502 for the Resend send path (checking backend.err.log for 'Resend send failed'). Auth endpoint returns {access_token, ...} not {token}. Admin order-list endpoint is /api/orders (role-stripped, no steps) — must fetch individual orders via /api/orders/{id} to inspect steps/photos. Seed mfg (mfg@somnio.co) owns SMN-2026-105, so 403 test rotates through shanghai/shenzhen/guangzhou@somnio.co.",
+  "rca_of_issue": "n/a — no bugs to RCA. Two friction points hit during test authoring: (1) Login response uses 'access_token' not 'token'. (2) /api/orders list is role-stripped so per-order fetch is required to see steps + photos. Fixture handles both."
+}

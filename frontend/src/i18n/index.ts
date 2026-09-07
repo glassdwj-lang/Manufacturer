@@ -1509,6 +1509,7 @@ const STRINGS = {
   "email.title.igi": { en: "EMAIL IGI CERTIFICATES", zh: "发送 IGI 证书", fr: "ENVOYER LES CERTIFICATS IGI", it: "EMAIL CERTIFICATI IGI" },
   "email.title.customs": { en: "EMAIL CUSTOMS DOCS", zh: "发送海关文件", fr: "ENVOYER LES DOCUMENTS DOUANIERS", it: "EMAIL DOCUMENTI DOGANALI" },
   "email.title.airway_bill": { en: "EMAIL AIRWAY BILL", zh: "发送空运提单", fr: "ENVOYER LA LETTRE DE TRANSPORT", it: "EMAIL LETTERA DI VETTURA" },
+  "email.title.step_photos": { en: "EMAIL STEP PHOTOS", zh: "发送工序照片", fr: "ENVOYER LES PHOTOS D'ÉTAPE", it: "EMAIL FOTO DELLA FASE" },
   "email.field.to": { en: "TO", zh: "收件人", fr: "À", it: "A" },
   "email.field.subject": { en: "SUBJECT", zh: "主题", fr: "OBJET", it: "OGGETTO" },
   "email.field.message": { en: "MESSAGE", zh: "留言", fr: "MESSAGE", it: "MESSAGGIO" },
@@ -1621,10 +1622,12 @@ const STRINGS = {
   "email.noun.igi": { en: "certificate", zh: "证书", fr: "certificat", it: "certificato" },
   "email.noun.customs": { en: "customs file", zh: "海关文件", fr: "fichier douanier", it: "file doganale" },
   "email.noun.airway_bill": { en: "airway-bill file", zh: "空运提单", fr: "lettre de transport", it: "lettera di vettura" },
+  "email.noun.step_photos": { en: "photo", zh: "照片", fr: "photo", it: "foto" },
   "email.subject_prefix.cad": { en: "CAD files", zh: "CAD 文件", fr: "Fichiers CAO", it: "File CAD" },
   "email.subject_prefix.igi": { en: "IGI certificates", zh: "IGI 证书", fr: "Certificats IGI", it: "Certificati IGI" },
   "email.subject_prefix.customs": { en: "Customs documents", zh: "海关文件", fr: "Documents douaniers", it: "Documenti doganali" },
   "email.subject_prefix.airway_bill": { en: "Airway bill", zh: "空运提单", fr: "Lettre de transport", it: "Lettera di vettura" },
+  "email.subject_prefix.step_photos": { en: "Workshop step photos", zh: "工序照片", fr: "Photos d'étape", it: "Foto della fase" },
 
   // -------- Outer buttons that open the email modal --------
   "files.email.cad": { en: "EMAIL CAD FILES ({n})", zh: "发送 CAD 文件（{n}）", fr: "ENVOYER LES CAO ({n})", it: "INVIA FILE CAD ({n})" },

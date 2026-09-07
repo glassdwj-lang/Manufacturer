@@ -991,6 +991,49 @@ export const api = {
     // to fall back to defaults (zeros) — making the live preview useless.
     request<any>(`/quotes/compute`, { method: "POST", body: JSON.stringify(inputs) }),
   deleteQuote: (id: string) => request<any>(`/quotes/${id}`, { method: "DELETE" }),
+  duplicateQuote: (id: string) =>
+    request<any>(`/quotes/${id}/duplicate`, { method: "POST" }),
+  /** Absolute URL for the quote PDF export endpoint — used to open
+   *  the PDF in a new tab / share sheet. Auth headers must be added
+   *  by the caller via `fetchQuotePdf` below. */
+  quotePdfUrl: (id: string) => `${BASE_URL}/api/quotes/${id}/pdf`,
+  fetchQuotePdf: async (id: string): Promise<Blob> => {
+    const token = await getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${BASE_URL}/api/quotes/${id}/pdf`, {
+      method: "GET",
+      headers,
+    });
+    if (!res.ok) {
+      let detail = "Failed to export quote PDF";
+      try {
+        const j = await res.json();
+        detail = typeof j.detail === "string" ? j.detail : detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return await res.blob();
+  },
+  emailStepPhotos: (
+    orderId: string,
+    stepNumber: number,
+    payload: {
+      recipients: string[];
+      file_ids: string[];
+      subject?: string | null;
+      message?: string | null;
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      recipients: string[];
+      file_count: number;
+      provider_id: string | null;
+    }>(`/orders/${orderId}/steps/${stepNumber}/photos/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   // ---------- FX (daily-cached USD → AUD rate) ----------
   getUsdAudRate: (force = false) =>

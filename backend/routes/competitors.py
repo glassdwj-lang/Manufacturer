@@ -106,18 +106,21 @@ COMPETITOR_LIBRARY: List[Dict[str, Any]] = [
         "name": "Austen & Blake",
         "base_url": "https://www.austenblake.com.au",
         "search_url": "https://www.austenblake.com.au/engagement-rings",
-        "strategy": "html_llm",
-        "feasibility": "cloudflare_blocked",
-        "active": False,     # Cloudflare Turnstile — needs Phase 3 solution
+        # Cloudflare Turnstile — Phase 3 uses Playwright with a real
+        # Chrome UA + AU locale + webdriver spoof to try to pass the
+        # challenge. Not 100% reliable, hence feasibility="cloudflare".
+        "strategy": "playwright_llm",
+        "feasibility": "cloudflare",
+        "active": True,
     },
     {
         "id": "diamondsfactory",
         "name": "Diamonds Factory",
         "base_url": "https://www.diamondsfactory.com",
         "search_url": "https://www.diamondsfactory.com/au/engagement-rings",
-        "strategy": "html_llm",
-        "feasibility": "cloudflare_blocked",
-        "active": False,
+        "strategy": "playwright_llm",
+        "feasibility": "cloudflare",
+        "active": True,
     },
     # --- US market (Phase 2) ------------------------------------------
     {
@@ -190,6 +193,85 @@ _MAX_HTML_KB = 90  # trim HTML to ~90KB before feeding to LLM to control cost
 _TIMEOUT_SECONDS = 12
 
 
+# --- SSRF guard --------------------------------------------------------
+# Admin can now paste arbitrary URLs into the competitor library, and the
+# scraper hits them from inside the pod (with follow_redirects=True) —
+# without a host check, that's a textbook SSRF: link-local, RFC1918, or
+# cloud-metadata IPs (169.254.169.254 for AWS/K8s) become reachable.
+# ``_assert_public_url`` is called before every outbound request /
+# Playwright navigation. It refuses any URL that:
+#   • doesn't use http/https,
+#   • resolves to an IP in a private / link-local / loopback / reserved
+#     / carrier-NAT / multicast range,
+#   • uses a bare IP literal in the private ranges (avoids DNS bypass).
+import ipaddress  # noqa: E402
+import socket  # noqa: E402
+from urllib.parse import urlparse  # noqa: E402
+
+
+class SSRFBlockedError(Exception):
+    """Raised when a competitor URL resolves to a non-public address."""
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """True if ``ip_str`` is in any range unsafe for outbound scraping.
+
+    Covers loopback, link-local (incl. cloud-metadata 169.254.0.0/16),
+    private RFC1918, carrier-NAT (100.64.0.0/10 — AWS uses this for
+    internal service IPs), multicast, and reserved ranges.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+        # 100.64.0.0/10 — carrier-grade NAT / AWS internal.
+        or (isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"))
+    )
+
+
+def _assert_public_url(url: str) -> None:
+    """Enforce https/http scheme + public-DNS resolution before fetch.
+
+    Raises ``SSRFBlockedError`` with a human-readable reason so the
+    scraper can surface it in the site's ``error`` field. The check
+    resolves DNS itself — httpx would otherwise follow redirects and
+    silently bypass a URL-string-based allowlist.
+    """
+    try:
+        p = urlparse(url)
+    except Exception as exc:
+        raise SSRFBlockedError(f"malformed URL: {exc}") from exc
+    if p.scheme not in ("http", "https"):
+        raise SSRFBlockedError(f"scheme '{p.scheme}' not permitted (http/https only)")
+    host = p.hostname or ""
+    if not host:
+        raise SSRFBlockedError("URL has no host")
+    # Reject bare IP literals that fall in private ranges. Public IPs
+    # are technically allowed but discouraged — most legit competitors
+    # have a domain name.
+    if _is_private_ip(host):
+        raise SSRFBlockedError(f"bare IP {host} is in a private/reserved range")
+    # Resolve DNS and refuse if ANY A/AAAA record is private. This
+    # catches attackers who point ``evil.example.com`` at 127.0.0.1.
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise SSRFBlockedError(f"DNS resolution failed for {host}: {exc}") from exc
+    for family, _, _, _, sockaddr in infos:
+        ip_str = sockaddr[0]
+        if _is_private_ip(ip_str):
+            raise SSRFBlockedError(
+                f"{host} resolves to non-public address {ip_str} — refusing to fetch"
+            )
+
+
 # ---------------------------------------------------------------------
 # Extraction pipelines
 # ---------------------------------------------------------------------
@@ -201,6 +283,7 @@ async def _extract_shopify(site: Dict[str, Any], criteria: Dict[str, Any]) -> Li
     the title for keywords the RFQ cares about (metal, cut, shape).
     """
     url = site["products_json"]
+    _assert_public_url(url)     # SSRF guard — see SEC-003
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS, headers={"User-Agent": _UA}) as client:
         resp = await client.get(url, params={"limit": 30})
         resp.raise_for_status()
@@ -256,6 +339,7 @@ async def _extract_html_llm(
         # supports them (Blue Nile, James Allen, Rare Carat, Cullen).
         url = _build_search_url(site, criteria)
         try:
+            _assert_public_url(url)   # SSRF guard — see SEC-003
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT_SECONDS,
                 headers={"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml"},
@@ -264,6 +348,9 @@ async def _extract_html_llm(
                 resp = await client.get(url)
                 resp.raise_for_status()
                 html = resp.text
+        except SSRFBlockedError as exc:
+            log.warning("SSRF-blocked URL for %s: %s", site["id"], exc)
+            return []
         except Exception as exc:  # noqa: BLE001
             log.warning("html fetch failed for %s: %s", site["id"], exc)
             return []
@@ -390,29 +477,84 @@ async def _extract_playwright_llm(site: Dict[str, Any], criteria: Dict[str, Any]
     price/product data doesn't appear in the initial HTML. We wait for
     the DOM to settle, grab the fully-rendered ``document.body.innerHTML``,
     then reuse the same LLM extraction as the ``html_llm`` strategy.
+
+    Also applies **Cloudflare-friendly** posture (real Chrome UA,
+    en-AU locale, timezone, ``navigator.webdriver`` erasure, wide
+    viewport) so that Turnstile-protected sites like Austen & Blake
+    and Diamonds Factory have a better chance of loading the storefront
+    HTML instead of the challenge page.
     """
     from playwright.async_api import async_playwright
     # Criteria-aware URL — Blue Nile / James Allen accept shape in path.
     url = _build_search_url(site, criteria)
     html = ""
+    # Real Chrome UA. Cloudflare fingerprints heavily on the UA/CH
+    # header pair — Somnio's marketing UA fails the challenge instantly.
+    real_ua = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
     try:
+        _assert_public_url(url)   # SSRF guard — see SEC-003
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    # Reduce automation fingerprint (helps against
+                    # basic Cloudflare Turnstile heuristics).
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             try:
-                ctx = await browser.new_context(user_agent=_UA, viewport={"width": 1440, "height": 900})
+                ctx = await browser.new_context(
+                    user_agent=real_ua,
+                    viewport={"width": 1440, "height": 900},
+                    locale="en-AU",
+                    timezone_id="Australia/Sydney",
+                    extra_http_headers={
+                        "Accept-Language": "en-AU,en;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Upgrade-Insecure-Requests": "1",
+                    },
+                )
+                # Strip a couple of the most obvious webdriver
+                # fingerprints before ANY page script runs.
+                await ctx.add_init_script(
+                    """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    // languages spoof
+                    Object.defineProperty(navigator, 'languages', {get: () => ['en-AU','en']});
+                    // plugins spoof (empty array trips CF, non-empty ok)
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                    """
+                )
                 page = await ctx.new_page()
-                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                # Give the SPA a moment to hydrate + render prices.
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Give the SPA / CF challenge a moment to hydrate.
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=8000)
+                    await page.wait_for_load_state("networkidle", timeout=10000)
                 except Exception:
                     pass  # some sites never go idle — no big deal
+                # If we landed on a Cloudflare challenge page, sit for
+                # a few seconds and retry — the JS challenge typically
+                # auto-resolves within 5s on a warm browser context.
+                title = (await page.title()) or ""
+                if any(kw in title.lower() for kw in ("just a moment", "attention required", "cloudflare")):
+                    log.info("cloudflare challenge detected on %s — waiting", site["id"])
+                    try:
+                        await page.wait_for_timeout(6000)
+                        await page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
                 html = await page.content()
             finally:
                 await browser.close()
+    except SSRFBlockedError as exc:
+        log.warning("SSRF-blocked URL for %s: %s", site["id"], exc)
+        return []
     except Exception as exc:  # noqa: BLE001
         log.warning("playwright render failed for %s: %s", site["id"], exc)
         return []
@@ -559,6 +701,14 @@ async def create_competitor(
     site_id = (body.id or _slugify(body.name)).strip()
     if not site_id:
         raise HTTPException(status_code=400, detail="Invalid site id")
+    # SSRF pre-check — refuse to save a URL that resolves to a private
+    # or reserved IP so admin can't silently point the scraper inward.
+    try:
+        _assert_public_url(body.search_url)
+        if body.base_url:
+            _assert_public_url(body.base_url)
+    except SSRFBlockedError as exc:
+        raise HTTPException(status_code=400, detail=f"Refused URL: {exc}")
     # Reject collisions with existing (library or DB) ids.
     if any(s["id"] == site_id for s in COMPETITOR_LIBRARY):
         raise HTTPException(status_code=409,
@@ -592,6 +742,13 @@ async def update_competitor(
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if not patch:
         raise HTTPException(status_code=400, detail="No fields provided")
+    # SSRF pre-check on any URL fields the admin is trying to save.
+    try:
+        for u_key in ("search_url", "base_url"):
+            if u_key in patch and patch[u_key]:
+                _assert_public_url(patch[u_key])
+    except SSRFBlockedError as exc:
+        raise HTTPException(status_code=400, detail=f"Refused URL: {exc}")
     patch["id"] = site_id
     # Un-delete if the admin patches a soft-deleted hardcoded site.
     if "deleted" in patch and patch["deleted"] is None:

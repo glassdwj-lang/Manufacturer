@@ -18,12 +18,12 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Linking, ScrollView, Switch, Text, TextInput,
+  ActivityIndicator, Alert, Linking, Platform, ScrollView, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/src/api/client";
 import { theme, spacing } from "@/src/theme";
 import { useSafeBack } from "@/src/hooks/use-safe-back";
@@ -313,6 +313,12 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
   // exclude it from THIS run without needing to visit the admin page.
   const [library, setLibrary] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Low-confidence LLM matches (< 0.55) tend to be generic listings that
+  // don't actually match the RFQ. Hide them by default; admin can flip
+  // the "Show all" chip to inspect the raw scraper output when debugging
+  // a site's extraction quality.
+  const CONFIDENCE_THRESHOLD = 0.55;
+  const [showLowConfidence, setShowLowConfidence] = useState(false);
 
   const loadCached = useCallback(async () => {
     try {
@@ -371,6 +377,32 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
 
   const totalMatches = (results || []).reduce((s, r) => s + (r.match_count || 0), 0);
   const sitesRun = (results || []).filter(r => (r.match_count || 0) > 0).length;
+
+  // Apply the confidence threshold to each site's matches. Sites with
+  // zero matches after filtering are still rendered (so the admin can
+  // see the site ran) but their table is replaced with a "filtered out"
+  // hint. Toggled off by "Show all" chip.
+  const filteredResults = useMemo(() => {
+    if (!results) return null;
+    if (showLowConfidence) return results;
+    return results.map(r => {
+      const matches = (r.matches || []).filter(
+        (m: any) => Number(m.confidence ?? 0) >= CONFIDENCE_THRESHOLD
+      );
+      return { ...r, matches, match_count_filtered: matches.length,
+        match_count_raw: r.match_count };
+    });
+  }, [results, showLowConfidence]);
+
+  const hiddenCount = useMemo(() => {
+    if (!results || showLowConfidence) return 0;
+    return results.reduce((sum, r) => {
+      const hidden = (r.matches || []).filter(
+        (m: any) => Number(m.confidence ?? 0) < CONFIDENCE_THRESHOLD
+      ).length;
+      return sum + hidden;
+    }, 0);
+  }, [results, showLowConfidence]);
 
   return (
     <Section
@@ -492,7 +524,44 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
         </View>
       )}
 
-      {(results || []).map((r) => (
+      {/* Confidence filter toggle — hides < 0.55 confidence matches by
+          default. Click to inspect raw scraper output when a site's
+          extraction quality looks off. */}
+      {results && results.length > 0 && (
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+          <TouchableOpacity
+            onPress={() => setShowLowConfidence(v => !v)}
+            style={{
+              flexDirection: "row", alignItems: "center",
+              paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12,
+              borderWidth: 1,
+              borderColor: showLowConfidence ? theme.primary : theme.border,
+              backgroundColor: showLowConfidence ? "#2A2A1A" : "transparent",
+              marginRight: 8,
+            }}
+          >
+            <Ionicons
+              name={showLowConfidence ? "eye" : "eye-off"}
+              size={12}
+              color={showLowConfidence ? theme.primary : theme.textMuted}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={{
+              color: showLowConfidence ? theme.textPrimary : theme.textMuted,
+              fontSize: 10, fontWeight: "700",
+            }}>
+              {showLowConfidence ? "Showing all confidence" : `Hiding low confidence < ${Math.round(CONFIDENCE_THRESHOLD * 100)}%`}
+            </Text>
+          </TouchableOpacity>
+          {hiddenCount > 0 && !showLowConfidence && (
+            <Text style={{ color: theme.textMuted, fontSize: 10 }}>
+              {hiddenCount} match{hiddenCount === 1 ? "" : "es"} hidden
+            </Text>
+          )}
+        </View>
+      )}
+
+      {(filteredResults || []).map((r) => (
         <View key={r.site_id} style={{
           borderWidth: 1, borderColor: theme.border, borderRadius: 8,
           padding: 10, marginBottom: 8, backgroundColor: "#0d0d0d",
@@ -505,12 +574,26 @@ function MarketAnchorSection({ quoteId }: { quoteId: string }) {
               color: r.error ? "#E06666" : (r.match_count > 0 ? theme.primary : theme.textMuted),
               fontSize: 10, fontWeight: "600",
             }}>
-              {r.error ? "error" : `${r.match_count} match${r.match_count === 1 ? "" : "es"}`}
+              {r.error
+                ? "error"
+                : (r as any).match_count_raw !== undefined && (r as any).match_count_raw !== r.matches.length
+                  ? `${r.matches.length}/${(r as any).match_count_raw} match${(r as any).match_count_raw === 1 ? "" : "es"}`
+                  : `${r.match_count} match${r.match_count === 1 ? "" : "es"}`}
             </Text>
           </View>
           {r.error && (
             <Text style={{ color: theme.textMuted, fontSize: 10, marginBottom: 4 }}>{r.error}</Text>
           )}
+          {!r.error
+            && r.matches.length === 0
+            && (r as any).match_count_raw > 0
+            && !showLowConfidence
+            && (
+              <Text style={{ color: theme.textMuted, fontSize: 10, fontStyle: "italic", marginBottom: 4 }}>
+                {(r as any).match_count_raw} low-confidence match
+                {(r as any).match_count_raw === 1 ? "" : "es"} hidden — tap the toggle above to see them.
+              </Text>
+            )}
           {(r.matches || []).map((m: any, idx: number) => (
             <View key={idx} style={{
               paddingVertical: 6,
@@ -584,6 +667,8 @@ export default function QuoteDetailScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const qid = String(params.id || "");
   const safeBack = useSafeBack("/(app)/admin/quotes");
+  const router = useRouter();
+  const [busyAction, setBusyAction] = useState<"pdf" | "dup" | "del" | null>(null);
 
   const [quote, setQuote] = useState<any | null>(null);
   const [preview, setPreview] = useState<any | null>(null);
@@ -789,6 +874,108 @@ export default function QuoteDetailScreen() {
     persist({ inputs: nextInputs });
   };
 
+  // ---------- Quote-level actions: PDF / Duplicate / Delete ------------
+  /**
+   * Export the current quote as a PDF. On web we fetch the blob (so we
+   * can attach the auth header) and open it in a new tab / trigger the
+   * browser's built-in download UI. On native we rely on the platform
+   * default browser via `Linking.openURL` — the endpoint accepts the
+   * bearer token from the app's authorised session cookie/proxy.
+   */
+  const handleExportPdf = async () => {
+    if (!quote) return;
+    setBusyAction("pdf");
+    try {
+      const blob = await api.fetchQuotePdf(qid);
+      const filename = `Somnio-Quote-${quote.freelance_serial || quote.order_ref || qid.slice(0, 8)}.pdf`;
+      if (Platform.OS === "web") {
+        // Trigger a browser download / new-tab preview.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoke a moment later so the tab has time to load first.
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } else {
+        // Native — fall back to opening the URL directly. The PDF
+        // endpoint uses inline disposition so mobile browsers will
+        // render it in-app. Persistent auth is handled by the shared
+        // session cookie.
+        Linking.openURL(api.quotePdfUrl(qid));
+      }
+    } catch (e: any) {
+      Alert.alert("PDF export failed", e?.message || "Please try again.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  /**
+   * Duplicate the current quote — creates a fresh draft with the same
+   * inputs / jewelry_name and navigates to it. Freelance quotes get a
+   * new dwj- serial (never reuses the source counter).
+   */
+  const handleDuplicate = async () => {
+    if (!quote) return;
+    setBusyAction("dup");
+    try {
+      const dup = await api.duplicateQuote(qid);
+      // Navigate to the new quote — router.replace so back-button pops
+      // out to /admin/quotes rather than the original quote.
+      if (dup?.id) {
+        router.replace(`/(app)/admin/quotes/${dup.id}` as any);
+      } else {
+        Alert.alert("Duplicated", "Quote duplicated — refresh the quote list to see it.");
+      }
+    } catch (e: any) {
+      Alert.alert("Duplicate failed", e?.message || "Please try again.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  /**
+   * Soft-delete the current quote after a confirmation prompt. On
+   * success navigate back to the quotes list.
+   */
+  const handleDelete = () => {
+    if (!quote) return;
+    const doDelete = async () => {
+      setBusyAction("del");
+      try {
+        await api.deleteQuote(qid);
+        safeBack();
+      } catch (e: any) {
+        Alert.alert("Delete failed", e?.message || "Please try again.");
+      } finally {
+        setBusyAction(null);
+      }
+    };
+    if (Platform.OS === "web") {
+      // Native Alert.alert on web is non-blocking / renders no buttons,
+      // so use `confirm` to actually gate the action.
+      if (typeof window !== "undefined" && window.confirm(
+        "Delete this quote? It will be soft-deleted and can be recovered by an admin.",
+      )) {
+        doDelete();
+      }
+      return;
+    }
+    Alert.alert(
+      "Delete quote?",
+      "This quote will be soft-deleted. Recoverable by an admin.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ],
+    );
+  };
+
   if (!quote) return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top"]}>
       <ActivityIndicator style={{ marginTop: 40 }} color={theme.primary} />
@@ -850,6 +1037,66 @@ export default function QuoteDetailScreen() {
               </TouchableOpacity>
             );
           })}
+        </View>
+
+        {/* --- Quote actions — PDF / Duplicate / Delete ----------------
+            Sits directly under the status pills so admin can archive,
+            fork or discard the quote in one place. Delete is soft (the
+            quote can be recovered from the recycler by another admin). */}
+        <View style={{ flexDirection: "row", gap: 6, marginTop: spacing.sm }}>
+          <TouchableOpacity
+            onPress={handleExportPdf}
+            disabled={busyAction !== null}
+            style={{
+              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+              paddingVertical: 8, borderRadius: 6,
+              borderWidth: 1, borderColor: theme.primary,
+              opacity: busyAction && busyAction !== "pdf" ? 0.4 : 1,
+            }}
+          >
+            {busyAction === "pdf"
+              ? <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 6 }} />
+              : <Ionicons name="document-text-outline" size={14} color={theme.primary} style={{ marginRight: 6 }} />}
+            <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 11, textTransform: "uppercase" }}>
+              Export PDF
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleDuplicate}
+            disabled={busyAction !== null}
+            style={{
+              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+              paddingVertical: 8, borderRadius: 6,
+              borderWidth: 1, borderColor: theme.primary,
+              opacity: busyAction && busyAction !== "dup" ? 0.4 : 1,
+            }}
+          >
+            {busyAction === "dup"
+              ? <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 6 }} />
+              : <Ionicons name="copy-outline" size={14} color={theme.primary} style={{ marginRight: 6 }} />}
+            <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 11, textTransform: "uppercase" }}>
+              Duplicate
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleDelete}
+            disabled={busyAction !== null}
+            style={{
+              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+              paddingVertical: 8, borderRadius: 6,
+              borderWidth: 1, borderColor: "#B84A4A",
+              opacity: busyAction && busyAction !== "del" ? 0.4 : 1,
+            }}
+          >
+            {busyAction === "del"
+              ? <ActivityIndicator size="small" color="#B84A4A" style={{ marginRight: 6 }} />
+              : <Ionicons name="trash-outline" size={14} color="#B84A4A" style={{ marginRight: 6 }} />}
+            <Text style={{ color: "#B84A4A", fontWeight: "700", fontSize: 11, textTransform: "uppercase" }}>
+              Delete
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* --- Product spec --- */}

@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 
@@ -644,6 +644,103 @@ async def delete_quote(
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Quote not found")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------
+# Duplicate an existing quote — clones inputs + jewelry_name into a
+# fresh draft. Preserves the linked order_id / RFQ context so cost
+# tracking still ties back to the original commission. Freelance
+# quotes get a NEW dwj- serial (never re-uses the source counter).
+# ---------------------------------------------------------------------
+@router.post(
+    "/quotes/{quote_id}/duplicate",
+    summary="Duplicate a quote — clones inputs into a fresh draft.",
+)
+async def duplicate_quote(
+    quote_id: str,
+    user=Depends(require_roles("admin")),
+):
+    src = await db.quotes.find_one(
+        {"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0}
+    )
+    if not src:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    src_inputs = src.get("inputs") or {}
+    try:
+        cloned_inputs = QuoteInputs(**src_inputs)
+    except Exception:
+        # Legacy quotes may have extra / stale keys — start from a
+        # blank slate then overlay the raw dict onto it.
+        cloned_inputs = QuoteInputs()
+        for k, v in src_inputs.items():
+            if hasattr(cloned_inputs, k):
+                setattr(cloned_inputs, k, v)
+
+    freelance = bool(src.get("is_freelance"))
+    freelance_serial = None
+    freelance_seq = None
+    if freelance:
+        freelance_seq = await _next_freelance_seq()
+        freelance_serial = _freelance_serial(freelance_seq)
+
+    # Name for the clone: append "(copy)" so admin can tell them apart
+    # while still keeping the source name visible for context.
+    base_name = src.get("jewelry_name") or cloned_inputs.piece_description or ""
+    cloned_name = f"{base_name} (copy)" if base_name else "Untitled (copy)"
+
+    dup = Quote(
+        order_id=src.get("order_id"),
+        order_ref=src.get("order_ref"),
+        jewelry_name=cloned_name,
+        inputs=cloned_inputs,
+        totals=compute_totals(cloned_inputs),
+        created_by=user.get("id"),
+        is_freelance=freelance,
+        freelance_serial=freelance_serial,
+        freelance_seq=freelance_seq,
+        status="draft",
+    )
+    doc = dup.model_dump()
+    await db.quotes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+# ---------------------------------------------------------------------
+# PDF export — compact atelier-branded quote artifact for archive /
+# email. Deliberately not the full client-facing brochure — that's the
+# Digital DNA certificate. This is the admin's internal audit trail.
+# ---------------------------------------------------------------------
+@router.get(
+    "/quotes/{quote_id}/pdf",
+    summary="Export a quote as a compact atelier-branded PDF.",
+)
+async def export_quote_pdf(
+    quote_id: str,
+    user=Depends(require_roles("admin")),
+):
+    from _quote_pdf import build_quote_pdf   # lazy import — cheap on server boot
+
+    q = await db.quotes.find_one(
+        {"id": quote_id, "deleted": {"$ne": True}}, {"_id": 0}
+    )
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    pdf_bytes = build_quote_pdf(q)
+    serial = (
+        q.get("freelance_serial")
+        or q.get("order_ref")
+        or (q.get("id") or "")[:8]
+    )
+    filename = f"Somnio-Quote-{serial}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
 
 
 
